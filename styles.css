@@ -34,7 +34,7 @@ button {
 .toolbar {
   z-index: 20;
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  grid-template-columns: 1fr auto;
   align-items: center;
   gap: 20px;
   padding: 0 18px;
@@ -44,7 +44,6 @@ button {
 }
 
 .brand,
-.toolbar-actions,
 .toolbar-meta {
   display: flex;
   align-items: center;
@@ -68,47 +67,6 @@ button {
   color: #111317;
   font-size: 16px;
   font-weight: 900;
-}
-
-.toolbar-actions {
-  gap: 8px;
-}
-
-.button {
-  height: 34px;
-  padding: 0 13px;
-  border: 1px solid #41454c;
-  border-radius: 8px;
-  background: #24272c;
-  color: #e6e8eb;
-  font-size: 13px;
-  cursor: pointer;
-  transition: 120ms ease;
-}
-
-.button:hover {
-  border-color: #60656f;
-  background: #2d3036;
-}
-
-.button:active {
-  transform: translateY(1px);
-}
-
-.button:disabled {
-  cursor: wait;
-  opacity: 0.6;
-}
-
-.button-primary {
-  border-color: transparent;
-  background: #7168ee;
-  color: white;
-}
-
-.button-primary:hover {
-  border-color: transparent;
-  background: #8279f5;
 }
 
 .toolbar-meta {
@@ -464,16 +422,7 @@ button {
 }
 
 @media (max-width: 800px) {
-  .toolbar {
-    grid-template-columns: auto 1fr;
-  }
-
-  .toolbar-actions {
-    justify-content: flex-end;
-  }
-
   .toolbar-meta {
     display: none;
   }
-
 }

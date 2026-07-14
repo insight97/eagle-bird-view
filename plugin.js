@@ -8,6 +8,8 @@ const VIDEO_CONTROLS_HEIGHT = 24;
 const CARD_MAX_MEDIA_HEIGHT = 230;
 const CARD_MIN_MEDIA_HEIGHT = 150;
 const CARD_GAP = 32;
+const KEYBOARD_PAN_STEP = 240;
+const KEYBOARD_ZOOM_FACTOR = 1.5;
 
 const state = {
   camera: { x: 0, y: 0, scale: 1 },
@@ -33,18 +35,13 @@ function setup() {
   elements.world = document.querySelector("#world");
   elements.labels = document.querySelector("#labels");
   elements.emptyState = document.querySelector("#empty-state");
-  elements.reloadButton = document.querySelector("#reload-button");
-  elements.fitButton = document.querySelector("#fit-button");
-  elements.resetButton = document.querySelector("#reset-button");
   elements.itemCount = document.querySelector("#item-count");
   elements.zoomLabel = document.querySelector("#zoom-label");
   elements.toast = document.querySelector("#toast");
 
-  elements.reloadButton.addEventListener("click", loadSelectedItems);
-  elements.fitButton.addEventListener("click", fitAll);
-  elements.resetButton.addEventListener("click", resetZoom);
   elements.viewport.addEventListener("pointerdown", beginPan);
   elements.viewport.addEventListener("wheel", handleWheel, { passive: false });
+  window.addEventListener("keydown", handleKeyDown);
   window.addEventListener("resize", updateCamera);
 
   state.camera.scale = getBaseScale();
@@ -83,9 +80,6 @@ async function loadSelectedItems() {
     return;
   }
 
-  elements.reloadButton.disabled = true;
-  elements.reloadButton.textContent = "載入中…";
-
   try {
     const items = await eagle.item.getSelected();
 
@@ -101,9 +95,6 @@ async function loadSelectedItems() {
   } catch (error) {
     console.error("Failed to load selected Eagle items", error);
     showToast(`無法讀取 Eagle 素材：${error.message || error}`, true);
-  } finally {
-    elements.reloadButton.disabled = false;
-    elements.reloadButton.textContent = "載入目前選取";
   }
 }
 
@@ -417,12 +408,50 @@ function handleWheel(event) {
   const rect = elements.viewport.getBoundingClientRect();
   const pointerX = event.clientX - rect.left;
   const pointerY = event.clientY - rect.top;
+  const zoomFactor = Math.exp(-event.deltaY * 0.0015);
+  zoomAtPoint(pointerX, pointerY, zoomFactor);
+}
+
+function handleKeyDown(event) {
+  if (isInteractiveTarget(event.target)) return;
+
+  if (event.ctrlKey && (event.key === "PageUp" || event.key === "PageDown")) {
+    event.preventDefault();
+    const factor = event.key === "PageUp" ? KEYBOARD_ZOOM_FACTOR : 1 / KEYBOARD_ZOOM_FACTOR;
+    zoomAtPoint(
+      elements.viewport.clientWidth / 2,
+      elements.viewport.clientHeight / 2,
+      factor,
+    );
+    return;
+  }
+
+  if (event.ctrlKey || event.metaKey || event.altKey) return;
+  const key = event.key.toLowerCase();
+  const movement = {
+    arrowup: [0, KEYBOARD_PAN_STEP],
+    w: [0, KEYBOARD_PAN_STEP],
+    arrowdown: [0, -KEYBOARD_PAN_STEP],
+    s: [0, -KEYBOARD_PAN_STEP],
+    arrowleft: [KEYBOARD_PAN_STEP, 0],
+    a: [KEYBOARD_PAN_STEP, 0],
+    arrowright: [-KEYBOARD_PAN_STEP, 0],
+    d: [-KEYBOARD_PAN_STEP, 0],
+  }[key];
+
+  if (!movement) return;
+  event.preventDefault();
+  state.camera.x += movement[0];
+  state.camera.y += movement[1];
+  updateCamera();
+}
+
+function zoomAtPoint(pointerX, pointerY, factor) {
   const worldX = (pointerX - state.camera.x) / state.camera.scale;
   const worldY = (pointerY - state.camera.y) / state.camera.scale;
-  const zoomFactor = Math.exp(-event.deltaY * 0.0015);
   const baseScale = getBaseScale();
   const nextScale = clamp(
-    state.camera.scale * zoomFactor,
+    state.camera.scale * factor,
     baseScale * MIN_ZOOM,
     baseScale * MAX_ZOOM,
   );
@@ -433,25 +462,11 @@ function handleWheel(event) {
   updateCamera();
 }
 
-function fitAll() {
-  if (!state.nodes.length) return;
-  const bounds = getNodeBounds();
-  const padding = 64;
-  const viewportWidth = elements.viewport.clientWidth;
-  const viewportHeight = elements.viewport.clientHeight;
-  const scaleX = (viewportWidth - padding * 2) / Math.max(bounds.width, 1);
-  const scaleY = (viewportHeight - padding * 2) / Math.max(bounds.height, 1);
-  const baseScale = getBaseScale();
-  const scale = clamp(
-    Math.min(scaleX, scaleY),
-    baseScale * MIN_ZOOM,
-    baseScale * MAX_ZOOM,
+function isInteractiveTarget(target) {
+  return (
+    target instanceof Element &&
+    Boolean(target.closest("input, textarea, select, [contenteditable='true']"))
   );
-
-  state.camera.scale = scale;
-  state.camera.x = (viewportWidth - bounds.width * scale) / 2 - bounds.left * scale;
-  state.camera.y = (viewportHeight - bounds.height * scale) / 2 - bounds.top * scale;
-  updateCamera();
 }
 
 function focusFirstItem() {
@@ -465,20 +480,6 @@ function focusFirstItem() {
   state.camera.scale = scale;
   state.camera.x = viewportWidth / 2 - (node.x + node.width / 2) * scale;
   state.camera.y = viewportHeight / 2 - (node.y + displayHeight / 2) * scale;
-  updateCamera();
-}
-
-function resetZoom() {
-  const viewportWidth = elements.viewport.clientWidth;
-  const viewportHeight = elements.viewport.clientHeight;
-  const center = screenToWorld(
-    elements.viewport.getBoundingClientRect().left + viewportWidth / 2,
-    elements.viewport.getBoundingClientRect().top + viewportHeight / 2,
-  );
-
-  state.camera.scale = getBaseScale();
-  state.camera.x = viewportWidth / 2 - center.x * state.camera.scale;
-  state.camera.y = viewportHeight / 2 - center.y * state.camera.scale;
   updateCamera();
 }
 
@@ -558,19 +559,6 @@ function updateLabels() {
 function positionNode(node) {
   node.element.style.width = `${node.width}px`;
   node.element.style.transform = `translate(${node.x}px, ${node.y}px)`;
-}
-
-function getNodeBounds() {
-  const left = Math.min(...state.nodes.map((node) => node.x));
-  const top = Math.min(...state.nodes.map((node) => node.y));
-  const right = Math.max(...state.nodes.map((node) => node.x + node.width));
-  const bottom = Math.max(
-    ...state.nodes.map(
-      (node) =>
-        node.y + node.mediaHeight + (node.isVideo ? VIDEO_CONTROLS_HEIGHT : 0),
-    ),
-  );
-  return { left, top, width: right - left, height: bottom - top };
 }
 
 function getBaseScale() {
