@@ -109,6 +109,7 @@ function renderItems(items) {
   items.forEach((item, index) => {
     const aspectRatio = getAspectRatio(item);
     const mediaHeight = clamp(CARD_WIDTH / aspectRatio, CARD_MIN_MEDIA_HEIGHT, CARD_MAX_MEDIA_HEIGHT);
+    const mediaWidth = Math.min(CARD_WIDTH, mediaHeight * aspectRatio);
     const isVideo = VIDEO_EXTENSIONS.has(String(item.ext || "").toLowerCase());
     const row = Math.floor(index / columns);
     const column = index % columns;
@@ -116,7 +117,7 @@ function renderItems(items) {
       item,
       x: column * (CARD_WIDTH + CARD_GAP),
       y: row * (CARD_MAX_MEDIA_HEIGHT + VIDEO_CONTROLS_HEIGHT + CARD_GAP),
-      width: CARD_WIDTH,
+      width: mediaWidth,
       height: mediaHeight,
       mediaHeight,
       isVideo,
@@ -569,7 +570,8 @@ function getBaseScale() {
     ? state.nodes[0].mediaHeight +
       (state.nodes[0].isVideo ? VIDEO_CONTROLS_HEIGHT : 0)
     : CARD_MAX_MEDIA_HEIGHT + VIDEO_CONTROLS_HEIGHT;
-  const widthScale = (viewportWidth - padding * 2) / CARD_WIDTH;
+  const referenceWidth = state.nodes[0]?.width || CARD_WIDTH;
+  const widthScale = (viewportWidth - padding * 2) / referenceWidth;
   const heightScale = (viewportHeight - padding * 2) / referenceHeight;
   return Math.max(0.01, Math.min(widthScale, heightScale));
 }

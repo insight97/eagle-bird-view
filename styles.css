@@ -27,7 +27,7 @@ button {
 
 .app {
   display: grid;
-  grid-template-rows: 56px minmax(0, 1fr);
+  grid-template-rows: 42px minmax(0, 1fr);
   background: #151719;
 }
 
@@ -37,7 +37,7 @@ button {
   grid-template-columns: 1fr auto;
   align-items: center;
   gap: 20px;
-  padding: 0 18px;
+  padding: 0 12px;
   border-bottom: 1px solid #303338;
   background: rgb(24 26 29 / 96%);
   box-shadow: 0 2px 16px rgb(0 0 0 / 18%);
@@ -59,13 +59,13 @@ button {
 
 .brand-mark {
   display: grid;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   place-items: center;
   border-radius: 8px;
   background: linear-gradient(135deg, #7c72ff, #4cda9a);
   color: #111317;
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 900;
 }
 
@@ -118,11 +118,11 @@ button {
 
 .media-card {
   position: absolute;
+  box-sizing: content-box;
   overflow: hidden;
   border: 1px solid #3c4047;
   border-radius: 4px;
   background: #22252a;
-  padding: 2px;
   box-shadow: none;
   transition: border-color 120ms ease;
 }
@@ -138,12 +138,7 @@ button {
   width: 100%;
   overflow: hidden;
   place-items: center;
-  background:
-    linear-gradient(45deg, #1d2024 25%, transparent 25%) 0 0 / 18px 18px,
-    linear-gradient(-45deg, #1d2024 25%, transparent 25%) 0 9px / 18px 18px,
-    linear-gradient(45deg, transparent 75%, #1d2024 75%) 9px -9px / 18px 18px,
-    linear-gradient(-45deg, transparent 75%, #1d2024 75%) -9px 0 / 18px 18px,
-    #26292e;
+  background: #26292e;
 }
 
 .media-frame img {
