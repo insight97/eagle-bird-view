@@ -96,7 +96,7 @@ async function loadSelectedItems() {
     }
 
     renderItems(items);
-    requestAnimationFrame(fitAll);
+    requestAnimationFrame(focusFirstItem);
     showToast(`已載入 ${items.length} 個素材。`);
   } catch (error) {
     console.error("Failed to load selected Eagle items", error);
@@ -157,12 +157,31 @@ function createMediaCard(node) {
   card.title = `${item.name || "未命名"}（雙擊在 Eagle 開啟）`;
   frame.className = "media-frame";
   frame.style.height = `${node.mediaHeight}px`;
-  image.src = item.thumbnailURL || item.fileURL;
+  const originalImageURL = !isVideo ? item.fileURL : null;
+  const fallbackURL = item.thumbnailURL || item.fileURL;
+  let isUsingFallback = !originalImageURL;
   image.alt = item.name || "Eagle 素材";
-  image.loading = "lazy";
+  image.decoding = "async";
   image.draggable = false;
+  image.style.visibility = "hidden";
   node.mediaElement = image;
+  node.mediaLoaded = false;
+  node.loadMedia = () => {
+    if (node.mediaLoaded) return;
+    node.mediaLoaded = true;
+    const mediaURL = originalImageURL || fallbackURL;
+    if (mediaURL) image.src = mediaURL;
+  };
+  image.addEventListener("load", () => {
+    image.style.visibility = "visible";
+    applyMediaRotation(node);
+  });
   image.addEventListener("error", () => {
+    if (originalImageURL && !isUsingFallback) {
+      isUsingFallback = true;
+      image.src = fallbackURL;
+      return;
+    }
     image.alt = "無法顯示縮圖";
   });
 
@@ -230,9 +249,18 @@ function rotateMedia(node, degrees) {
 
 function applyMediaRotation(node) {
   if (!node.mediaElement) return;
+  if (node.rotation === 0) {
+    node.mediaElement.style.transform = "none";
+    return;
+  }
   const isQuarterTurn = node.rotation % 180 !== 0;
+  const frame = node.element?.querySelector(".media-frame");
+  const frameWidth = frame?.clientWidth || node.width;
+  const frameHeight = frame?.clientHeight || node.mediaHeight;
+  const mediaWidth = node.mediaElement.clientWidth || frameWidth;
+  const mediaHeight = node.mediaElement.clientHeight || frameHeight;
   const fitScale = isQuarterTurn
-    ? Math.min(node.width / node.mediaHeight, node.mediaHeight / node.width)
+    ? Math.min(frameWidth / mediaHeight, frameHeight / mediaWidth)
     : 1;
   node.mediaElement.style.transform = `rotate(${node.rotation}deg) scale(${fitScale})`;
 }
@@ -426,6 +454,20 @@ function fitAll() {
   updateCamera();
 }
 
+function focusFirstItem() {
+  const node = state.nodes[0];
+  if (!node) return;
+  const viewportWidth = elements.viewport.clientWidth;
+  const viewportHeight = elements.viewport.clientHeight;
+  const scale = getBaseScale();
+  const displayHeight = node.mediaHeight + (node.isVideo ? VIDEO_CONTROLS_HEIGHT : 0);
+
+  state.camera.scale = scale;
+  state.camera.x = viewportWidth / 2 - (node.x + node.width / 2) * scale;
+  state.camera.y = viewportHeight / 2 - (node.y + displayHeight / 2) * scale;
+  updateCamera();
+}
+
 function resetZoom() {
   const viewportWidth = elements.viewport.clientWidth;
   const viewportHeight = elements.viewport.clientHeight;
@@ -462,6 +504,29 @@ function updateCamera() {
   const gridSize = Math.max(8, 24 * state.camera.scale);
   elements.viewport.style.backgroundSize = `${gridSize}px ${gridSize}px`;
   updateLabels();
+  updateMediaVisibility();
+}
+
+function updateMediaVisibility() {
+  const preloadMargin = 120;
+  const viewportWidth = elements.viewport.clientWidth;
+  const viewportHeight = elements.viewport.clientHeight;
+  const scale = state.camera.scale;
+
+  for (const node of state.nodes) {
+    if (node.mediaLoaded) continue;
+    const left = state.camera.x + node.x * scale;
+    const top = state.camera.y + node.y * scale;
+    const right = left + node.width * scale;
+    const bottom = top + node.mediaHeight * scale;
+    const isNearViewport =
+      right >= -preloadMargin &&
+      left <= viewportWidth + preloadMargin &&
+      bottom >= -preloadMargin &&
+      top <= viewportHeight + preloadMargin;
+
+    if (isNearViewport) node.loadMedia();
+  }
 }
 
 function updateLabels() {
@@ -492,7 +557,6 @@ function updateLabels() {
 
 function positionNode(node) {
   node.element.style.width = `${node.width}px`;
-  node.element.style.height = `${node.height}px`;
   node.element.style.transform = `translate(${node.x}px, ${node.y}px)`;
 }
 
@@ -514,11 +578,8 @@ function getBaseScale() {
   const viewportWidth = Math.max(elements.viewport?.clientWidth || 0, 1);
   const viewportHeight = Math.max(elements.viewport?.clientHeight || 0, 1);
   const referenceHeight = state.nodes.length
-    ? Math.max(
-        ...state.nodes.map(
-          (node) => node.mediaHeight + (node.isVideo ? VIDEO_CONTROLS_HEIGHT : 0),
-        ),
-      )
+    ? state.nodes[0].mediaHeight +
+      (state.nodes[0].isVideo ? VIDEO_CONTROLS_HEIGHT : 0)
     : CARD_MAX_MEDIA_HEIGHT + VIDEO_CONTROLS_HEIGHT;
   const widthScale = (viewportWidth - padding * 2) / CARD_WIDTH;
   const heightScale = (viewportHeight - padding * 2) / referenceHeight;
