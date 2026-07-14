@@ -1,8 +1,8 @@
 "use strict";
 
 const VIDEO_EXTENSIONS = new Set(["mp4", "m4v", "mov", "webm"]);
-const MIN_SCALE = 0.08;
-const MAX_SCALE = 12;
+const MIN_ZOOM = 0.08;
+const MAX_ZOOM = 8;
 const CARD_WIDTH = 280;
 const VIDEO_CONTROLS_HEIGHT = 24;
 const CARD_MAX_MEDIA_HEIGHT = 230;
@@ -47,6 +47,7 @@ function setup() {
   elements.viewport.addEventListener("wheel", handleWheel, { passive: false });
   window.addEventListener("resize", updateCamera);
 
+  state.camera.scale = getBaseScale();
   updateCamera();
   if (
     typeof eagle === "undefined" ||
@@ -117,6 +118,7 @@ function renderItems(items) {
   items.forEach((item, index) => {
     const aspectRatio = getAspectRatio(item);
     const mediaHeight = clamp(CARD_WIDTH / aspectRatio, CARD_MIN_MEDIA_HEIGHT, CARD_MAX_MEDIA_HEIGHT);
+    const isVideo = VIDEO_EXTENSIONS.has(String(item.ext || "").toLowerCase());
     const row = Math.floor(index / columns);
     const column = index % columns;
     const node = {
@@ -126,10 +128,12 @@ function renderItems(items) {
       width: CARD_WIDTH,
       height: mediaHeight,
       mediaHeight,
+      isVideo,
+      rotation: 0,
     };
 
     node.element = createMediaCard(node);
-    node.label = createMediaLabel(item);
+    node.label = createMediaLabel(node);
     state.nodes.push(node);
     elements.world.append(node.element);
     elements.labels.append(node.label);
@@ -157,6 +161,7 @@ function createMediaCard(node) {
   image.alt = item.name || "Eagle 素材";
   image.loading = "lazy";
   image.draggable = false;
+  node.mediaElement = image;
   image.addEventListener("error", () => {
     image.alt = "無法顯示縮圖";
   });
@@ -186,18 +191,50 @@ function createMediaCard(node) {
   return card;
 }
 
-function createMediaLabel(item) {
+function createMediaLabel(node) {
+  const { item } = node;
   const label = document.createElement("div");
   const name = document.createElement("span");
   const type = document.createElement("span");
+  const actions = document.createElement("span");
+  const rotateLeft = document.createElement("button");
+  const rotateRight = document.createElement("button");
 
   label.className = "media-label";
   name.className = "media-name";
   name.textContent = item.name || "未命名";
   type.className = "media-extension";
   type.textContent = String(item.ext || "FILE").toUpperCase();
-  label.append(name, type);
+  actions.className = "media-label-actions";
+  rotateLeft.className = "media-rotate";
+  rotateLeft.type = "button";
+  rotateLeft.textContent = "↶";
+  rotateLeft.title = "向左旋轉 90°";
+  rotateLeft.setAttribute("aria-label", `將 ${item.name || "媒體"} 向左旋轉 90 度`);
+  rotateRight.className = "media-rotate";
+  rotateRight.type = "button";
+  rotateRight.textContent = "↷";
+  rotateRight.title = "向右旋轉 90°";
+  rotateRight.setAttribute("aria-label", `將 ${item.name || "媒體"} 向右旋轉 90 度`);
+  rotateLeft.addEventListener("click", () => rotateMedia(node, -90));
+  rotateRight.addEventListener("click", () => rotateMedia(node, 90));
+  actions.append(type, rotateLeft, rotateRight);
+  label.append(name, actions);
   return label;
+}
+
+function rotateMedia(node, degrees) {
+  node.rotation = (node.rotation + degrees + 360) % 360;
+  applyMediaRotation(node);
+}
+
+function applyMediaRotation(node) {
+  if (!node.mediaElement) return;
+  const isQuarterTurn = node.rotation % 180 !== 0;
+  const fitScale = isQuarterTurn
+    ? Math.min(node.width / node.mediaHeight, node.mediaHeight / node.width)
+    : 1;
+  node.mediaElement.style.transform = `rotate(${node.rotation}deg) scale(${fitScale})`;
 }
 
 function startVideo(frame, image, playButton, item, node) {
@@ -205,11 +242,16 @@ function startVideo(frame, image, playButton, item, node) {
   const controls = document.createElement("div");
   const toggleButton = document.createElement("button");
   const progress = document.createElement("input");
+  const volumeButton = document.createElement("button");
+  const volume = document.createElement("input");
+  const volumeValue = document.createElement("span");
 
   video.src = item.fileURL;
   video.autoplay = true;
   video.playsInline = true;
   video.preload = "metadata";
+  node.mediaElement = video;
+  applyMediaRotation(node);
   controls.className = "video-controls";
   toggleButton.className = "video-toggle";
   toggleButton.type = "button";
@@ -221,8 +263,21 @@ function startVideo(frame, image, playButton, item, node) {
   progress.max = "1000";
   progress.value = "0";
   progress.setAttribute("aria-label", "影片播放進度");
+  volumeButton.className = "volume-toggle";
+  volumeButton.type = "button";
+  volumeButton.textContent = "🔊";
+  volumeButton.setAttribute("aria-label", "靜音");
+  volume.className = "volume-slider";
+  volume.type = "range";
+  volume.min = "0";
+  volume.max = "1";
+  volume.step = "0.01";
+  volume.value = String(video.volume);
+  volume.setAttribute("aria-label", "音量");
+  volumeValue.className = "volume-value";
+  volumeValue.textContent = "100%";
 
-  controls.append(toggleButton, progress);
+  controls.append(toggleButton, progress, volumeButton, volume, volumeValue);
 
   controls.addEventListener("dblclick", (event) => event.stopPropagation());
 
@@ -253,10 +308,26 @@ function startVideo(frame, image, playButton, item, node) {
       video.currentTime = (Number(progress.value) / 1000) * video.duration;
     }
   });
+  volumeButton.addEventListener("click", () => {
+    video.muted = !video.muted;
+  });
+  volume.addEventListener("input", () => {
+    video.muted = false;
+    video.volume = Number(volume.value);
+  });
+  video.addEventListener("volumechange", () => {
+    const audibleVolume = video.muted ? 0 : video.volume;
+    volume.value = String(audibleVolume);
+    volumeValue.textContent = `${Math.round(audibleVolume * 100)}%`;
+    volumeButton.textContent = audibleVolume === 0 ? "🔇" : audibleVolume < 0.5 ? "🔉" : "🔊";
+    volumeButton.setAttribute("aria-label", video.muted ? "取消靜音" : "靜音");
+  });
   video.addEventListener("error", () => {
     showToast("這個 MP4 的編碼無法由外掛播放器解碼，可雙擊卡片回到 Eagle。", true);
     video.remove();
     controls.remove();
+    node.mediaElement = image;
+    applyMediaRotation(node);
     frame.prepend(image);
     frame.append(playButton);
     node.height = node.mediaHeight;
@@ -320,8 +391,13 @@ function handleWheel(event) {
   const pointerY = event.clientY - rect.top;
   const worldX = (pointerX - state.camera.x) / state.camera.scale;
   const worldY = (pointerY - state.camera.y) / state.camera.scale;
-  const zoomFactor = Math.exp(-event.deltaY * 0.0025);
-  const nextScale = clamp(state.camera.scale * zoomFactor, MIN_SCALE, MAX_SCALE);
+  const zoomFactor = Math.exp(-event.deltaY * 0.0015);
+  const baseScale = getBaseScale();
+  const nextScale = clamp(
+    state.camera.scale * zoomFactor,
+    baseScale * MIN_ZOOM,
+    baseScale * MAX_ZOOM,
+  );
 
   state.camera.scale = nextScale;
   state.camera.x = pointerX - worldX * nextScale;
@@ -337,7 +413,12 @@ function fitAll() {
   const viewportHeight = elements.viewport.clientHeight;
   const scaleX = (viewportWidth - padding * 2) / Math.max(bounds.width, 1);
   const scaleY = (viewportHeight - padding * 2) / Math.max(bounds.height, 1);
-  const scale = clamp(Math.min(scaleX, scaleY, 1), MIN_SCALE, MAX_SCALE);
+  const baseScale = getBaseScale();
+  const scale = clamp(
+    Math.min(scaleX, scaleY),
+    baseScale * MIN_ZOOM,
+    baseScale * MAX_ZOOM,
+  );
 
   state.camera.scale = scale;
   state.camera.x = (viewportWidth - bounds.width * scale) / 2 - bounds.left * scale;
@@ -353,9 +434,9 @@ function resetZoom() {
     elements.viewport.getBoundingClientRect().top + viewportHeight / 2,
   );
 
-  state.camera.scale = 1;
-  state.camera.x = viewportWidth / 2 - center.x;
-  state.camera.y = viewportHeight / 2 - center.y;
+  state.camera.scale = getBaseScale();
+  state.camera.x = viewportWidth / 2 - center.x * state.camera.scale;
+  state.camera.y = viewportHeight / 2 - center.y * state.camera.scale;
   updateCamera();
 }
 
@@ -363,7 +444,7 @@ function clearBoard() {
   state.nodes = [];
   elements.world.replaceChildren();
   elements.labels.replaceChildren();
-  state.camera = { x: 0, y: 0, scale: 1 };
+  state.camera = { x: 0, y: 0, scale: getBaseScale() };
   updateCamera();
   updateBoardMeta();
 }
@@ -376,7 +457,7 @@ function updateBoardMeta() {
 
 function updateCamera() {
   elements.world.style.transform = `translate(${state.camera.x}px, ${state.camera.y}px) scale(${state.camera.scale})`;
-  elements.zoomLabel.textContent = `${Math.round(state.camera.scale * 100)}%`;
+  elements.zoomLabel.textContent = `${Math.round((state.camera.scale / getBaseScale()) * 100)}%`;
   elements.viewport.style.backgroundPosition = `${state.camera.x}px ${state.camera.y}px`;
   const gridSize = Math.max(8, 24 * state.camera.scale);
   elements.viewport.style.backgroundSize = `${gridSize}px ${gridSize}px`;
@@ -388,16 +469,17 @@ function updateLabels() {
   const viewportWidth = elements.viewport.clientWidth;
   const viewportHeight = elements.viewport.clientHeight;
   const scale = state.camera.scale;
+  const zoom = scale / getBaseScale();
 
   for (const node of state.nodes) {
     const left = Math.round(state.camera.x + node.x * scale);
-    const top = Math.round(state.camera.y + (node.y + node.height) * scale + 5);
+    const top = Math.round(state.camera.y + node.y * scale - 27);
     const width = Math.round(node.width * scale);
     const isVisible =
-      scale >= 0.28 &&
+      zoom >= 0.28 &&
       left + width >= 0 &&
       left <= viewportWidth &&
-      top >= 0 &&
+      top + 22 >= 0 &&
       top <= viewportHeight;
 
     node.label.hidden = !isVisible;
@@ -418,8 +500,29 @@ function getNodeBounds() {
   const left = Math.min(...state.nodes.map((node) => node.x));
   const top = Math.min(...state.nodes.map((node) => node.y));
   const right = Math.max(...state.nodes.map((node) => node.x + node.width));
-  const bottom = Math.max(...state.nodes.map((node) => node.y + node.height));
+  const bottom = Math.max(
+    ...state.nodes.map(
+      (node) =>
+        node.y + node.mediaHeight + (node.isVideo ? VIDEO_CONTROLS_HEIGHT : 0),
+    ),
+  );
   return { left, top, width: right - left, height: bottom - top };
+}
+
+function getBaseScale() {
+  const padding = 64;
+  const viewportWidth = Math.max(elements.viewport?.clientWidth || 0, 1);
+  const viewportHeight = Math.max(elements.viewport?.clientHeight || 0, 1);
+  const referenceHeight = state.nodes.length
+    ? Math.max(
+        ...state.nodes.map(
+          (node) => node.mediaHeight + (node.isVideo ? VIDEO_CONTROLS_HEIGHT : 0),
+        ),
+      )
+    : CARD_MAX_MEDIA_HEIGHT + VIDEO_CONTROLS_HEIGHT;
+  const widthScale = (viewportWidth - padding * 2) / CARD_WIDTH;
+  const heightScale = (viewportHeight - padding * 2) / referenceHeight;
+  return Math.max(0.01, Math.min(widthScale, heightScale));
 }
 
 function screenToWorld(clientX, clientY) {
