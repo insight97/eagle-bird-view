@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+    />
+    <title>Bird View</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="plugin.js" defer></script>
+  </head>
+  <body>
+    <main class="app">
+      <header class="toolbar">
+        <div class="brand" aria-label="Bird View">
+          <span class="brand-mark">B</span>
+          <span>Bird View</span>
+        </div>
+
+        <div class="toolbar-actions">
+          <button id="reload-button" class="button button-primary" type="button">
+            載入目前選取
+          </button>
+          <button id="fit-button" class="button" type="button">顯示全部</button>
+          <button id="reset-button" class="button" type="button">100%</button>
+        </div>
+
+        <div class="toolbar-meta">
+          <span id="item-count">0 個素材</span>
+          <span class="divider" aria-hidden="true"></span>
+          <span id="zoom-label">100%</span>
+        </div>
+      </header>
+
+      <section id="viewport" class="viewport" aria-label="媒體白板">
+        <div id="world" class="world"></div>
+        <div id="labels" class="labels-layer" aria-hidden="true"></div>
+
+        <div id="empty-state" class="empty-state">
+          <div class="empty-icon" aria-hidden="true">＋</div>
+          <h1>從 Eagle 加入素材</h1>
+          <p>在 Eagle 選取圖片或 MP4，再按「載入目前選取」。</p>
+        </div>
+
+        <div class="help" aria-hidden="true">
+          <span>拖曳空白處移動畫布</span>
+          <span>滾輪縮放</span>
+          <span>雙擊回到 Eagle</span>
+        </div>
+
+        <div id="toast" class="toast" role="status" aria-live="polite"></div>
+      </section>
+    </main>
+  </body>
+</html>
