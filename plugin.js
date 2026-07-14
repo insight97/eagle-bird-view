@@ -3,11 +3,12 @@
 const VIDEO_EXTENSIONS = new Set(["mp4", "m4v", "mov", "webm"]);
 const MIN_ZOOM = 0.08;
 const MAX_ZOOM = 8;
-const CARD_WIDTH = 280;
 const VIDEO_CONTROLS_HEIGHT = 24;
-const CARD_MAX_MEDIA_HEIGHT = 230;
-const CARD_MIN_MEDIA_HEIGHT = 150;
-const CARD_GAP = 32;
+const LAYOUT_WIDTH = 1200;
+const TARGET_ROW_HEIGHT = 180;
+const MIN_ROW_HEIGHT = 140;
+const MAX_ROW_HEIGHT = 220;
+const LAYOUT_GAP = 14;
 const KEYBOARD_PAN_STEP = 240;
 const KEYBOARD_ZOOM_FACTOR = 1.5;
 
@@ -101,32 +102,11 @@ async function loadSelectedItems() {
 function renderItems(items) {
   elements.world.replaceChildren();
   elements.labels.replaceChildren();
-  state.nodes = [];
+  state.nodes = createJustifiedLayout(items);
 
-  const viewportWidth = Math.max(elements.viewport.clientWidth, 720);
-  const columns = Math.max(1, Math.min(5, Math.floor(viewportWidth / (CARD_WIDTH + CARD_GAP))));
-
-  items.forEach((item, index) => {
-    const aspectRatio = getAspectRatio(item);
-    const mediaHeight = clamp(CARD_WIDTH / aspectRatio, CARD_MIN_MEDIA_HEIGHT, CARD_MAX_MEDIA_HEIGHT);
-    const mediaWidth = Math.min(CARD_WIDTH, mediaHeight * aspectRatio);
-    const isVideo = VIDEO_EXTENSIONS.has(String(item.ext || "").toLowerCase());
-    const row = Math.floor(index / columns);
-    const column = index % columns;
-    const node = {
-      item,
-      x: column * (CARD_WIDTH + CARD_GAP),
-      y: row * (CARD_MAX_MEDIA_HEIGHT + VIDEO_CONTROLS_HEIGHT + CARD_GAP),
-      width: mediaWidth,
-      height: mediaHeight,
-      mediaHeight,
-      isVideo,
-      rotation: 0,
-    };
-
+  state.nodes.forEach((node) => {
     node.element = createMediaCard(node);
     node.label = createMediaLabel(node);
-    state.nodes.push(node);
     elements.world.append(node.element);
     elements.labels.append(node.label);
     positionNode(node);
@@ -134,6 +114,65 @@ function renderItems(items) {
 
   updateBoardMeta();
   updateLabels();
+}
+
+function createJustifiedLayout(items) {
+  const nodes = [];
+  let row = [];
+  let aspectRatioSum = 0;
+  let y = 0;
+
+  const commitRow = (justify) => {
+    if (!row.length) return;
+    const gapWidth = LAYOUT_GAP * Math.max(0, row.length - 1);
+    const fittedHeight = (LAYOUT_WIDTH - gapWidth) / aspectRatioSum;
+    let rowHeight = justify ? fittedHeight : TARGET_ROW_HEIGHT;
+    rowHeight = Math.min(MAX_ROW_HEIGHT, rowHeight);
+
+    if (rowHeight < MIN_ROW_HEIGHT) {
+      const widthAtMinimumHeight = aspectRatioSum * MIN_ROW_HEIGHT + gapWidth;
+      if (widthAtMinimumHeight <= LAYOUT_WIDTH) rowHeight = MIN_ROW_HEIGHT;
+    }
+
+    let x = 0;
+    let rowHasVideo = false;
+    for (const entry of row) {
+      const width = entry.aspectRatio * rowHeight;
+      nodes.push({
+        item: entry.item,
+        x,
+        y,
+        width,
+        height: rowHeight,
+        mediaHeight: rowHeight,
+        isVideo: entry.isVideo,
+        rotation: 0,
+      });
+      x += width + LAYOUT_GAP;
+      rowHasVideo ||= entry.isVideo;
+    }
+
+    y += rowHeight + (rowHasVideo ? VIDEO_CONTROLS_HEIGHT : 0) + LAYOUT_GAP;
+    row = [];
+    aspectRatioSum = 0;
+  };
+
+  for (const item of items) {
+    const aspectRatio = getAspectRatio(item);
+    row.push({
+      item,
+      aspectRatio,
+      isVideo: VIDEO_EXTENSIONS.has(String(item.ext || "").toLowerCase()),
+    });
+    aspectRatioSum += aspectRatio;
+
+    const gapWidth = LAYOUT_GAP * Math.max(0, row.length - 1);
+    const fittedHeight = (LAYOUT_WIDTH - gapWidth) / aspectRatioSum;
+    if (fittedHeight <= TARGET_ROW_HEIGHT) commitRow(true);
+  }
+
+  commitRow(false);
+  return nodes;
 }
 
 function createMediaCard(node) {
@@ -569,8 +608,8 @@ function getBaseScale() {
   const referenceHeight = state.nodes.length
     ? state.nodes[0].mediaHeight +
       (state.nodes[0].isVideo ? VIDEO_CONTROLS_HEIGHT : 0)
-    : CARD_MAX_MEDIA_HEIGHT + VIDEO_CONTROLS_HEIGHT;
-  const referenceWidth = state.nodes[0]?.width || CARD_WIDTH;
+    : TARGET_ROW_HEIGHT + VIDEO_CONTROLS_HEIGHT;
+  const referenceWidth = state.nodes[0]?.width || TARGET_ROW_HEIGHT * (16 / 10);
   const widthScale = (viewportWidth - padding * 2) / referenceWidth;
   const heightScale = (viewportHeight - padding * 2) / referenceHeight;
   return Math.max(0.01, Math.min(widthScale, heightScale));
