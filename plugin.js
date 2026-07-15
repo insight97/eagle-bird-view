@@ -276,7 +276,7 @@ function createMediaLabel(node) {
 function bindRotationButton(button, node, direction) {
   button.addEventListener("click", (event) => {
     event.stopPropagation();
-    rotateMedia(node, direction * (event.shiftKey ? 45 : 90));
+    rotateMedia(node, direction * 90);
   });
   button.addEventListener("contextmenu", (event) => {
     event.preventDefault();
