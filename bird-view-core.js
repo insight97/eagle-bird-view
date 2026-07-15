@@ -39,10 +39,6 @@
     };
   }
 
-  function shouldPanSelection(viewportHeight, node, scale) {
-    return Boolean(node) && viewportHeight > node.height * scale;
-  }
-
   function getViewportWorldCenter(camera, viewport) {
     return {
       x: (viewport.width / 2 - camera.x) / camera.scale,
@@ -84,50 +80,6 @@
       width: Math.round(node.width * camera.scale),
       height: 22,
     };
-  }
-
-  function rangesOverlap(startA, endA, startB, endB) {
-    return Math.min(endA, endB) > Math.max(startA, startB);
-  }
-
-  function findDirectionalNode(nodes, current, directionX, directionY) {
-    const currentCenter = getNodeCenter(current);
-    const adjacentRowY = directionY ? findAdjacentRowY(nodes, current, directionY) : null;
-    let bestMatch = null;
-
-    for (const node of nodes) {
-      if (node === current) continue;
-      if (directionY && node.y !== adjacentRowY) continue;
-      const overlapsNavigationAxis = directionX
-        ? rangesOverlap(current.y, current.y + current.height, node.y, node.y + node.height)
-        : rangesOverlap(current.x, current.x + current.width, node.x, node.x + node.width);
-      if (!overlapsNavigationAxis) continue;
-      const center = getNodeCenter(node);
-      const deltaX = center.x - currentCenter.x;
-      const deltaY = center.y - currentCenter.y;
-      const forwardDistance = deltaX * directionX + deltaY * directionY;
-      if (forwardDistance <= 0) continue;
-      const crossDistance = Math.abs(deltaX * directionY - deltaY * directionX);
-      const distance = Math.hypot(deltaX, deltaY);
-      const anglePenalty = crossDistance / forwardDistance;
-      const score = anglePenalty * LAYOUT_WIDTH * 4 + distance;
-      if (!bestMatch || score < bestMatch.score) bestMatch = { node, score };
-    }
-
-    return bestMatch?.node || null;
-  }
-
-  function findAdjacentRowY(nodes, current, directionY) {
-    let adjacentRowY = null;
-    let shortestDistance = Infinity;
-    for (const node of nodes) {
-      const distance = (node.y - current.y) * directionY;
-      if (distance > 0 && distance < shortestDistance) {
-        shortestDistance = distance;
-        adjacentRowY = node.y;
-      }
-    }
-    return adjacentRowY;
   }
 
   function getAspectRatio(item) {
@@ -240,7 +192,6 @@
     clamp,
     createJustifiedLayout,
     directionFor,
-    findDirectionalNode,
     findNodeAtPoint,
     findNodesNearViewport,
     getAspectRatio,
@@ -248,7 +199,6 @@
     getNodeCenter,
     getViewportPanDelta,
     getViewportWorldCenter,
-    shouldPanSelection,
     zoomCameraAtPoint,
   });
 });

@@ -7,14 +7,12 @@ const {
   clamp,
   createJustifiedLayout,
   directionFor,
-  findDirectionalNode,
   findNodeAtPoint,
   findNodesNearViewport,
   getLabelRect,
   getNodeCenter,
   getViewportPanDelta,
   getViewportWorldCenter,
-  shouldPanSelection,
   zoomCameraAtPoint,
 } = BirdViewCore;
 const { MediaLoadQueue } = BirdViewMedia;
@@ -534,12 +532,8 @@ function handleKeyDown(event) {
 
   if (state.mode === "selection" && direction) {
     event.preventDefault();
-    if (isSelectionPanMode()) {
-      panBy(direction[0] * -KEYBOARD_PAN_STEP, direction[1] * -KEYBOARD_PAN_STEP);
-      selectNodeAtViewportCenter();
-    } else {
-      selectDirectionalNode(direction[0], direction[1]);
-    }
+    panBy(direction[0] * -KEYBOARD_PAN_STEP, direction[1] * -KEYBOARD_PAN_STEP);
+    selectNodeAtViewportCenter();
     return;
   }
 
@@ -601,25 +595,8 @@ function setSelectedNode(node) {
   node.loadMedia("original");
 }
 
-function selectDirectionalNode(directionX, directionY) {
-  const current = state.selectedNode;
-  if (!current) return;
-  const next = findDirectionalNode(state.nodes, current, directionX, directionY);
-  if (!next) return;
-  setSelectedNode(next);
-  centerNode(next);
-}
-
-function isSelectionPanMode() {
-  return shouldPanSelection(
-    elements.viewport.clientHeight,
-    state.selectedNode,
-    state.camera.scale,
-  );
-}
-
 function selectNodeAtViewportCenter() {
-  if (state.mode !== "selection" || !isSelectionPanMode()) return;
+  if (state.mode !== "selection") return;
   const center = getViewportWorldCenter(state.camera, {
     width: elements.viewport.clientWidth,
     height: elements.viewport.clientHeight,
