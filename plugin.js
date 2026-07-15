@@ -10,6 +10,7 @@ const MIN_ROW_HEIGHT = 140;
 const MAX_ROW_HEIGHT = 220;
 const LAYOUT_GAP = 14;
 const KEYBOARD_PAN_STEP = 240;
+const VIEWPORT_PAN_FRACTION = 2 / 3;
 const KEYBOARD_ZOOM_FACTOR = 1.5;
 const ARROW_DIRECTIONS = {
   arrowup: [0, -1],
@@ -817,7 +818,9 @@ function panBy(dx, dy) {
 function panOneViewport(key) {
   const direction = ARROW_DIRECTIONS[key.toLowerCase()];
   if (!direction) return;
-  const magnitude = direction[0] !== 0 ? elements.viewport.clientWidth : elements.viewport.clientHeight;
+  const viewportSize =
+    direction[0] !== 0 ? elements.viewport.clientWidth : elements.viewport.clientHeight;
+  const magnitude = viewportSize * VIEWPORT_PAN_FRACTION;
   panBy(direction[0] * -magnitude, direction[1] * -magnitude);
 }
 
