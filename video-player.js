@@ -33,6 +33,7 @@
 
     video.src = item.fileURL;
     video.autoplay = true;
+    video.loop = true;
     video.playsInline = true;
     video.preload = "metadata";
     node.mediaElement = video;
