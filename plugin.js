@@ -32,6 +32,7 @@ const state = {
   mode: "free",
   selectedNode: null,
   toastTimer: null,
+  cameraFrame: null,
   started: false,
   eagleReady: false,
 };
@@ -779,6 +780,12 @@ function updateBoardMeta() {
 }
 
 function updateCamera() {
+  if (state.cameraFrame !== null) return;
+  state.cameraFrame = requestAnimationFrame(renderCamera);
+}
+
+function renderCamera() {
+  state.cameraFrame = null;
   elements.world.style.transform = `translate(${state.camera.x}px, ${state.camera.y}px) scale(${state.camera.scale})`;
   elements.zoomLabel.textContent = `${Math.round((state.camera.scale / getBaseScale()) * 100)}%`;
   elements.viewport.style.backgroundPosition = `${state.camera.x}px ${state.camera.y}px`;
