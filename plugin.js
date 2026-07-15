@@ -23,6 +23,7 @@ const KEYBOARD_VOLUME_STEP = 0.05;
 const PAN_START_THRESHOLD = 4;
 const ORIGINAL_IMAGE_ZOOM = 2;
 const MAX_CONCURRENT_IMAGE_LOADS = 4;
+const RESOURCE_RELEASE_VIEWPORTS = 3;
 
 function directionFor(key) {
   return ARROW_DIRECTIONS[key] || ARROW_DIRECTIONS[WASD_TO_ARROW[key]];
@@ -33,6 +34,7 @@ const state = {
   nodes: [],
   rows: [],
   mountedNodes: new Set(),
+  materializedNodes: new Set(),
   mediaLoadQueue: [],
   activeMediaLoads: 0,
   mode: "free",
@@ -126,6 +128,7 @@ async function loadSelectedItems() {
 
 function renderItems(items) {
   exitSelectionMode();
+  releaseAllMediaCards();
   elements.world.replaceChildren();
   elements.labels.replaceChildren();
   state.mountedNodes.clear();
@@ -210,6 +213,7 @@ function mountMediaCard(node) {
   if (!node.element) {
     node.element = createMediaCard(node);
     positionNode(node);
+    state.materializedNodes.add(node);
   }
   if (!node.element.isConnected) elements.world.append(node.element);
   state.mountedNodes.add(node);
@@ -218,6 +222,43 @@ function mountMediaCard(node) {
 function unmountMediaCard(node) {
   node.element?.remove();
   state.mountedNodes.delete(node);
+}
+
+function releaseMediaCard(node) {
+  node.pendingMediaQuality = null;
+  node.mediaLoadQueued = false;
+  if (node.mediaLoading) finishMediaLoad(node);
+
+  if (node.videoElement) {
+    node.videoElement.pause();
+    node.videoElement.removeAttribute("src");
+    node.videoElement.load();
+  }
+  node.previewImage?.removeAttribute("src");
+  node.element?.remove();
+  state.mountedNodes.delete(node);
+  state.materializedNodes.delete(node);
+
+  node.element = null;
+  node.frame = null;
+  node.previewImage = null;
+  node.playButton = null;
+  node.startPlayback = null;
+  node.videoElement = null;
+  node.togglePlayback = null;
+  node.mediaElement = null;
+  node.loadMedia = null;
+  node.startMediaLoad = null;
+  node.mediaLoaded = false;
+  node.mediaQuality = null;
+  node.originalImageURL = null;
+  node.fallbackURL = null;
+  node.height = node.mediaHeight;
+}
+
+function releaseAllMediaCards() {
+  for (const node of [...state.materializedNodes]) releaseMediaCard(node);
+  state.mediaLoadQueue = [];
 }
 
 function createMediaCard(node) {
@@ -844,6 +885,7 @@ function focusFirstItem() {
 
 function clearBoard() {
   exitSelectionMode();
+  releaseAllMediaCards();
   state.nodes = [];
   state.rows = [];
   state.mountedNodes.clear();
@@ -884,6 +926,9 @@ function updateMediaVisibility() {
   const mountMargin = Math.max(viewportWidth, viewportHeight);
   const visibleNodes = getNodesNearViewport(mountMargin);
   const nextMountedNodes = new Set(visibleNodes);
+  const retainedNodes = new Set(
+    getNodesNearViewport(mountMargin * RESOURCE_RELEASE_VIEWPORTS),
+  );
   const zoom = scale / getBaseScale();
 
   for (const node of state.mountedNodes) {
@@ -893,6 +938,12 @@ function updateMediaVisibility() {
   }
 
   for (const node of visibleNodes) mountMediaCard(node);
+
+  for (const node of [...state.materializedNodes]) {
+    if (!retainedNodes.has(node) && node !== state.selectedNode) {
+      releaseMediaCard(node);
+    }
+  }
 
   for (const node of visibleNodes) {
     const left = state.camera.x + node.x * scale;
