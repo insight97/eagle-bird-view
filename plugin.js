@@ -24,6 +24,7 @@ const PAN_START_THRESHOLD = 4;
 const ORIGINAL_IMAGE_ZOOM = 2;
 const MAX_CONCURRENT_IMAGE_LOADS = 4;
 const RESOURCE_RELEASE_VIEWPORTS = 3;
+const VIEWPORT_WORK_INTERVAL = 100;
 
 function directionFor(key) {
   return ARROW_DIRECTIONS[key] || ARROW_DIRECTIONS[WASD_TO_ARROW[key]];
@@ -42,6 +43,8 @@ const state = {
   selectedNode: null,
   toastTimer: null,
   cameraFrame: null,
+  viewportWorkTimer: null,
+  lastViewportWork: -Infinity,
   started: false,
   eagleReady: false,
 };
@@ -222,6 +225,7 @@ function unmountMediaCard(node) {
 }
 
 function releaseMediaCard(node) {
+  node.mediaGeneration = (node.mediaGeneration || 0) + 1;
   node.pendingMediaQuality = null;
   node.mediaLoadQueued = false;
   if (node.mediaLoading) finishMediaLoad(node);
@@ -265,6 +269,8 @@ function createMediaCard(node) {
   const card = document.createElement("article");
   const frame = document.createElement("div");
   const image = document.createElement("img");
+  const mediaGeneration = (node.mediaGeneration || 0) + 1;
+  node.mediaGeneration = mediaGeneration;
 
   card.className = "media-card";
   card.dataset.itemId = item.id;
@@ -299,6 +305,7 @@ function createMediaCard(node) {
     image.src = mediaURL;
   };
   image.addEventListener("load", () => {
+    if (node.mediaGeneration !== mediaGeneration) return;
     node.mediaLoaded = true;
     node.mediaQuality = node.loadingQuality;
     image.style.visibility = "visible";
@@ -306,6 +313,7 @@ function createMediaCard(node) {
     finishMediaLoad(node);
   });
   image.addEventListener("error", () => {
+    if (node.mediaGeneration !== mediaGeneration) return;
     if (node.loadingQuality === "original" && fallbackURL) {
       node.loadingQuality = "thumbnail";
       image.src = fallbackURL;
@@ -583,6 +591,7 @@ function startVideo(frame, image, playButton, item, node) {
     volumeButton.title = isMuted ? "取消靜音" : "靜音";
   });
   video.addEventListener("error", () => {
+    if (node.videoElement !== video) return;
     showToast("這個影片的容器或編碼無法由外掛播放器解碼。", true);
     video.remove();
     controls.remove();
@@ -929,8 +938,22 @@ function renderCamera() {
   elements.viewport.style.backgroundPosition = `${state.camera.x}px ${state.camera.y}px`;
   const gridSize = Math.max(8, 24 * state.camera.scale);
   elements.viewport.style.backgroundSize = `${gridSize}px ${gridSize}px`;
-  updateLabels();
+  updateMountedLabelPositions();
+  scheduleViewportWork();
+}
+
+function scheduleViewportWork() {
+  if (state.viewportWorkTimer !== null) return;
+  const elapsed = performance.now() - state.lastViewportWork;
+  const delay = Math.max(0, VIEWPORT_WORK_INTERVAL - elapsed);
+  state.viewportWorkTimer = window.setTimeout(runViewportWork, delay);
+}
+
+function runViewportWork() {
+  state.viewportWorkTimer = null;
+  state.lastViewportWork = performance.now();
   updateMediaVisibility();
+  updateLabels();
 }
 
 function updateMediaVisibility() {
@@ -1039,6 +1062,18 @@ function updateLabels() {
 
   for (const { node, left, top, width } of visibleLabels) {
     mountMediaLabel(node);
+    node.label.style.left = `${left}px`;
+    node.label.style.top = `${top}px`;
+    node.label.style.width = `${Math.max(100, width)}px`;
+  }
+}
+
+function updateMountedLabelPositions() {
+  const scale = state.camera.scale;
+  for (const node of state.mountedLabelNodes) {
+    const left = Math.round(state.camera.x + node.x * scale);
+    const top = Math.round(state.camera.y + node.y * scale - 27);
+    const width = Math.round(node.width * scale);
     node.label.style.left = `${left}px`;
     node.label.style.top = `${top}px`;
     node.label.style.width = `${Math.max(100, width)}px`;
