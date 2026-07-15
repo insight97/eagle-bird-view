@@ -35,6 +35,7 @@ const state = {
   rows: [],
   mountedNodes: new Set(),
   materializedNodes: new Set(),
+  mountedLabelNodes: new Set(),
   mediaLoadQueue: [],
   activeMediaLoads: 0,
   mode: "free",
@@ -129,17 +130,13 @@ async function loadSelectedItems() {
 function renderItems(items) {
   exitSelectionMode();
   releaseAllMediaCards();
+  releaseAllMediaLabels();
   elements.world.replaceChildren();
   elements.labels.replaceChildren();
   state.mountedNodes.clear();
   const layout = createJustifiedLayout(items);
   state.nodes = layout.nodes;
   state.rows = layout.rows;
-
-  state.nodes.forEach((node) => {
-    node.label = createMediaLabel(node);
-    elements.labels.append(node.label);
-  });
 
   updateBoardMeta();
   updateLabels();
@@ -421,6 +418,23 @@ function createMediaLabel(node) {
   actions.append(type, rotateLeft, rotateRight);
   label.append(name, actions);
   return label;
+}
+
+function mountMediaLabel(node) {
+  if (!node.label) node.label = createMediaLabel(node);
+  if (!node.label.isConnected) elements.labels.append(node.label);
+  node.label.classList.toggle("is-selected", node === state.selectedNode);
+  state.mountedLabelNodes.add(node);
+}
+
+function releaseMediaLabel(node) {
+  node.label?.remove();
+  node.label = null;
+  state.mountedLabelNodes.delete(node);
+}
+
+function releaseAllMediaLabels() {
+  for (const node of [...state.mountedLabelNodes]) releaseMediaLabel(node);
 }
 
 function bindRotationButton(button, node, direction) {
@@ -751,7 +765,7 @@ function setSelectedNode(node) {
   state.selectedNode = node;
   mountMediaCard(node);
   node.element.classList.add("is-selected");
-  node.label.classList.add("is-selected");
+  node.label?.classList.add("is-selected");
   node.loadMedia("original");
 }
 
@@ -886,6 +900,7 @@ function focusFirstItem() {
 function clearBoard() {
   exitSelectionMode();
   releaseAllMediaCards();
+  releaseAllMediaLabels();
   state.nodes = [];
   state.rows = [];
   state.mountedNodes.clear();
@@ -999,8 +1014,10 @@ function updateLabels() {
   const viewportHeight = elements.viewport.clientHeight;
   const scale = state.camera.scale;
   const zoom = scale / getBaseScale();
+  const labelNodes = zoom >= 0.28 ? getNodesNearViewport(30) : [];
+  const visibleLabels = [];
 
-  for (const node of state.nodes) {
+  for (const node of labelNodes) {
     const left = Math.round(state.camera.x + node.x * scale);
     const top = Math.round(state.camera.y + node.y * scale - 27);
     const width = Math.round(node.width * scale);
@@ -1011,8 +1028,17 @@ function updateLabels() {
       top + 22 >= 0 &&
       top <= viewportHeight;
 
-    node.label.hidden = !isVisible;
     if (!isVisible) continue;
+    visibleLabels.push({ node, left, top, width });
+  }
+
+  const nextLabelNodes = new Set(visibleLabels.map(({ node }) => node));
+  for (const node of [...state.mountedLabelNodes]) {
+    if (!nextLabelNodes.has(node)) releaseMediaLabel(node);
+  }
+
+  for (const { node, left, top, width } of visibleLabels) {
+    mountMediaLabel(node);
     node.label.style.left = `${left}px`;
     node.label.style.top = `${top}px`;
     node.label.style.width = `${Math.max(100, width)}px`;
