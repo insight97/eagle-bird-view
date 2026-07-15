@@ -1,9 +1,9 @@
 "use strict";
 
-const VIDEO_EXTENSIONS = new Set(["mp4", "m4v", "mov", "webm"]);
+const VIDEO_EXTENSIONS = new Set(["mp4", "m4v", "mov", "webm", "mkv"]);
 const MIN_ZOOM = 0.08;
 const MAX_ZOOM = 8;
-const VIDEO_CONTROLS_HEIGHT = 24;
+const VIDEO_CONTROLS_HEIGHT = 14;
 const LAYOUT_WIDTH = 1200;
 const TARGET_ROW_HEIGHT = 180;
 const MIN_ROW_HEIGHT = 140;
@@ -301,7 +301,9 @@ function startVideo(frame, image, playButton, item, node) {
   const controls = document.createElement("div");
   const toggleButton = document.createElement("button");
   const progress = document.createElement("input");
+  const volumeControl = document.createElement("div");
   const volumeButton = document.createElement("button");
+  const volumePopover = document.createElement("div");
   const volume = document.createElement("input");
   const volumeValue = document.createElement("span");
 
@@ -322,10 +324,13 @@ function startVideo(frame, image, playButton, item, node) {
   progress.max = "1000";
   progress.value = "0";
   progress.setAttribute("aria-label", "影片播放進度");
+  volumeControl.className = "volume-control";
   volumeButton.className = "volume-toggle";
   volumeButton.type = "button";
   volumeButton.textContent = "🔊";
   volumeButton.setAttribute("aria-label", "靜音");
+  volumeButton.title = "靜音";
+  volumePopover.className = "volume-popover";
   volume.className = "volume-slider";
   volume.type = "range";
   volume.min = "0";
@@ -335,8 +340,11 @@ function startVideo(frame, image, playButton, item, node) {
   volume.setAttribute("aria-label", "音量");
   volumeValue.className = "volume-value";
   volumeValue.textContent = "100%";
+  volumePopover.append(volume, volumeValue);
+  volumeControl.append(volumeButton, volumePopover);
 
-  controls.append(toggleButton, progress, volumeButton, volume, volumeValue);
+  controls.append(toggleButton, progress, volumeControl);
+  let lastAudibleVolume = video.volume || 1;
 
   controls.addEventListener("dblclick", (event) => event.stopPropagation());
 
@@ -368,21 +376,30 @@ function startVideo(frame, image, playButton, item, node) {
     }
   });
   volumeButton.addEventListener("click", () => {
-    video.muted = !video.muted;
+    if (video.muted || video.volume === 0) {
+      if (video.volume === 0) video.volume = lastAudibleVolume;
+      video.muted = false;
+    } else {
+      lastAudibleVolume = video.volume;
+      video.muted = true;
+    }
   });
   volume.addEventListener("input", () => {
     video.muted = false;
     video.volume = Number(volume.value);
+    if (video.volume > 0) lastAudibleVolume = video.volume;
   });
   video.addEventListener("volumechange", () => {
     const audibleVolume = video.muted ? 0 : video.volume;
+    const isMuted = audibleVolume === 0;
     volume.value = String(audibleVolume);
     volumeValue.textContent = `${Math.round(audibleVolume * 100)}%`;
-    volumeButton.textContent = audibleVolume === 0 ? "🔇" : audibleVolume < 0.5 ? "🔉" : "🔊";
-    volumeButton.setAttribute("aria-label", video.muted ? "取消靜音" : "靜音");
+    volumeButton.textContent = isMuted ? "🔇" : "🔊";
+    volumeButton.setAttribute("aria-label", isMuted ? "取消靜音" : "靜音");
+    volumeButton.title = isMuted ? "取消靜音" : "靜音";
   });
   video.addEventListener("error", () => {
-    showToast("這個 MP4 的編碼無法由外掛播放器解碼，可雙擊卡片回到 Eagle。", true);
+    showToast("這個影片的容器或編碼無法由外掛播放器解碼，可雙擊卡片回到 Eagle。", true);
     video.remove();
     controls.remove();
     node.mediaElement = image;
