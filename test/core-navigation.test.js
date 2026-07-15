@@ -5,8 +5,11 @@ const assert = require("node:assert/strict");
 const {
   directionFor,
   findDirectionalNode,
+  findNodeAtPoint,
   getLabelRect,
   getViewportPanDelta,
+  getViewportWorldCenter,
+  shouldPanSelection,
   zoomCameraAtPoint,
 } = require("../bird-view-core.js");
 
@@ -35,6 +38,26 @@ test("getViewportPanDelta moves two-thirds of the relevant viewport axis", () =>
     x: 0,
     y: 400,
   });
+});
+
+test("selection pans only when the selected item is shorter than the viewport", () => {
+  const node = { height: 200 };
+  assert.equal(shouldPanSelection(401, node, 2), true);
+  assert.equal(shouldPanSelection(400, node, 2), false);
+  assert.equal(shouldPanSelection(399, node, 2), false);
+});
+
+test("findNodeAtPoint selects only an item beneath the viewport center", () => {
+  const first = { x: 0, y: 0, width: 100, height: 100 };
+  const second = { x: 120, y: 0, width: 100, height: 100 };
+  const center = getViewportWorldCenter(
+    { x: -190, y: 0, scale: 2 },
+    { width: 100, height: 100 },
+  );
+
+  assert.deepEqual(center, { x: 120, y: 25 });
+  assert.equal(findNodeAtPoint([first, second], center), second);
+  assert.equal(findNodeAtPoint([first, second], { x: 110, y: 50 }), null);
 });
 
 test("zoomCameraAtPoint preserves the world coordinate beneath the pointer", () => {

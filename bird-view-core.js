@@ -39,6 +39,29 @@
     };
   }
 
+  function shouldPanSelection(viewportHeight, node, scale) {
+    return Boolean(node) && viewportHeight > node.height * scale;
+  }
+
+  function getViewportWorldCenter(camera, viewport) {
+    return {
+      x: (viewport.width / 2 - camera.x) / camera.scale,
+      y: (viewport.height / 2 - camera.y) / camera.scale,
+    };
+  }
+
+  function findNodeAtPoint(nodes, point) {
+    return (
+      nodes.find(
+        (node) =>
+          point.x >= node.x &&
+          point.x <= node.x + node.width &&
+          point.y >= node.y &&
+          point.y <= node.y + node.height,
+      ) || null
+    );
+  }
+
   function zoomCameraAtPoint(camera, point, factor, baseScale, minZoom, maxZoom) {
     const worldX = (point.x - camera.x) / camera.scale;
     const worldY = (point.y - camera.y) / camera.scale;
@@ -218,11 +241,14 @@
     createJustifiedLayout,
     directionFor,
     findDirectionalNode,
+    findNodeAtPoint,
     findNodesNearViewport,
     getAspectRatio,
     getLabelRect,
     getNodeCenter,
     getViewportPanDelta,
+    getViewportWorldCenter,
+    shouldPanSelection,
     zoomCameraAtPoint,
   });
 });

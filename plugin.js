@@ -8,10 +8,13 @@ const {
   createJustifiedLayout,
   directionFor,
   findDirectionalNode,
+  findNodeAtPoint,
   findNodesNearViewport,
   getLabelRect,
   getNodeCenter,
   getViewportPanDelta,
+  getViewportWorldCenter,
+  shouldPanSelection,
   zoomCameraAtPoint,
 } = BirdViewCore;
 const { MediaLoadQueue } = BirdViewMedia;
@@ -531,7 +534,12 @@ function handleKeyDown(event) {
 
   if (state.mode === "selection" && direction) {
     event.preventDefault();
-    selectDirectionalNode(direction[0], direction[1]);
+    if (isSelectionPanMode()) {
+      panBy(direction[0] * -KEYBOARD_PAN_STEP, direction[1] * -KEYBOARD_PAN_STEP);
+      selectNodeAtViewportCenter();
+    } else {
+      selectDirectionalNode(direction[0], direction[1]);
+    }
     return;
   }
 
@@ -600,6 +608,24 @@ function selectDirectionalNode(directionX, directionY) {
   if (!next) return;
   setSelectedNode(next);
   centerNode(next);
+}
+
+function isSelectionPanMode() {
+  return shouldPanSelection(
+    elements.viewport.clientHeight,
+    state.selectedNode,
+    state.camera.scale,
+  );
+}
+
+function selectNodeAtViewportCenter() {
+  if (state.mode !== "selection" || !isSelectionPanMode()) return;
+  const center = getViewportWorldCenter(state.camera, {
+    width: elements.viewport.clientWidth,
+    height: elements.viewport.clientHeight,
+  });
+  const node = findNodeAtPoint(state.nodes, center);
+  if (node && node !== state.selectedNode) setSelectedNode(node);
 }
 
 function activateSelectedNode() {
@@ -734,6 +760,7 @@ function runViewportWork() {
   state.lastViewportWork = performance.now();
   updateMediaVisibility();
   updateLabels();
+  selectNodeAtViewportCenter();
 }
 
 function updateMediaVisibility() {
