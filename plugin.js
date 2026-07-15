@@ -227,6 +227,7 @@ function unmountMediaCard(node) {
 function releaseMediaCard(node) {
   node.mediaGeneration = (node.mediaGeneration || 0) + 1;
   node.pendingMediaQuality = null;
+  node.queuedMediaQuality = null;
   node.mediaLoadQueued = false;
   if (node.mediaLoading) finishMediaLoad(node);
 
@@ -235,6 +236,7 @@ function releaseMediaCard(node) {
     node.videoElement.removeAttribute("src");
     node.videoElement.load();
   }
+  node.preloadImage?.removeAttribute("src");
   node.previewImage?.removeAttribute("src");
   node.element?.remove();
   state.mountedNodes.delete(node);
@@ -243,6 +245,7 @@ function releaseMediaCard(node) {
   node.element = null;
   node.frame = null;
   node.previewImage = null;
+  node.preloadImage = null;
   node.playButton = null;
   node.startPlayback = null;
   node.videoElement = null;
@@ -252,6 +255,8 @@ function releaseMediaCard(node) {
   node.startMediaLoad = null;
   node.mediaLoaded = false;
   node.mediaQuality = null;
+  node.originalLoadFailed = false;
+  node.thumbnailLoadFailed = false;
   node.originalImageURL = null;
   node.fallbackURL = null;
   node.height = node.mediaHeight;
@@ -288,12 +293,14 @@ function createMediaCard(node) {
   node.mediaElement = image;
   node.mediaLoaded = false;
   node.mediaQuality = null;
+  node.originalLoadFailed = false;
+  node.thumbnailLoadFailed = false;
   node.originalImageURL = originalImageURL;
   node.fallbackURL = fallbackURL;
   node.loadMedia = (quality = "thumbnail") => queueMediaLoad(node, quality);
   node.startMediaLoad = () => {
-    const quality = node.pendingMediaQuality || "thumbnail";
-    node.pendingMediaQuality = null;
+    const quality = node.queuedMediaQuality || "thumbnail";
+    node.queuedMediaQuality = null;
     node.mediaLoadQueued = false;
     node.mediaLoading = true;
     node.loadingQuality = quality;
@@ -302,10 +309,59 @@ function createMediaCard(node) {
       finishMediaLoad(node);
       return;
     }
+    if (quality === "original") {
+      const originalImage = document.createElement("img");
+      originalImage.alt = image.alt;
+      originalImage.decoding = "async";
+      originalImage.draggable = false;
+      node.preloadImage = originalImage;
+      originalImage.addEventListener("load", async () => {
+        try {
+          await originalImage.decode();
+        } catch {
+          // A completed load is still safe to reveal when decode() is unavailable.
+        }
+        if (
+          node.mediaGeneration !== mediaGeneration ||
+          node.preloadImage !== originalImage ||
+          node.loadingQuality !== "original"
+        ) {
+          return;
+        }
+        const previousImage = node.previewImage;
+        originalImage.style.visibility = "visible";
+        previousImage?.replaceWith(originalImage);
+        node.previewImage = originalImage;
+        node.preloadImage = null;
+        if (node.mediaElement === previousImage) node.mediaElement = originalImage;
+        node.mediaLoaded = true;
+        node.mediaQuality = "original";
+        applyMediaRotation(node);
+        finishMediaLoad(node);
+      });
+      originalImage.addEventListener("error", () => {
+        if (
+          node.mediaGeneration !== mediaGeneration ||
+          node.preloadImage !== originalImage
+        ) {
+          return;
+        }
+        node.preloadImage = null;
+        node.originalLoadFailed = true;
+        finishMediaLoad(node);
+      });
+      originalImage.src = mediaURL;
+      return;
+    }
     image.src = mediaURL;
   };
   image.addEventListener("load", () => {
-    if (node.mediaGeneration !== mediaGeneration) return;
+    if (
+      node.mediaGeneration !== mediaGeneration ||
+      node.loadingQuality !== "thumbnail"
+    ) {
+      return;
+    }
     node.mediaLoaded = true;
     node.mediaQuality = node.loadingQuality;
     image.style.visibility = "visible";
@@ -313,12 +369,13 @@ function createMediaCard(node) {
     finishMediaLoad(node);
   });
   image.addEventListener("error", () => {
-    if (node.mediaGeneration !== mediaGeneration) return;
-    if (node.loadingQuality === "original" && fallbackURL) {
-      node.loadingQuality = "thumbnail";
-      image.src = fallbackURL;
+    if (
+      node.mediaGeneration !== mediaGeneration ||
+      node.loadingQuality !== "thumbnail"
+    ) {
       return;
     }
+    node.thumbnailLoadFailed = true;
     image.alt = "無法顯示縮圖";
     finishMediaLoad(node);
   });
@@ -358,20 +415,44 @@ function createMediaCard(node) {
 }
 
 function queueMediaLoad(node, requestedQuality) {
-  const quality =
-    requestedQuality === "original" && node.originalImageURL ? "original" : "thumbnail";
+  const wantsOriginal =
+    requestedQuality === "original" &&
+    node.originalImageURL &&
+    !node.originalLoadFailed;
+  let quality = wantsOriginal ? "original" : "thumbnail";
+  if (quality === "thumbnail" && node.thumbnailLoadFailed) return;
   if (node.mediaQuality === "original") return;
   if (node.mediaLoaded && node.mediaQuality === quality) return;
+  let followupQuality = null;
   if (
-    node.pendingMediaQuality !== "original" ||
-    quality === "original"
+    quality === "original" &&
+    !node.mediaLoaded &&
+    node.fallbackURL &&
+    node.fallbackURL !== node.originalImageURL &&
+    !node.thumbnailLoadFailed
   ) {
-    node.pendingMediaQuality = quality;
+    followupQuality = "original";
+    quality = "thumbnail";
   }
-  if (node.mediaLoading || node.mediaLoadQueued) return;
+  const desiredQuality = followupQuality || quality;
 
+  if (node.mediaLoading) {
+    if (node.pendingMediaQuality !== "original" || desiredQuality === "original") {
+      node.pendingMediaQuality = desiredQuality;
+    }
+    return;
+  }
+  if (node.mediaLoadQueued) {
+    if (followupQuality) node.pendingMediaQuality = followupQuality;
+    else if (quality === "original") node.queuedMediaQuality = "original";
+    return;
+  }
+
+  node.pendingMediaQuality = followupQuality;
+  node.queuedMediaQuality = quality;
   node.mediaLoadQueued = true;
-  state.mediaLoadQueue.push(node);
+  if (quality === "original") state.mediaLoadQueue.unshift(node);
+  else state.mediaLoadQueue.push(node);
   pumpMediaLoadQueue();
 }
 
