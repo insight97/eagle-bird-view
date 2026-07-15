@@ -49,15 +49,6 @@ button {
   align-items: center;
 }
 
-.mode-label {
-  color: #a8abb1;
-}
-
-.mode-label.is-selection {
-  color: #a49dff;
-  font-weight: 600;
-}
-
 .brand {
   gap: 10px;
   min-width: 0;

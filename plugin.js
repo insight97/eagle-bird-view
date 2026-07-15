@@ -7,12 +7,12 @@ const {
   clamp,
   createJustifiedLayout,
   directionFor,
-  findNodeAtPoint,
+  findNearestNodeToPoint,
   findNodesNearViewport,
   getLabelRect,
-  getNodeCenter,
   getViewportPanDelta,
   getViewportWorldCenter,
+  isPlayingVideo,
   zoomCameraAtPoint,
 } = BirdViewCore;
 const { MediaLoadQueue } = BirdViewMedia;
@@ -37,7 +37,6 @@ const state = {
   mountedNodes: new Set(),
   materializedNodes: new Set(),
   mountedLabelNodes: new Set(),
-  mode: "free",
   selectedNode: null,
   toastTimer: null,
   cameraFrame: null,
@@ -64,7 +63,6 @@ function setup() {
   elements.world = document.querySelector("#world");
   elements.labels = document.querySelector("#labels");
   elements.emptyState = document.querySelector("#empty-state");
-  elements.modeLabel = document.querySelector("#mode-label");
   elements.itemCount = document.querySelector("#item-count");
   elements.zoomLabel = document.querySelector("#zoom-label");
   elements.toast = document.querySelector("#toast");
@@ -75,7 +73,6 @@ function setup() {
   window.addEventListener("resize", updateCamera);
 
   state.camera.scale = getBaseScale();
-  updateModeMeta();
   updateCamera();
   if (
     typeof eagle === "undefined" ||
@@ -130,7 +127,7 @@ async function loadSelectedItems() {
 }
 
 function renderItems(items) {
-  exitSelectionMode();
+  clearSelection();
   releaseAllMediaCards();
   releaseAllMediaLabels();
   elements.world.replaceChildren();
@@ -475,19 +472,17 @@ function handleWheel(event) {
 }
 
 function handleKeyDown(event) {
-  if (state.mode === "selection" && (event.key === "Shift" || event.key === "Escape")) {
-    event.preventDefault();
-    exitSelectionMode();
-    return;
-  }
-
   if (
-    state.mode === "selection" &&
     event.ctrlKey &&
     ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)
   ) {
     event.preventDefault();
-    controlSelectedVideo(event.key);
+    if (isPlayingVideo(state.selectedNode?.videoElement)) {
+      controlSelectedVideo(event.key);
+    } else {
+      panOneViewport(event.key);
+      selectNodeAtViewportCenter();
+    }
     return;
   }
 
@@ -496,11 +491,7 @@ function handleKeyDown(event) {
   if (event.key === "Enter") {
     event.preventDefault();
     if (event.repeat) return;
-    if (state.mode === "free") {
-      enterSelectionMode();
-    } else {
-      activateSelectedNode();
-    }
+    activateSelectedNode();
     return;
   }
 
@@ -515,31 +506,14 @@ function handleKeyDown(event) {
     return;
   }
 
-  if (
-    state.mode === "free" &&
-    event.ctrlKey &&
-    event.key.startsWith("Arrow") &&
-    directionFor(event.key)
-  ) {
-    event.preventDefault();
-    panOneViewport(event.key);
-    return;
-  }
-
   if (event.ctrlKey || event.metaKey || event.altKey) return;
   const key = event.key.toLowerCase();
   const direction = directionFor(key);
 
-  if (state.mode === "selection" && direction) {
-    event.preventDefault();
-    panBy(direction[0] * -KEYBOARD_PAN_STEP, direction[1] * -KEYBOARD_PAN_STEP);
-    selectNodeAtViewportCenter();
-    return;
-  }
-
   if (!direction) return;
   event.preventDefault();
   panBy(direction[0] * -KEYBOARD_PAN_STEP, direction[1] * -KEYBOARD_PAN_STEP);
+  selectNodeAtViewportCenter();
 }
 
 function panBy(dx, dy) {
@@ -557,31 +531,10 @@ function panOneViewport(key) {
   if (delta) panBy(delta.x, delta.y);
 }
 
-function enterSelectionMode() {
-  if (!state.nodes.length) return;
-  const viewportCenter = {
-    x: (elements.viewport.clientWidth / 2 - state.camera.x) / state.camera.scale,
-    y: (elements.viewport.clientHeight / 2 - state.camera.y) / state.camera.scale,
-  };
-  const closestNode = state.nodes.reduce((closest, node) => {
-    const center = getNodeCenter(node);
-    const distance = (center.x - viewportCenter.x) ** 2 + (center.y - viewportCenter.y) ** 2;
-    return !closest || distance < closest.distance ? { node, distance } : closest;
-  }, null)?.node;
-
-  if (!closestNode) return;
-  state.mode = "selection";
-  setSelectedNode(closestNode);
-  centerNode(closestNode);
-  updateModeMeta();
-}
-
-function exitSelectionMode() {
+function clearSelection() {
   state.selectedNode?.element?.classList.remove("is-selected");
   state.selectedNode?.label?.classList.remove("is-selected");
   state.selectedNode = null;
-  state.mode = "free";
-  updateModeMeta();
 }
 
 function setSelectedNode(node) {
@@ -592,16 +545,14 @@ function setSelectedNode(node) {
   mountMediaCard(node);
   node.element.classList.add("is-selected");
   node.label?.classList.add("is-selected");
-  node.loadMedia("original");
 }
 
 function selectNodeAtViewportCenter() {
-  if (state.mode !== "selection") return;
   const center = getViewportWorldCenter(state.camera, {
     width: elements.viewport.clientWidth,
     height: elements.viewport.clientHeight,
   });
-  const node = findNodeAtPoint(state.nodes, center);
+  const node = findNearestNodeToPoint(state.nodes, center);
   if (node && node !== state.selectedNode) setSelectedNode(node);
 }
 
@@ -613,7 +564,6 @@ function activateSelectedNode() {
   } else {
     node.startPlayback?.();
   }
-  centerNode(node);
 }
 
 function controlSelectedVideo(key) {
@@ -638,21 +588,6 @@ function controlSelectedVideo(key) {
     0,
     1,
   );
-}
-
-function centerNode(node) {
-  const center = getNodeCenter(node);
-  state.camera.x = elements.viewport.clientWidth / 2 - center.x * state.camera.scale;
-  state.camera.y = elements.viewport.clientHeight / 2 - center.y * state.camera.scale;
-  updateCamera();
-}
-
-function updateModeMeta() {
-  if (!elements.modeLabel) return;
-  const isSelection = state.mode === "selection";
-  elements.modeLabel.textContent = isSelection ? "選取模式" : "自由模式";
-  elements.modeLabel.classList.toggle("is-selection", isSelection);
-  elements.viewport?.classList.toggle("is-selection-mode", isSelection);
 }
 
 function zoomAtPoint(pointerX, pointerY, factor) {
@@ -687,10 +622,11 @@ function focusFirstItem() {
   state.camera.x = viewportWidth / 2 - (node.x + node.width / 2) * scale;
   state.camera.y = viewportHeight / 2 - (node.y + displayHeight / 2) * scale;
   updateCamera();
+  selectNodeAtViewportCenter();
 }
 
 function clearBoard() {
-  exitSelectionMode();
+  clearSelection();
   releaseAllMediaCards();
   releaseAllMediaLabels();
   state.nodes = [];
@@ -780,7 +716,7 @@ function updateMediaVisibility() {
 
     if (isNearViewport) {
       const quality =
-        !node.isVideo && (node === state.selectedNode || zoom >= ORIGINAL_IMAGE_ZOOM)
+        !node.isVideo && zoom >= ORIGINAL_IMAGE_ZOOM
           ? "original"
           : "thumbnail";
       node.loadMedia(quality);

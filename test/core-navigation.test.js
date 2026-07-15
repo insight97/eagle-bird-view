@@ -4,10 +4,11 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   directionFor,
-  findNodeAtPoint,
+  findNearestNodeToPoint,
   getLabelRect,
   getViewportPanDelta,
   getViewportWorldCenter,
+  isPlayingVideo,
   zoomCameraAtPoint,
 } = require("../bird-view-core.js");
 
@@ -38,7 +39,7 @@ test("getViewportPanDelta moves two-thirds of the relevant viewport axis", () =>
   });
 });
 
-test("findNodeAtPoint selects only an item beneath the viewport center", () => {
+test("findNearestNodeToPoint prefers the item beneath the viewport center", () => {
   const first = { x: 0, y: 0, width: 100, height: 100 };
   const second = { x: 120, y: 0, width: 100, height: 100 };
   const center = getViewportWorldCenter(
@@ -47,8 +48,15 @@ test("findNodeAtPoint selects only an item beneath the viewport center", () => {
   );
 
   assert.deepEqual(center, { x: 120, y: 25 });
-  assert.equal(findNodeAtPoint([first, second], center), second);
-  assert.equal(findNodeAtPoint([first, second], { x: 110, y: 50 }), null);
+  assert.equal(findNearestNodeToPoint([first, second], center), second);
+  assert.equal(findNearestNodeToPoint([first, second], { x: 109, y: 50 }), first);
+  assert.equal(findNearestNodeToPoint([first, second], { x: 111, y: 50 }), second);
+});
+
+test("video controls take over ctrl arrows only during playback", () => {
+  assert.equal(isPlayingVideo(null), false);
+  assert.equal(isPlayingVideo({ paused: true }), false);
+  assert.equal(isPlayingVideo({ paused: false }), true);
 });
 
 test("zoomCameraAtPoint preserves the world coordinate beneath the pointer", () => {

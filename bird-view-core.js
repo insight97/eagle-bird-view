@@ -46,16 +46,27 @@
     };
   }
 
-  function findNodeAtPoint(nodes, point) {
-    return (
-      nodes.find(
-        (node) =>
-          point.x >= node.x &&
-          point.x <= node.x + node.width &&
-          point.y >= node.y &&
-          point.y <= node.y + node.height,
-      ) || null
-    );
+  function findNearestNodeToPoint(nodes, point) {
+    let nearest = null;
+    for (const node of nodes) {
+      const dx = Math.max(node.x - point.x, 0, point.x - (node.x + node.width));
+      const dy = Math.max(node.y - point.y, 0, point.y - (node.y + node.height));
+      const edgeDistance = dx ** 2 + dy ** 2;
+      const center = getNodeCenter(node);
+      const centerDistance = (center.x - point.x) ** 2 + (center.y - point.y) ** 2;
+      if (
+        !nearest ||
+        edgeDistance < nearest.edgeDistance ||
+        (edgeDistance === nearest.edgeDistance && centerDistance < nearest.centerDistance)
+      ) {
+        nearest = { node, edgeDistance, centerDistance };
+      }
+    }
+    return nearest?.node || null;
+  }
+
+  function isPlayingVideo(video) {
+    return Boolean(video && !video.paused);
   }
 
   function zoomCameraAtPoint(camera, point, factor, baseScale, minZoom, maxZoom) {
@@ -192,13 +203,13 @@
     clamp,
     createJustifiedLayout,
     directionFor,
-    findNodeAtPoint,
+    findNearestNodeToPoint,
     findNodesNearViewport,
     getAspectRatio,
     getLabelRect,
-    getNodeCenter,
     getViewportPanDelta,
     getViewportWorldCenter,
+    isPlayingVideo,
     zoomCameraAtPoint,
   });
 });
