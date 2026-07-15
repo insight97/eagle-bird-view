@@ -49,6 +49,15 @@ button {
   align-items: center;
 }
 
+.mode-label {
+  color: #a8abb1;
+}
+
+.mode-label.is-selection {
+  color: #a49dff;
+  font-weight: 600;
+}
+
 .brand {
   gap: 10px;
   min-width: 0;
@@ -129,6 +138,13 @@ button {
 
 .media-card:hover {
   border-color: #7971ed;
+  box-shadow: none;
+}
+
+.media-card.is-selected {
+  border-color: #c8c4ff;
+  outline: 1px solid #7168ee;
+  outline-offset: 2px;
   box-shadow: none;
 }
 
@@ -335,6 +351,10 @@ button {
   text-rendering: geometricPrecision;
 }
 
+.media-label.is-selected {
+  color: #c8c4ff;
+}
+
 .media-label-actions {
   display: flex;
   flex: none;
@@ -456,7 +476,9 @@ button {
 }
 
 @media (max-width: 800px) {
-  .toolbar-meta {
+  #item-count,
+  #zoom-label,
+  .toolbar-meta .divider {
     display: none;
   }
 }

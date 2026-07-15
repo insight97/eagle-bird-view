@@ -11,10 +11,15 @@ const MAX_ROW_HEIGHT = 220;
 const LAYOUT_GAP = 14;
 const KEYBOARD_PAN_STEP = 240;
 const KEYBOARD_ZOOM_FACTOR = 1.5;
+const KEYBOARD_SEEK_STEP = 5;
+const KEYBOARD_VOLUME_STEP = 0.05;
+const PAN_START_THRESHOLD = 4;
 
 const state = {
   camera: { x: 0, y: 0, scale: 1 },
   nodes: [],
+  mode: "free",
+  selectedNode: null,
   toastTimer: null,
   started: false,
   eagleReady: false,
@@ -36,6 +41,7 @@ function setup() {
   elements.world = document.querySelector("#world");
   elements.labels = document.querySelector("#labels");
   elements.emptyState = document.querySelector("#empty-state");
+  elements.modeLabel = document.querySelector("#mode-label");
   elements.itemCount = document.querySelector("#item-count");
   elements.zoomLabel = document.querySelector("#zoom-label");
   elements.toast = document.querySelector("#toast");
@@ -46,6 +52,7 @@ function setup() {
   window.addEventListener("resize", updateCamera);
 
   state.camera.scale = getBaseScale();
+  updateModeMeta();
   updateCamera();
   if (
     typeof eagle === "undefined" ||
@@ -100,6 +107,7 @@ async function loadSelectedItems() {
 }
 
 function renderItems(items) {
+  exitSelectionMode();
   elements.world.replaceChildren();
   elements.labels.replaceChildren();
   state.nodes = createJustifiedLayout(items);
@@ -185,7 +193,9 @@ function createMediaCard(node) {
 
   card.className = "media-card";
   card.dataset.itemId = item.id;
-  card.title = `${item.name || "未命名"}（雙擊在 Eagle 開啟）`;
+  card.title = isVideo
+    ? `${item.name || "未命名"}（雙擊播放或暫停）`
+    : item.name || "未命名";
   frame.className = "media-frame";
   frame.style.height = `${node.mediaHeight}px`;
   const originalImageURL = !isVideo ? item.fileURL : null;
@@ -218,6 +228,8 @@ function createMediaCard(node) {
 
   frame.append(image);
   card.append(frame);
+  node.frame = frame;
+  node.previewImage = image;
 
   if (isVideo) {
     const playButton = document.createElement("button");
@@ -230,12 +242,19 @@ function createMediaCard(node) {
       event.stopPropagation();
       startVideo(frame, image, playButton, item, node);
     });
+    node.playButton = playButton;
+    node.startPlayback = () => startVideo(frame, image, playButton, item, node);
     frame.append(playButton);
   }
 
   card.addEventListener("dblclick", (event) => {
-    if (event.target.closest("video, button")) return;
-    openInEagle(item);
+    if (!node.isVideo || event.target.closest("button, input")) return;
+    event.preventDefault();
+    if (node.togglePlayback) {
+      node.togglePlayback();
+    } else {
+      node.startPlayback?.();
+    }
   });
 
   return card;
@@ -311,6 +330,10 @@ function applyMediaRotation(node) {
 }
 
 function startVideo(frame, image, playButton, item, node) {
+  if (node.videoElement) {
+    node.togglePlayback?.();
+    return;
+  }
   const video = document.createElement("video");
   const controls = document.createElement("div");
   const toggleButton = document.createElement("button");
@@ -369,6 +392,8 @@ function startVideo(frame, image, playButton, item, node) {
       video.pause();
     }
   };
+  node.videoElement = video;
+  node.togglePlayback = togglePlayback;
 
   toggleButton.addEventListener("click", togglePlayback);
   video.addEventListener("play", () => {
@@ -413,9 +438,11 @@ function startVideo(frame, image, playButton, item, node) {
     volumeButton.title = isMuted ? "取消靜音" : "靜音";
   });
   video.addEventListener("error", () => {
-    showToast("這個影片的容器或編碼無法由外掛播放器解碼，可雙擊卡片回到 Eagle。", true);
+    showToast("這個影片的容器或編碼無法由外掛播放器解碼。", true);
     video.remove();
     controls.remove();
+    node.videoElement = null;
+    node.togglePlayback = null;
     node.mediaElement = image;
     applyMediaRotation(node);
     frame.prepend(image);
@@ -437,26 +464,27 @@ function startVideo(frame, image, playButton, item, node) {
   });
 }
 
-async function openInEagle(item) {
-  try {
-    await eagle.item.open(item.id, { window: true });
-  } catch (error) {
-    console.error("Failed to open item in Eagle", error);
-    showToast("無法在 Eagle 開啟這個素材。", true);
-  }
-}
-
 function beginPan(event) {
   if (event.button !== 0 && event.button !== 1) return;
   if (event.target.closest("button, input")) return;
 
-  event.preventDefault();
   const startPointer = { x: event.clientX, y: event.clientY };
   const startCamera = { ...state.camera };
-  elements.viewport.classList.add("is-panning");
-  elements.viewport.setPointerCapture(event.pointerId);
+  let isPanning = event.button === 1;
+  if (isPanning) {
+    event.preventDefault();
+    elements.viewport.classList.add("is-panning");
+  }
 
   const move = (moveEvent) => {
+    const deltaX = moveEvent.clientX - startPointer.x;
+    const deltaY = moveEvent.clientY - startPointer.y;
+    if (!isPanning && Math.hypot(deltaX, deltaY) < PAN_START_THRESHOLD) return;
+    if (!isPanning) {
+      isPanning = true;
+      elements.viewport.classList.add("is-panning");
+    }
+    moveEvent.preventDefault();
     state.camera.x = startCamera.x + moveEvent.clientX - startPointer.x;
     state.camera.y = startCamera.y + moveEvent.clientY - startPointer.y;
     updateCamera();
@@ -464,14 +492,14 @@ function beginPan(event) {
 
   const end = () => {
     elements.viewport.classList.remove("is-panning");
-    elements.viewport.removeEventListener("pointermove", move);
-    elements.viewport.removeEventListener("pointerup", end);
-    elements.viewport.removeEventListener("pointercancel", end);
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", end);
+    window.removeEventListener("pointercancel", end);
   };
 
-  elements.viewport.addEventListener("pointermove", move);
-  elements.viewport.addEventListener("pointerup", end);
-  elements.viewport.addEventListener("pointercancel", end);
+  window.addEventListener("pointermove", move, { passive: false });
+  window.addEventListener("pointerup", end);
+  window.addEventListener("pointercancel", end);
 }
 
 function handleWheel(event) {
@@ -484,7 +512,34 @@ function handleWheel(event) {
 }
 
 function handleKeyDown(event) {
+  if (state.mode === "selection" && (event.key === "Shift" || event.key === "Escape")) {
+    event.preventDefault();
+    exitSelectionMode();
+    return;
+  }
+
+  if (
+    state.mode === "selection" &&
+    event.ctrlKey &&
+    ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)
+  ) {
+    event.preventDefault();
+    controlSelectedVideo(event.key);
+    return;
+  }
+
   if (isInteractiveTarget(event.target)) return;
+
+  if (event.key === "Enter") {
+    event.preventDefault();
+    if (event.repeat) return;
+    if (state.mode === "free") {
+      enterSelectionMode();
+    } else {
+      activateSelectedNode();
+    }
+    return;
+  }
 
   if (event.ctrlKey && (event.key === "PageUp" || event.key === "PageDown")) {
     event.preventDefault();
@@ -499,6 +554,23 @@ function handleKeyDown(event) {
 
   if (event.ctrlKey || event.metaKey || event.altKey) return;
   const key = event.key.toLowerCase();
+  const direction = {
+    arrowup: [0, -1],
+    w: [0, -1],
+    arrowdown: [0, 1],
+    s: [0, 1],
+    arrowleft: [-1, 0],
+    a: [-1, 0],
+    arrowright: [1, 0],
+    d: [1, 0],
+  }[key];
+
+  if (state.mode === "selection" && direction) {
+    event.preventDefault();
+    selectDirectionalNode(direction[0], direction[1]);
+    return;
+  }
+
   const movement = {
     arrowup: [0, KEYBOARD_PAN_STEP],
     w: [0, KEYBOARD_PAN_STEP],
@@ -515,6 +587,134 @@ function handleKeyDown(event) {
   state.camera.x += movement[0];
   state.camera.y += movement[1];
   updateCamera();
+}
+
+function enterSelectionMode() {
+  if (!state.nodes.length) return;
+  const viewportCenter = {
+    x: (elements.viewport.clientWidth / 2 - state.camera.x) / state.camera.scale,
+    y: (elements.viewport.clientHeight / 2 - state.camera.y) / state.camera.scale,
+  };
+  const closestNode = state.nodes.reduce((closest, node) => {
+    const center = getNodeCenter(node);
+    const distance = (center.x - viewportCenter.x) ** 2 + (center.y - viewportCenter.y) ** 2;
+    return !closest || distance < closest.distance ? { node, distance } : closest;
+  }, null)?.node;
+
+  if (!closestNode) return;
+  state.mode = "selection";
+  setSelectedNode(closestNode);
+  centerNode(closestNode);
+  updateModeMeta();
+}
+
+function exitSelectionMode() {
+  state.selectedNode?.element?.classList.remove("is-selected");
+  state.selectedNode?.label?.classList.remove("is-selected");
+  state.selectedNode = null;
+  state.mode = "free";
+  updateModeMeta();
+}
+
+function setSelectedNode(node) {
+  if (!node || node === state.selectedNode) return;
+  state.selectedNode?.element?.classList.remove("is-selected");
+  state.selectedNode?.label?.classList.remove("is-selected");
+  state.selectedNode = node;
+  node.element.classList.add("is-selected");
+  node.label.classList.add("is-selected");
+  node.loadMedia();
+}
+
+function selectDirectionalNode(directionX, directionY) {
+  const current = state.selectedNode;
+  if (!current) return;
+  const currentCenter = getNodeCenter(current);
+  let bestMatch = null;
+
+  for (const node of state.nodes) {
+    if (node === current) continue;
+    const overlapsNavigationAxis = directionX
+      ? rangesOverlap(current.y, current.y + current.height, node.y, node.y + node.height)
+      : rangesOverlap(current.x, current.x + current.width, node.x, node.x + node.width);
+    if (!overlapsNavigationAxis) continue;
+    const center = getNodeCenter(node);
+    const deltaX = center.x - currentCenter.x;
+    const deltaY = center.y - currentCenter.y;
+    const forwardDistance = deltaX * directionX + deltaY * directionY;
+    if (forwardDistance <= 0) continue;
+    const crossDistance = Math.abs(deltaX * directionY - deltaY * directionX);
+    const distance = Math.hypot(deltaX, deltaY);
+    const anglePenalty = crossDistance / forwardDistance;
+    const score = anglePenalty * LAYOUT_WIDTH * 4 + distance;
+
+    if (!bestMatch || score < bestMatch.score) bestMatch = { node, score };
+  }
+
+  if (!bestMatch) return;
+  setSelectedNode(bestMatch.node);
+  centerNode(bestMatch.node);
+}
+
+function rangesOverlap(startA, endA, startB, endB) {
+  return Math.min(endA, endB) > Math.max(startA, startB);
+}
+
+function activateSelectedNode() {
+  const node = state.selectedNode;
+  if (!node?.isVideo) return;
+  if (node.togglePlayback) {
+    node.togglePlayback();
+  } else {
+    node.startPlayback?.();
+  }
+  centerNode(node);
+}
+
+function controlSelectedVideo(key) {
+  const video = state.selectedNode?.videoElement;
+  if (!video) return;
+
+  if (key === "ArrowLeft" || key === "ArrowRight") {
+    if (!Number.isFinite(video.duration)) return;
+    const direction = key === "ArrowRight" ? 1 : -1;
+    video.currentTime = clamp(
+      video.currentTime + direction * KEYBOARD_SEEK_STEP,
+      0,
+      video.duration,
+    );
+    return;
+  }
+
+  const direction = key === "ArrowUp" ? 1 : -1;
+  video.muted = false;
+  video.volume = clamp(
+    video.volume + direction * KEYBOARD_VOLUME_STEP,
+    0,
+    1,
+  );
+}
+
+function centerNode(node) {
+  const center = getNodeCenter(node);
+  state.camera.x = elements.viewport.clientWidth / 2 - center.x * state.camera.scale;
+  state.camera.y = elements.viewport.clientHeight / 2 - center.y * state.camera.scale;
+  updateCamera();
+}
+
+function getNodeCenter(node) {
+  return {
+    x: node.x + node.width / 2,
+    y: node.y + node.height / 2,
+  };
+}
+
+function updateModeMeta() {
+  if (!elements.modeLabel) return;
+  const isSelection = state.mode === "selection";
+  elements.modeLabel.textContent = isSelection ? "選取模式" : "自由模式";
+  elements.modeLabel.classList.toggle("is-selection", isSelection);
+  elements.viewport?.classList.toggle("is-selection-mode", isSelection);
 }
 
 function zoomAtPoint(pointerX, pointerY, factor) {
@@ -555,6 +755,7 @@ function focusFirstItem() {
 }
 
 function clearBoard() {
+  exitSelectionMode();
   state.nodes = [];
   elements.world.replaceChildren();
   elements.labels.replaceChildren();
