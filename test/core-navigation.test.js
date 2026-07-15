@@ -64,3 +64,25 @@ test("findDirectionalNode selects aligned nodes and ignores off-axis candidates"
   assert.equal(findDirectionalNode([current, diagonal, aligned], current, 1, 0), aligned);
   assert.equal(findDirectionalNode([current, aligned], current, -1, 0), null);
 });
+
+test("vertical selection never skips an adjacent row", () => {
+  const current = { x: 0, y: 0, width: 100, height: 100 };
+  const adjacentOffAxis = { x: 140, y: 120, width: 100, height: 100 };
+  const fartherAligned = { x: 0, y: 240, width: 100, height: 100 };
+
+  assert.equal(
+    findDirectionalNode([current, adjacentOffAxis, fartherAligned], current, 0, 1),
+    null,
+  );
+});
+
+test("vertical selection chooses an aligned item from the adjacent row", () => {
+  const current = { x: 100, y: 120, width: 100, height: 100 };
+  const adjacentAligned = { x: 80, y: 0, width: 100, height: 100 };
+  const fartherAligned = { x: 100, y: -120, width: 100, height: 100 };
+
+  assert.equal(
+    findDirectionalNode([fartherAligned, adjacentAligned, current], current, 0, -1),
+    adjacentAligned,
+  );
+});

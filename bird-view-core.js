@@ -69,10 +69,12 @@
 
   function findDirectionalNode(nodes, current, directionX, directionY) {
     const currentCenter = getNodeCenter(current);
+    const adjacentRowY = directionY ? findAdjacentRowY(nodes, current, directionY) : null;
     let bestMatch = null;
 
     for (const node of nodes) {
       if (node === current) continue;
+      if (directionY && node.y !== adjacentRowY) continue;
       const overlapsNavigationAxis = directionX
         ? rangesOverlap(current.y, current.y + current.height, node.y, node.y + node.height)
         : rangesOverlap(current.x, current.x + current.width, node.x, node.x + node.width);
@@ -90,6 +92,19 @@
     }
 
     return bestMatch?.node || null;
+  }
+
+  function findAdjacentRowY(nodes, current, directionY) {
+    let adjacentRowY = null;
+    let shortestDistance = Infinity;
+    for (const node of nodes) {
+      const distance = (node.y - current.y) * directionY;
+      if (distance > 0 && distance < shortestDistance) {
+        shortestDistance = distance;
+        adjacentRowY = node.y;
+      }
+    }
+    return adjacentRowY;
   }
 
   function getAspectRatio(item) {
