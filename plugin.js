@@ -1,14 +1,15 @@
 "use strict";
 
-const VIDEO_EXTENSIONS = new Set(["mp4", "m4v", "mov", "webm", "mkv"]);
+const {
+  LAYOUT_WIDTH,
+  TARGET_ROW_HEIGHT,
+  VIDEO_CONTROLS_HEIGHT,
+  VIDEO_EXTENSIONS,
+  createJustifiedLayout,
+  findNodesNearViewport,
+} = BirdViewCore;
 const MIN_ZOOM = 0.08;
 const MAX_ZOOM = 8;
-const VIDEO_CONTROLS_HEIGHT = 14;
-const LAYOUT_WIDTH = 1200;
-const TARGET_ROW_HEIGHT = 180;
-const MIN_ROW_HEIGHT = 140;
-const MAX_ROW_HEIGHT = 220;
-const LAYOUT_GAP = 14;
 const KEYBOARD_PAN_STEP = 240;
 const VIEWPORT_PAN_FRACTION = 2 / 3;
 const KEYBOARD_ZOOM_FACTOR = 1.5;
@@ -144,70 +145,6 @@ function renderItems(items) {
 
   updateBoardMeta();
   updateLabels();
-}
-
-function createJustifiedLayout(items) {
-  const nodes = [];
-  const rows = [];
-  let row = [];
-  let aspectRatioSum = 0;
-  let y = 0;
-
-  const commitRow = (justify) => {
-    if (!row.length) return;
-    const gapWidth = LAYOUT_GAP * Math.max(0, row.length - 1);
-    const fittedHeight = (LAYOUT_WIDTH - gapWidth) / aspectRatioSum;
-    let rowHeight = justify ? fittedHeight : TARGET_ROW_HEIGHT;
-    rowHeight = Math.min(MAX_ROW_HEIGHT, rowHeight);
-
-    if (rowHeight < MIN_ROW_HEIGHT) {
-      const widthAtMinimumHeight = aspectRatioSum * MIN_ROW_HEIGHT + gapWidth;
-      if (widthAtMinimumHeight <= LAYOUT_WIDTH) rowHeight = MIN_ROW_HEIGHT;
-    }
-
-    let x = 0;
-    let rowHasVideo = false;
-    const layoutRow = { top: y, bottom: y + rowHeight, nodes: [] };
-    for (const entry of row) {
-      const width = entry.aspectRatio * rowHeight;
-      const node = {
-        item: entry.item,
-        x,
-        y,
-        width,
-        height: rowHeight,
-        mediaHeight: rowHeight,
-        isVideo: entry.isVideo,
-        rotation: 0,
-      };
-      nodes.push(node);
-      layoutRow.nodes.push(node);
-      x += width + LAYOUT_GAP;
-      rowHasVideo ||= entry.isVideo;
-    }
-
-    rows.push(layoutRow);
-    y += rowHeight + (rowHasVideo ? VIDEO_CONTROLS_HEIGHT : 0) + LAYOUT_GAP;
-    row = [];
-    aspectRatioSum = 0;
-  };
-
-  for (const item of items) {
-    const aspectRatio = getAspectRatio(item);
-    row.push({
-      item,
-      aspectRatio,
-      isVideo: VIDEO_EXTENSIONS.has(String(item.ext || "").toLowerCase()),
-    });
-    aspectRatioSum += aspectRatio;
-
-    const gapWidth = LAYOUT_GAP * Math.max(0, row.length - 1);
-    const fittedHeight = (LAYOUT_WIDTH - gapWidth) / aspectRatioSum;
-    if (fittedHeight <= TARGET_ROW_HEIGHT) commitRow(true);
-  }
-
-  commitRow(false);
-  return { nodes, rows };
 }
 
 function mountMediaCard(node) {
@@ -1089,30 +1026,12 @@ function updateMediaVisibility() {
 }
 
 function getNodesNearViewport(screenMargin) {
-  if (!state.rows.length) return [];
-  const scale = state.camera.scale;
-  const left = (-state.camera.x - screenMargin) / scale;
-  const top = (-state.camera.y - screenMargin) / scale;
-  const right = (elements.viewport.clientWidth - state.camera.x + screenMargin) / scale;
-  const bottom = (elements.viewport.clientHeight - state.camera.y + screenMargin) / scale;
-  let low = 0;
-  let high = state.rows.length;
-
-  while (low < high) {
-    const middle = Math.floor((low + high) / 2);
-    if (state.rows[middle].bottom < top) low = middle + 1;
-    else high = middle;
-  }
-
-  const nodes = [];
-  for (let index = low; index < state.rows.length; index += 1) {
-    const row = state.rows[index];
-    if (row.top > bottom) break;
-    for (const node of row.nodes) {
-      if (node.x + node.width >= left && node.x <= right) nodes.push(node);
-    }
-  }
-  return nodes;
+  return findNodesNearViewport(
+    state.rows,
+    state.camera,
+    { width: elements.viewport.clientWidth, height: elements.viewport.clientHeight },
+    screenMargin,
+  );
 }
 
 function updateLabels() {
@@ -1190,15 +1109,6 @@ function screenToWorld(clientX, clientY) {
     x: (clientX - rect.left - state.camera.x) / state.camera.scale,
     y: (clientY - rect.top - state.camera.y) / state.camera.scale,
   };
-}
-
-function getAspectRatio(item) {
-  const width = Number(item.width);
-  const height = Number(item.height);
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-    return 16 / 10;
-  }
-  return width / height;
 }
 
 function showToast(message, isError = false) {
