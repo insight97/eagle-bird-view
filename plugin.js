@@ -21,6 +21,8 @@ const WASD_TO_ARROW = { w: "arrowup", s: "arrowdown", a: "arrowleft", d: "arrowr
 const KEYBOARD_SEEK_STEP = 5;
 const KEYBOARD_VOLUME_STEP = 0.05;
 const PAN_START_THRESHOLD = 4;
+const ORIGINAL_IMAGE_ZOOM = 2;
+const MAX_CONCURRENT_IMAGE_LOADS = 4;
 
 function directionFor(key) {
   return ARROW_DIRECTIONS[key] || ARROW_DIRECTIONS[WASD_TO_ARROW[key]];
@@ -31,6 +33,8 @@ const state = {
   nodes: [],
   rows: [],
   mountedNodes: new Set(),
+  mediaLoadQueue: [],
+  activeMediaLoads: 0,
   mode: "free",
   selectedNode: null,
   toastTimer: null,
@@ -233,30 +237,44 @@ function createMediaCard(node) {
   frame.style.height = `${node.mediaHeight}px`;
   const originalImageURL = !isVideo ? item.fileURL : null;
   const fallbackURL = item.thumbnailURL || item.fileURL;
-  let isUsingFallback = !originalImageURL;
   image.alt = item.name || "Eagle 素材";
   image.decoding = "async";
   image.draggable = false;
   image.style.visibility = "hidden";
   node.mediaElement = image;
   node.mediaLoaded = false;
-  node.loadMedia = () => {
-    if (node.mediaLoaded) return;
-    node.mediaLoaded = true;
-    const mediaURL = originalImageURL || fallbackURL;
-    if (mediaURL) image.src = mediaURL;
+  node.mediaQuality = null;
+  node.originalImageURL = originalImageURL;
+  node.fallbackURL = fallbackURL;
+  node.loadMedia = (quality = "thumbnail") => queueMediaLoad(node, quality);
+  node.startMediaLoad = () => {
+    const quality = node.pendingMediaQuality || "thumbnail";
+    node.pendingMediaQuality = null;
+    node.mediaLoadQueued = false;
+    node.mediaLoading = true;
+    node.loadingQuality = quality;
+    const mediaURL = quality === "original" ? originalImageURL : fallbackURL;
+    if (!mediaURL) {
+      finishMediaLoad(node);
+      return;
+    }
+    image.src = mediaURL;
   };
   image.addEventListener("load", () => {
+    node.mediaLoaded = true;
+    node.mediaQuality = node.loadingQuality;
     image.style.visibility = "visible";
     applyMediaRotation(node);
+    finishMediaLoad(node);
   });
   image.addEventListener("error", () => {
-    if (originalImageURL && !isUsingFallback) {
-      isUsingFallback = true;
+    if (node.loadingQuality === "original" && fallbackURL) {
+      node.loadingQuality = "thumbnail";
       image.src = fallbackURL;
       return;
     }
     image.alt = "無法顯示縮圖";
+    finishMediaLoad(node);
   });
 
   frame.append(image);
@@ -291,6 +309,45 @@ function createMediaCard(node) {
   });
 
   return card;
+}
+
+function queueMediaLoad(node, requestedQuality) {
+  const quality =
+    requestedQuality === "original" && node.originalImageURL ? "original" : "thumbnail";
+  if (node.mediaQuality === "original") return;
+  if (node.mediaLoaded && node.mediaQuality === quality) return;
+  if (
+    node.pendingMediaQuality !== "original" ||
+    quality === "original"
+  ) {
+    node.pendingMediaQuality = quality;
+  }
+  if (node.mediaLoading || node.mediaLoadQueued) return;
+
+  node.mediaLoadQueued = true;
+  state.mediaLoadQueue.push(node);
+  pumpMediaLoadQueue();
+}
+
+function pumpMediaLoadQueue() {
+  while (
+    state.activeMediaLoads < MAX_CONCURRENT_IMAGE_LOADS &&
+    state.mediaLoadQueue.length
+  ) {
+    const node = state.mediaLoadQueue.shift();
+    if (!node?.startMediaLoad || !node.mediaLoadQueued) continue;
+    state.activeMediaLoads += 1;
+    node.startMediaLoad();
+  }
+}
+
+function finishMediaLoad(node) {
+  if (!node.mediaLoading) return;
+  node.mediaLoading = false;
+  node.loadingQuality = null;
+  state.activeMediaLoads = Math.max(0, state.activeMediaLoads - 1);
+  if (node.pendingMediaQuality) queueMediaLoad(node, node.pendingMediaQuality);
+  pumpMediaLoadQueue();
 }
 
 function createMediaLabel(node) {
@@ -654,7 +711,7 @@ function setSelectedNode(node) {
   mountMediaCard(node);
   node.element.classList.add("is-selected");
   node.label.classList.add("is-selected");
-  node.loadMedia();
+  node.loadMedia("original");
 }
 
 function selectDirectionalNode(directionX, directionY) {
@@ -827,6 +884,7 @@ function updateMediaVisibility() {
   const mountMargin = Math.max(viewportWidth, viewportHeight);
   const visibleNodes = getNodesNearViewport(mountMargin);
   const nextMountedNodes = new Set(visibleNodes);
+  const zoom = scale / getBaseScale();
 
   for (const node of state.mountedNodes) {
     if (!nextMountedNodes.has(node) && node !== state.selectedNode) {
@@ -837,7 +895,6 @@ function updateMediaVisibility() {
   for (const node of visibleNodes) mountMediaCard(node);
 
   for (const node of visibleNodes) {
-    if (node.mediaLoaded) continue;
     const left = state.camera.x + node.x * scale;
     const top = state.camera.y + node.y * scale;
     const right = left + node.width * scale;
@@ -848,7 +905,13 @@ function updateMediaVisibility() {
       bottom >= -preloadMargin &&
       top <= viewportHeight + preloadMargin;
 
-    if (isNearViewport) node.loadMedia();
+    if (isNearViewport) {
+      const quality =
+        !node.isVideo && (node === state.selectedNode || zoom >= ORIGINAL_IMAGE_ZOOM)
+          ? "original"
+          : "thumbnail";
+      node.loadMedia(quality);
+    }
   }
 }
 
