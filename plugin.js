@@ -552,6 +552,16 @@ function handleKeyDown(event) {
     return;
   }
 
+  if (
+    state.mode === "free" &&
+    event.ctrlKey &&
+    ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)
+  ) {
+    event.preventDefault();
+    panOneViewport(event.key);
+    return;
+  }
+
   if (event.ctrlKey || event.metaKey || event.altKey) return;
   const key = event.key.toLowerCase();
   const direction = {
@@ -584,6 +594,19 @@ function handleKeyDown(event) {
 
   if (!movement) return;
   event.preventDefault();
+  state.camera.x += movement[0];
+  state.camera.y += movement[1];
+  updateCamera();
+}
+
+function panOneViewport(key) {
+  const movement = {
+    ArrowUp: [0, elements.viewport.clientHeight],
+    ArrowDown: [0, -elements.viewport.clientHeight],
+    ArrowLeft: [elements.viewport.clientWidth, 0],
+    ArrowRight: [-elements.viewport.clientWidth, 0],
+  }[key];
+  if (!movement) return;
   state.camera.x += movement[0];
   state.camera.y += movement[1];
   updateCamera();
