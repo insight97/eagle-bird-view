@@ -29,6 +29,8 @@ function directionFor(key) {
 const state = {
   camera: { x: 0, y: 0, scale: 1 },
   nodes: [],
+  rows: [],
+  mountedNodes: new Set(),
   mode: "free",
   selectedNode: null,
   toastTimer: null,
@@ -122,14 +124,14 @@ function renderItems(items) {
   exitSelectionMode();
   elements.world.replaceChildren();
   elements.labels.replaceChildren();
-  state.nodes = createJustifiedLayout(items);
+  state.mountedNodes.clear();
+  const layout = createJustifiedLayout(items);
+  state.nodes = layout.nodes;
+  state.rows = layout.rows;
 
   state.nodes.forEach((node) => {
-    node.element = createMediaCard(node);
     node.label = createMediaLabel(node);
-    elements.world.append(node.element);
     elements.labels.append(node.label);
-    positionNode(node);
   });
 
   updateBoardMeta();
@@ -138,6 +140,7 @@ function renderItems(items) {
 
 function createJustifiedLayout(items) {
   const nodes = [];
+  const rows = [];
   let row = [];
   let aspectRatioSum = 0;
   let y = 0;
@@ -156,9 +159,10 @@ function createJustifiedLayout(items) {
 
     let x = 0;
     let rowHasVideo = false;
+    const layoutRow = { top: y, bottom: y + rowHeight, nodes: [] };
     for (const entry of row) {
       const width = entry.aspectRatio * rowHeight;
-      nodes.push({
+      const node = {
         item: entry.item,
         x,
         y,
@@ -167,11 +171,14 @@ function createJustifiedLayout(items) {
         mediaHeight: rowHeight,
         isVideo: entry.isVideo,
         rotation: 0,
-      });
+      };
+      nodes.push(node);
+      layoutRow.nodes.push(node);
       x += width + LAYOUT_GAP;
       rowHasVideo ||= entry.isVideo;
     }
 
+    rows.push(layoutRow);
     y += rowHeight + (rowHasVideo ? VIDEO_CONTROLS_HEIGHT : 0) + LAYOUT_GAP;
     row = [];
     aspectRatioSum = 0;
@@ -192,7 +199,21 @@ function createJustifiedLayout(items) {
   }
 
   commitRow(false);
-  return nodes;
+  return { nodes, rows };
+}
+
+function mountMediaCard(node) {
+  if (!node.element) {
+    node.element = createMediaCard(node);
+    positionNode(node);
+  }
+  if (!node.element.isConnected) elements.world.append(node.element);
+  state.mountedNodes.add(node);
+}
+
+function unmountMediaCard(node) {
+  node.element?.remove();
+  state.mountedNodes.delete(node);
 }
 
 function createMediaCard(node) {
@@ -630,6 +651,7 @@ function setSelectedNode(node) {
   state.selectedNode?.element?.classList.remove("is-selected");
   state.selectedNode?.label?.classList.remove("is-selected");
   state.selectedNode = node;
+  mountMediaCard(node);
   node.element.classList.add("is-selected");
   node.label.classList.add("is-selected");
   node.loadMedia();
@@ -766,6 +788,8 @@ function focusFirstItem() {
 function clearBoard() {
   exitSelectionMode();
   state.nodes = [];
+  state.rows = [];
+  state.mountedNodes.clear();
   elements.world.replaceChildren();
   elements.labels.replaceChildren();
   state.camera = { x: 0, y: 0, scale: getBaseScale() };
@@ -800,8 +824,19 @@ function updateMediaVisibility() {
   const viewportWidth = elements.viewport.clientWidth;
   const viewportHeight = elements.viewport.clientHeight;
   const scale = state.camera.scale;
+  const mountMargin = Math.max(viewportWidth, viewportHeight);
+  const visibleNodes = getNodesNearViewport(mountMargin);
+  const nextMountedNodes = new Set(visibleNodes);
 
-  for (const node of state.nodes) {
+  for (const node of state.mountedNodes) {
+    if (!nextMountedNodes.has(node) && node !== state.selectedNode) {
+      unmountMediaCard(node);
+    }
+  }
+
+  for (const node of visibleNodes) mountMediaCard(node);
+
+  for (const node of visibleNodes) {
     if (node.mediaLoaded) continue;
     const left = state.camera.x + node.x * scale;
     const top = state.camera.y + node.y * scale;
@@ -815,6 +850,33 @@ function updateMediaVisibility() {
 
     if (isNearViewport) node.loadMedia();
   }
+}
+
+function getNodesNearViewport(screenMargin) {
+  if (!state.rows.length) return [];
+  const scale = state.camera.scale;
+  const left = (-state.camera.x - screenMargin) / scale;
+  const top = (-state.camera.y - screenMargin) / scale;
+  const right = (elements.viewport.clientWidth - state.camera.x + screenMargin) / scale;
+  const bottom = (elements.viewport.clientHeight - state.camera.y + screenMargin) / scale;
+  let low = 0;
+  let high = state.rows.length;
+
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (state.rows[middle].bottom < top) low = middle + 1;
+    else high = middle;
+  }
+
+  const nodes = [];
+  for (let index = low; index < state.rows.length; index += 1) {
+    const row = state.rows[index];
+    if (row.top > bottom) break;
+    for (const node of row.nodes) {
+      if (node.x + node.width >= left && node.x <= right) nodes.push(node);
+    }
+  }
+  return nodes;
 }
 
 function updateLabels() {
@@ -844,6 +906,7 @@ function updateLabels() {
 }
 
 function positionNode(node) {
+  if (!node.element) return;
   node.element.style.width = `${node.width}px`;
   node.element.style.transform = `translate(${node.x}px, ${node.y}px)`;
 }
