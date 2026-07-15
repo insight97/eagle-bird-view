@@ -5,9 +5,20 @@ const assert = require("node:assert/strict");
 const {
   directionFor,
   findDirectionalNode,
+  getLabelRect,
   getViewportPanDelta,
   zoomCameraAtPoint,
 } = require("../bird-view-core.js");
+
+test("getLabelRect projects a node into rounded screen coordinates", () => {
+  assert.deepEqual(
+    getLabelRect(
+      { x: 10.2, y: 20.4, width: 100.2 },
+      { x: 5, y: -3, scale: 1.5 },
+    ),
+    { left: 20, top: 1, width: 150, height: 22 },
+  );
+});
 
 test("directionFor normalizes arrow keys and WASD", () => {
   assert.deepEqual(directionFor("ArrowLeft"), [-1, 0]);

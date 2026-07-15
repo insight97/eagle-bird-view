@@ -54,6 +54,15 @@
     return { x: node.x + node.width / 2, y: node.y + node.height / 2 };
   }
 
+  function getLabelRect(node, camera) {
+    return {
+      left: Math.round(camera.x + node.x * camera.scale),
+      top: Math.round(camera.y + node.y * camera.scale - 27),
+      width: Math.round(node.width * camera.scale),
+      height: 22,
+    };
+  }
+
   function rangesOverlap(startA, endA, startB, endB) {
     return Math.min(endA, endB) > Math.max(startA, startB);
   }
@@ -196,6 +205,7 @@
     findDirectionalNode,
     findNodesNearViewport,
     getAspectRatio,
+    getLabelRect,
     getNodeCenter,
     getViewportPanDelta,
     zoomCameraAtPoint,

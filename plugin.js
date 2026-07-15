@@ -9,6 +9,7 @@ const {
   directionFor,
   findDirectionalNode,
   findNodesNearViewport,
+  getLabelRect,
   getNodeCenter,
   getViewportPanDelta,
   zoomCameraAtPoint,
@@ -173,19 +174,13 @@ function releaseMediaCard(node) {
   state.materializedNodes.delete(node);
 
   node.element = null;
-  node.frame = null;
   node.previewImage = null;
   node.preloadImage = null;
-  node.playButton = null;
   node.startPlayback = null;
   node.videoElement = null;
   node.togglePlayback = null;
   node.mediaElement = null;
   node.loadMedia = null;
-  node.mediaLoaded = false;
-  node.mediaQuality = null;
-  node.originalImageURL = null;
-  node.fallbackURL = null;
   node.height = node.mediaHeight;
 }
 
@@ -217,10 +212,6 @@ function createMediaCard(node) {
   image.draggable = false;
   image.style.visibility = "hidden";
   node.mediaElement = image;
-  node.mediaLoaded = false;
-  node.mediaQuality = null;
-  node.originalImageURL = originalImageURL;
-  node.fallbackURL = fallbackURL;
   node.loadMedia = (quality = "thumbnail") => mediaLoadQueue.request(node, quality);
   mediaLoadQueue.register(node, {
     hasOriginal: Boolean(originalImageURL),
@@ -259,8 +250,6 @@ function createMediaCard(node) {
           node.previewImage = originalImage;
           node.preloadImage = null;
           if (node.mediaElement === previousImage) node.mediaElement = originalImage;
-          node.mediaLoaded = true;
-          node.mediaQuality = "original";
           applyMediaRotation(node);
           mediaLoadQueue.complete(node, "original", true);
         });
@@ -287,8 +276,6 @@ function createMediaCard(node) {
     ) {
       return;
     }
-    node.mediaLoaded = true;
-    node.mediaQuality = "thumbnail";
     image.style.visibility = "visible";
     applyMediaRotation(node);
     mediaLoadQueue.complete(node, "thumbnail", true);
@@ -306,7 +293,6 @@ function createMediaCard(node) {
 
   frame.append(image);
   card.append(frame);
-  node.frame = frame;
   node.previewImage = image;
 
   if (isVideo) {
@@ -320,7 +306,6 @@ function createMediaCard(node) {
       event.stopPropagation();
       startVideo(frame, image, playButton, item, node);
     });
-    node.playButton = playButton;
     node.startPlayback = () => startVideo(frame, image, playButton, item, node);
     frame.append(playButton);
   }
@@ -818,18 +803,16 @@ function updateLabels() {
   const visibleLabels = [];
 
   for (const node of labelNodes) {
-    const left = Math.round(state.camera.x + node.x * scale);
-    const top = Math.round(state.camera.y + node.y * scale - 27);
-    const width = Math.round(node.width * scale);
+    const rect = getLabelRect(node, state.camera);
     const isVisible =
       zoom >= 0.28 &&
-      left + width >= 0 &&
-      left <= viewportWidth &&
-      top + 22 >= 0 &&
-      top <= viewportHeight;
+      rect.left + rect.width >= 0 &&
+      rect.left <= viewportWidth &&
+      rect.top + rect.height >= 0 &&
+      rect.top <= viewportHeight;
 
     if (!isVisible) continue;
-    visibleLabels.push({ node, left, top, width });
+    visibleLabels.push({ node, rect });
   }
 
   const nextLabelNodes = new Set(visibleLabels.map(({ node }) => node));
@@ -837,24 +820,20 @@ function updateLabels() {
     if (!nextLabelNodes.has(node)) releaseMediaLabel(node);
   }
 
-  for (const { node, left, top, width } of visibleLabels) {
+  for (const { node, rect } of visibleLabels) {
     mountMediaLabel(node);
-    node.label.style.left = `${left}px`;
-    node.label.style.top = `${top}px`;
-    node.label.style.width = `${Math.max(100, width)}px`;
+    positionMediaLabel(node, rect);
   }
 }
 
 function updateMountedLabelPositions() {
-  const scale = state.camera.scale;
-  for (const node of state.mountedLabelNodes) {
-    const left = Math.round(state.camera.x + node.x * scale);
-    const top = Math.round(state.camera.y + node.y * scale - 27);
-    const width = Math.round(node.width * scale);
-    node.label.style.left = `${left}px`;
-    node.label.style.top = `${top}px`;
-    node.label.style.width = `${Math.max(100, width)}px`;
-  }
+  for (const node of state.mountedLabelNodes) positionMediaLabel(node);
+}
+
+function positionMediaLabel(node, rect = getLabelRect(node, state.camera)) {
+  node.label.style.left = `${rect.left}px`;
+  node.label.style.top = `${rect.top}px`;
+  node.label.style.width = `${Math.max(100, rect.width)}px`;
 }
 
 function positionNode(node) {
@@ -875,14 +854,6 @@ function getBaseScale() {
   const widthScale = (viewportWidth - padding * 2) / referenceWidth;
   const heightScale = (viewportHeight - padding * 2) / referenceHeight;
   return Math.max(0.01, Math.min(widthScale, heightScale));
-}
-
-function screenToWorld(clientX, clientY) {
-  const rect = elements.viewport.getBoundingClientRect();
-  return {
-    x: (clientX - rect.left - state.camera.x) / state.camera.scale,
-    y: (clientY - rect.top - state.camera.y) / state.camera.scale,
-  };
 }
 
 function showToast(message, isError = false) {

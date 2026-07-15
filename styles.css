@@ -383,10 +383,6 @@ button {
   color: #fff;
 }
 
-.media-label[hidden] {
-  display: none;
-}
-
 .media-name {
   min-width: 0;
   overflow: hidden;
