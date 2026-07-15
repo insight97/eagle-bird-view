@@ -1,25 +1,23 @@
 "use strict";
 
 const {
-  LAYOUT_WIDTH,
   TARGET_ROW_HEIGHT,
   VIDEO_CONTROLS_HEIGHT,
   VIDEO_EXTENSIONS,
+  clamp,
   createJustifiedLayout,
+  directionFor,
+  findDirectionalNode,
   findNodesNearViewport,
+  getNodeCenter,
+  getViewportPanDelta,
+  zoomCameraAtPoint,
 } = BirdViewCore;
 const MIN_ZOOM = 0.08;
 const MAX_ZOOM = 8;
 const KEYBOARD_PAN_STEP = 240;
 const VIEWPORT_PAN_FRACTION = 2 / 3;
 const KEYBOARD_ZOOM_FACTOR = 1.5;
-const ARROW_DIRECTIONS = {
-  arrowup: [0, -1],
-  arrowdown: [0, 1],
-  arrowleft: [-1, 0],
-  arrowright: [1, 0],
-};
-const WASD_TO_ARROW = { w: "arrowup", s: "arrowdown", a: "arrowleft", d: "arrowright" };
 const KEYBOARD_SEEK_STEP = 5;
 const KEYBOARD_VOLUME_STEP = 0.05;
 const PAN_START_THRESHOLD = 4;
@@ -27,10 +25,6 @@ const ORIGINAL_IMAGE_ZOOM = 1;
 const MAX_CONCURRENT_IMAGE_LOADS = 4;
 const RESOURCE_RELEASE_VIEWPORTS = 3;
 const VIEWPORT_WORK_INTERVAL = 100;
-
-function directionFor(key) {
-  return ARROW_DIRECTIONS[key] || ARROW_DIRECTIONS[WASD_TO_ARROW[key]];
-}
 
 const state = {
   camera: { x: 0, y: 0, scale: 1 },
@@ -725,7 +719,12 @@ function handleKeyDown(event) {
     return;
   }
 
-  if (state.mode === "free" && event.ctrlKey && ARROW_DIRECTIONS[event.key.toLowerCase()]) {
+  if (
+    state.mode === "free" &&
+    event.ctrlKey &&
+    event.key.startsWith("Arrow") &&
+    directionFor(event.key)
+  ) {
     event.preventDefault();
     panOneViewport(event.key);
     return;
@@ -753,12 +752,12 @@ function panBy(dx, dy) {
 }
 
 function panOneViewport(key) {
-  const direction = ARROW_DIRECTIONS[key.toLowerCase()];
-  if (!direction) return;
-  const viewportSize =
-    direction[0] !== 0 ? elements.viewport.clientWidth : elements.viewport.clientHeight;
-  const magnitude = viewportSize * VIEWPORT_PAN_FRACTION;
-  panBy(direction[0] * -magnitude, direction[1] * -magnitude);
+  const delta = getViewportPanDelta(
+    key,
+    { width: elements.viewport.clientWidth, height: elements.viewport.clientHeight },
+    VIEWPORT_PAN_FRACTION,
+  );
+  if (delta) panBy(delta.x, delta.y);
 }
 
 function enterSelectionMode() {
@@ -802,35 +801,10 @@ function setSelectedNode(node) {
 function selectDirectionalNode(directionX, directionY) {
   const current = state.selectedNode;
   if (!current) return;
-  const currentCenter = getNodeCenter(current);
-  let bestMatch = null;
-
-  for (const node of state.nodes) {
-    if (node === current) continue;
-    const overlapsNavigationAxis = directionX
-      ? rangesOverlap(current.y, current.y + current.height, node.y, node.y + node.height)
-      : rangesOverlap(current.x, current.x + current.width, node.x, node.x + node.width);
-    if (!overlapsNavigationAxis) continue;
-    const center = getNodeCenter(node);
-    const deltaX = center.x - currentCenter.x;
-    const deltaY = center.y - currentCenter.y;
-    const forwardDistance = deltaX * directionX + deltaY * directionY;
-    if (forwardDistance <= 0) continue;
-    const crossDistance = Math.abs(deltaX * directionY - deltaY * directionX);
-    const distance = Math.hypot(deltaX, deltaY);
-    const anglePenalty = crossDistance / forwardDistance;
-    const score = anglePenalty * LAYOUT_WIDTH * 4 + distance;
-
-    if (!bestMatch || score < bestMatch.score) bestMatch = { node, score };
-  }
-
-  if (!bestMatch) return;
-  setSelectedNode(bestMatch.node);
-  centerNode(bestMatch.node);
-}
-
-function rangesOverlap(startA, endA, startB, endB) {
-  return Math.min(endA, endB) > Math.max(startA, startB);
+  const next = findDirectionalNode(state.nodes, current, directionX, directionY);
+  if (!next) return;
+  setSelectedNode(next);
+  centerNode(next);
 }
 
 function activateSelectedNode() {
@@ -875,13 +849,6 @@ function centerNode(node) {
   updateCamera();
 }
 
-function getNodeCenter(node) {
-  return {
-    x: node.x + node.width / 2,
-    y: node.y + node.height / 2,
-  };
-}
-
 function updateModeMeta() {
   if (!elements.modeLabel) return;
   const isSelection = state.mode === "selection";
@@ -891,18 +858,15 @@ function updateModeMeta() {
 }
 
 function zoomAtPoint(pointerX, pointerY, factor) {
-  const worldX = (pointerX - state.camera.x) / state.camera.scale;
-  const worldY = (pointerY - state.camera.y) / state.camera.scale;
   const baseScale = getBaseScale();
-  const nextScale = clamp(
-    state.camera.scale * factor,
-    baseScale * MIN_ZOOM,
-    baseScale * MAX_ZOOM,
+  state.camera = zoomCameraAtPoint(
+    state.camera,
+    { x: pointerX, y: pointerY },
+    factor,
+    baseScale,
+    MIN_ZOOM,
+    MAX_ZOOM,
   );
-
-  state.camera.scale = nextScale;
-  state.camera.x = pointerX - worldX * nextScale;
-  state.camera.y = pointerY - worldY * nextScale;
   updateCamera();
 }
 
@@ -1119,8 +1083,4 @@ function showToast(message, isError = false) {
   state.toastTimer = window.setTimeout(() => {
     elements.toast.classList.remove("is-visible");
   }, 3200);
-}
-
-function clamp(value, minimum, maximum) {
-  return Math.min(maximum, Math.max(minimum, value));
 }

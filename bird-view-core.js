@@ -12,6 +12,76 @@
   const MIN_ROW_HEIGHT = 140;
   const MAX_ROW_HEIGHT = 220;
   const LAYOUT_GAP = 14;
+  const ARROW_DIRECTIONS = {
+    arrowup: [0, -1],
+    arrowdown: [0, 1],
+    arrowleft: [-1, 0],
+    arrowright: [1, 0],
+  };
+  const WASD_TO_ARROW = { w: "arrowup", s: "arrowdown", a: "arrowleft", d: "arrowright" };
+
+  function clamp(value, minimum, maximum) {
+    return Math.min(maximum, Math.max(minimum, value));
+  }
+
+  function directionFor(key) {
+    const normalizedKey = String(key || "").toLowerCase();
+    return ARROW_DIRECTIONS[normalizedKey] || ARROW_DIRECTIONS[WASD_TO_ARROW[normalizedKey]];
+  }
+
+  function getViewportPanDelta(key, viewport, fraction = 2 / 3) {
+    const direction = directionFor(key);
+    if (!direction) return null;
+    const magnitude = (direction[0] ? viewport.width : viewport.height) * fraction;
+    return {
+      x: direction[0] ? direction[0] * -magnitude : 0,
+      y: direction[1] ? direction[1] * -magnitude : 0,
+    };
+  }
+
+  function zoomCameraAtPoint(camera, point, factor, baseScale, minZoom, maxZoom) {
+    const worldX = (point.x - camera.x) / camera.scale;
+    const worldY = (point.y - camera.y) / camera.scale;
+    const scale = clamp(camera.scale * factor, baseScale * minZoom, baseScale * maxZoom);
+    return {
+      scale,
+      x: point.x - worldX * scale,
+      y: point.y - worldY * scale,
+    };
+  }
+
+  function getNodeCenter(node) {
+    return { x: node.x + node.width / 2, y: node.y + node.height / 2 };
+  }
+
+  function rangesOverlap(startA, endA, startB, endB) {
+    return Math.min(endA, endB) > Math.max(startA, startB);
+  }
+
+  function findDirectionalNode(nodes, current, directionX, directionY) {
+    const currentCenter = getNodeCenter(current);
+    let bestMatch = null;
+
+    for (const node of nodes) {
+      if (node === current) continue;
+      const overlapsNavigationAxis = directionX
+        ? rangesOverlap(current.y, current.y + current.height, node.y, node.y + node.height)
+        : rangesOverlap(current.x, current.x + current.width, node.x, node.x + node.width);
+      if (!overlapsNavigationAxis) continue;
+      const center = getNodeCenter(node);
+      const deltaX = center.x - currentCenter.x;
+      const deltaY = center.y - currentCenter.y;
+      const forwardDistance = deltaX * directionX + deltaY * directionY;
+      if (forwardDistance <= 0) continue;
+      const crossDistance = Math.abs(deltaX * directionY - deltaY * directionX);
+      const distance = Math.hypot(deltaX, deltaY);
+      const anglePenalty = crossDistance / forwardDistance;
+      const score = anglePenalty * LAYOUT_WIDTH * 4 + distance;
+      if (!bestMatch || score < bestMatch.score) bestMatch = { node, score };
+    }
+
+    return bestMatch?.node || null;
+  }
 
   function getAspectRatio(item) {
     const width = Number(item.width);
@@ -120,8 +190,14 @@
     TARGET_ROW_HEIGHT,
     VIDEO_CONTROLS_HEIGHT,
     VIDEO_EXTENSIONS,
+    clamp,
     createJustifiedLayout,
+    directionFor,
+    findDirectionalNode,
     findNodesNearViewport,
     getAspectRatio,
+    getNodeCenter,
+    getViewportPanDelta,
+    zoomCameraAtPoint,
   });
 });

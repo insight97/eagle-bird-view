@@ -1,0 +1,55 @@
+"use strict";
+
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const {
+  directionFor,
+  findDirectionalNode,
+  getViewportPanDelta,
+  zoomCameraAtPoint,
+} = require("../bird-view-core.js");
+
+test("directionFor normalizes arrow keys and WASD", () => {
+  assert.deepEqual(directionFor("ArrowLeft"), [-1, 0]);
+  assert.deepEqual(directionFor("W"), [0, -1]);
+  assert.equal(directionFor("Enter"), undefined);
+});
+
+test("getViewportPanDelta moves two-thirds of the relevant viewport axis", () => {
+  assert.deepEqual(getViewportPanDelta("ArrowRight", { width: 900, height: 600 }), {
+    x: -600,
+    y: 0,
+  });
+  assert.deepEqual(getViewportPanDelta("ArrowUp", { width: 900, height: 600 }), {
+    x: 0,
+    y: 400,
+  });
+});
+
+test("zoomCameraAtPoint preserves the world coordinate beneath the pointer", () => {
+  const camera = { x: 30, y: -20, scale: 2 };
+  const point = { x: 330, y: 180 };
+  const before = {
+    x: (point.x - camera.x) / camera.scale,
+    y: (point.y - camera.y) / camera.scale,
+  };
+  const next = zoomCameraAtPoint(camera, point, 1.5, 2, 0.08, 8);
+
+  assert.equal((point.x - next.x) / next.scale, before.x);
+  assert.equal((point.y - next.y) / next.scale, before.y);
+  assert.equal(next.scale, 3);
+});
+
+test("zoomCameraAtPoint clamps zoom to the configured range", () => {
+  assert.equal(zoomCameraAtPoint({ x: 0, y: 0, scale: 1 }, { x: 0, y: 0 }, 100, 1, 0.08, 8).scale, 8);
+  assert.equal(zoomCameraAtPoint({ x: 0, y: 0, scale: 1 }, { x: 0, y: 0 }, 0.001, 1, 0.08, 8).scale, 0.08);
+});
+
+test("findDirectionalNode selects aligned nodes and ignores off-axis candidates", () => {
+  const current = { x: 0, y: 0, width: 100, height: 100 };
+  const aligned = { x: 130, y: 10, width: 100, height: 80 };
+  const diagonal = { x: 110, y: 130, width: 100, height: 100 };
+
+  assert.equal(findDirectionalNode([current, diagonal, aligned], current, 1, 0), aligned);
+  assert.equal(findDirectionalNode([current, aligned], current, -1, 0), null);
+});
