@@ -6,7 +6,7 @@
   root.BirdViewCore = core;
 })(typeof globalThis === "object" ? globalThis : this, () => {
   const VIDEO_EXTENSIONS = new Set(["mp4", "m4v", "mov", "webm", "mkv"]);
-  const VIDEO_CONTROLS_HEIGHT = 14;
+  const VIDEO_CONTROLS_HEIGHT = 10;
   const LAYOUT_WIDTH = 1200;
   const TARGET_ROW_HEIGHT = 180;
   const MIN_ROW_HEIGHT = 140;
