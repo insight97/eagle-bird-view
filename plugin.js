@@ -259,18 +259,30 @@ function createMediaLabel(node) {
   rotateLeft.className = "media-rotate";
   rotateLeft.type = "button";
   rotateLeft.textContent = "↶";
-  rotateLeft.title = "向左旋轉 90°";
-  rotateLeft.setAttribute("aria-label", `將 ${item.name || "媒體"} 向左旋轉 90 度`);
+  rotateLeft.title = "左鍵旋轉 90°，右鍵旋轉 45°";
+  rotateLeft.setAttribute("aria-label", `將 ${item.name || "媒體"} 向左旋轉`);
   rotateRight.className = "media-rotate";
   rotateRight.type = "button";
   rotateRight.textContent = "↷";
-  rotateRight.title = "向右旋轉 90°";
-  rotateRight.setAttribute("aria-label", `將 ${item.name || "媒體"} 向右旋轉 90 度`);
-  rotateLeft.addEventListener("click", () => rotateMedia(node, -90));
-  rotateRight.addEventListener("click", () => rotateMedia(node, 90));
+  rotateRight.title = "左鍵旋轉 90°，右鍵旋轉 45°";
+  rotateRight.setAttribute("aria-label", `將 ${item.name || "媒體"} 向右旋轉`);
+  bindRotationButton(rotateLeft, node, -1);
+  bindRotationButton(rotateRight, node, 1);
   actions.append(type, rotateLeft, rotateRight);
   label.append(name, actions);
   return label;
+}
+
+function bindRotationButton(button, node, direction) {
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    rotateMedia(node, direction * (event.shiftKey ? 45 : 90));
+  });
+  button.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    rotateMedia(node, direction * 45);
+  });
 }
 
 function rotateMedia(node, degrees) {
@@ -284,15 +296,17 @@ function applyMediaRotation(node) {
     node.mediaElement.style.transform = "none";
     return;
   }
-  const isQuarterTurn = node.rotation % 180 !== 0;
   const frame = node.element?.querySelector(".media-frame");
   const frameWidth = frame?.clientWidth || node.width;
   const frameHeight = frame?.clientHeight || node.mediaHeight;
-  const mediaWidth = node.mediaElement.clientWidth || frameWidth;
-  const mediaHeight = node.mediaElement.clientHeight || frameHeight;
-  const fitScale = isQuarterTurn
-    ? Math.min(frameWidth / mediaHeight, frameHeight / mediaWidth)
-    : 1;
+  const radians = (node.rotation * Math.PI) / 180;
+  const rotatedWidth =
+    Math.abs(frameWidth * Math.cos(radians)) +
+    Math.abs(frameHeight * Math.sin(radians));
+  const rotatedHeight =
+    Math.abs(frameWidth * Math.sin(radians)) +
+    Math.abs(frameHeight * Math.cos(radians));
+  const fitScale = Math.min(frameWidth / rotatedWidth, frameHeight / rotatedHeight);
   node.mediaElement.style.transform = `rotate(${node.rotation}deg) scale(${fitScale})`;
 }
 
