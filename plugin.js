@@ -13,6 +13,7 @@ const {
   getViewportPanDelta,
   zoomCameraAtPoint,
 } = BirdViewCore;
+const { MediaLoadQueue } = BirdViewMedia;
 const MIN_ZOOM = 0.08;
 const MAX_ZOOM = 8;
 const KEYBOARD_PAN_STEP = 240;
@@ -33,8 +34,6 @@ const state = {
   mountedNodes: new Set(),
   materializedNodes: new Set(),
   mountedLabelNodes: new Set(),
-  mediaLoadQueue: [],
-  activeMediaLoads: 0,
   mode: "free",
   selectedNode: null,
   toastTimer: null,
@@ -46,6 +45,7 @@ const state = {
 };
 
 const elements = {};
+const mediaLoadQueue = new MediaLoadQueue({ maxConcurrent: MAX_CONCURRENT_IMAGE_LOADS });
 
 if (typeof eagle !== "undefined" && typeof eagle.onPluginCreate === "function") {
   eagle.onPluginCreate(() => {
@@ -158,10 +158,7 @@ function unmountMediaCard(node) {
 
 function releaseMediaCard(node) {
   node.mediaGeneration = (node.mediaGeneration || 0) + 1;
-  node.pendingMediaQuality = null;
-  node.queuedMediaQuality = null;
-  node.mediaLoadQueued = false;
-  if (node.mediaLoading) finishMediaLoad(node);
+  mediaLoadQueue.dispose(node);
 
   if (node.videoElement) {
     node.videoElement.pause();
@@ -184,11 +181,8 @@ function releaseMediaCard(node) {
   node.togglePlayback = null;
   node.mediaElement = null;
   node.loadMedia = null;
-  node.startMediaLoad = null;
   node.mediaLoaded = false;
   node.mediaQuality = null;
-  node.originalLoadFailed = false;
-  node.thumbnailLoadFailed = false;
   node.originalImageURL = null;
   node.fallbackURL = null;
   node.height = node.mediaHeight;
@@ -196,7 +190,6 @@ function releaseMediaCard(node) {
 
 function releaseAllMediaCards() {
   for (const node of [...state.materializedNodes]) releaseMediaCard(node);
-  state.mediaLoadQueue = [];
 }
 
 function createMediaCard(node) {
@@ -225,91 +218,89 @@ function createMediaCard(node) {
   node.mediaElement = image;
   node.mediaLoaded = false;
   node.mediaQuality = null;
-  node.originalLoadFailed = false;
-  node.thumbnailLoadFailed = false;
   node.originalImageURL = originalImageURL;
   node.fallbackURL = fallbackURL;
-  node.loadMedia = (quality = "thumbnail") => queueMediaLoad(node, quality);
-  node.startMediaLoad = () => {
-    const quality = node.queuedMediaQuality || "thumbnail";
-    node.queuedMediaQuality = null;
-    node.mediaLoadQueued = false;
-    node.mediaLoading = true;
-    node.loadingQuality = quality;
-    const mediaURL = quality === "original" ? originalImageURL : fallbackURL;
-    if (!mediaURL) {
-      finishMediaLoad(node);
-      return;
-    }
-    if (quality === "original") {
-      const originalImage = document.createElement("img");
-      originalImage.alt = image.alt;
-      originalImage.decoding = "async";
-      originalImage.draggable = false;
-      node.preloadImage = originalImage;
-      originalImage.addEventListener("load", async () => {
-        try {
-          await originalImage.decode();
-        } catch {
-          // A completed load is still safe to reveal when decode() is unavailable.
-        }
-        if (
-          node.mediaGeneration !== mediaGeneration ||
-          node.preloadImage !== originalImage ||
-          node.loadingQuality !== "original"
-        ) {
-          return;
-        }
-        const previousImage = node.previewImage;
-        originalImage.style.visibility = "visible";
-        previousImage?.replaceWith(originalImage);
-        node.previewImage = originalImage;
-        node.preloadImage = null;
-        if (node.mediaElement === previousImage) node.mediaElement = originalImage;
-        node.mediaLoaded = true;
-        node.mediaQuality = "original";
-        applyMediaRotation(node);
-        finishMediaLoad(node);
-      });
-      originalImage.addEventListener("error", () => {
-        if (
-          node.mediaGeneration !== mediaGeneration ||
-          node.preloadImage !== originalImage
-        ) {
-          return;
-        }
-        node.preloadImage = null;
-        node.originalLoadFailed = true;
-        finishMediaLoad(node);
-      });
-      originalImage.src = mediaURL;
-      return;
-    }
-    image.src = mediaURL;
-  };
+  node.loadMedia = (quality = "thumbnail") => mediaLoadQueue.request(node, quality);
+  mediaLoadQueue.register(node, {
+    hasOriginal: Boolean(originalImageURL),
+    hasThumbnail: Boolean(fallbackURL),
+    preferThumbnailFirst: Boolean(
+      originalImageURL && fallbackURL && originalImageURL !== fallbackURL,
+    ),
+    start: (quality) => {
+      const mediaURL = quality === "original" ? originalImageURL : fallbackURL;
+      if (!mediaURL) {
+        mediaLoadQueue.complete(node, quality, false);
+        return;
+      }
+      if (quality === "original") {
+        const originalImage = document.createElement("img");
+        originalImage.alt = image.alt;
+        originalImage.decoding = "async";
+        originalImage.draggable = false;
+        node.preloadImage = originalImage;
+        originalImage.addEventListener("load", async () => {
+          try {
+            await originalImage.decode();
+          } catch {
+            // A completed load is still safe to reveal when decode() is unavailable.
+          }
+          if (
+            node.mediaGeneration !== mediaGeneration ||
+            node.preloadImage !== originalImage ||
+            mediaLoadQueue.snapshot(node)?.loadingQuality !== "original"
+          ) {
+            return;
+          }
+          const previousImage = node.previewImage;
+          originalImage.style.visibility = "visible";
+          previousImage?.replaceWith(originalImage);
+          node.previewImage = originalImage;
+          node.preloadImage = null;
+          if (node.mediaElement === previousImage) node.mediaElement = originalImage;
+          node.mediaLoaded = true;
+          node.mediaQuality = "original";
+          applyMediaRotation(node);
+          mediaLoadQueue.complete(node, "original", true);
+        });
+        originalImage.addEventListener("error", () => {
+          if (
+            node.mediaGeneration !== mediaGeneration ||
+            node.preloadImage !== originalImage
+          ) {
+            return;
+          }
+          node.preloadImage = null;
+          mediaLoadQueue.complete(node, "original", false);
+        });
+        originalImage.src = mediaURL;
+        return;
+      }
+      image.src = mediaURL;
+    },
+  });
   image.addEventListener("load", () => {
     if (
       node.mediaGeneration !== mediaGeneration ||
-      node.loadingQuality !== "thumbnail"
+      mediaLoadQueue.snapshot(node)?.loadingQuality !== "thumbnail"
     ) {
       return;
     }
     node.mediaLoaded = true;
-    node.mediaQuality = node.loadingQuality;
+    node.mediaQuality = "thumbnail";
     image.style.visibility = "visible";
     applyMediaRotation(node);
-    finishMediaLoad(node);
+    mediaLoadQueue.complete(node, "thumbnail", true);
   });
   image.addEventListener("error", () => {
     if (
       node.mediaGeneration !== mediaGeneration ||
-      node.loadingQuality !== "thumbnail"
+      mediaLoadQueue.snapshot(node)?.loadingQuality !== "thumbnail"
     ) {
       return;
     }
-    node.thumbnailLoadFailed = true;
     image.alt = "無法顯示縮圖";
-    finishMediaLoad(node);
+    mediaLoadQueue.complete(node, "thumbnail", false);
   });
 
   frame.append(image);
@@ -344,69 +335,6 @@ function createMediaCard(node) {
   });
 
   return card;
-}
-
-function queueMediaLoad(node, requestedQuality) {
-  const wantsOriginal =
-    requestedQuality === "original" &&
-    node.originalImageURL &&
-    !node.originalLoadFailed;
-  let quality = wantsOriginal ? "original" : "thumbnail";
-  if (quality === "thumbnail" && node.thumbnailLoadFailed) return;
-  if (node.mediaQuality === "original") return;
-  if (node.mediaLoaded && node.mediaQuality === quality) return;
-  let followupQuality = null;
-  if (
-    quality === "original" &&
-    !node.mediaLoaded &&
-    node.fallbackURL &&
-    node.fallbackURL !== node.originalImageURL &&
-    !node.thumbnailLoadFailed
-  ) {
-    followupQuality = "original";
-    quality = "thumbnail";
-  }
-  const desiredQuality = followupQuality || quality;
-
-  if (node.mediaLoading) {
-    if (node.pendingMediaQuality !== "original" || desiredQuality === "original") {
-      node.pendingMediaQuality = desiredQuality;
-    }
-    return;
-  }
-  if (node.mediaLoadQueued) {
-    if (followupQuality) node.pendingMediaQuality = followupQuality;
-    else if (quality === "original") node.queuedMediaQuality = "original";
-    return;
-  }
-
-  node.pendingMediaQuality = followupQuality;
-  node.queuedMediaQuality = quality;
-  node.mediaLoadQueued = true;
-  if (quality === "original") state.mediaLoadQueue.unshift(node);
-  else state.mediaLoadQueue.push(node);
-  pumpMediaLoadQueue();
-}
-
-function pumpMediaLoadQueue() {
-  while (
-    state.activeMediaLoads < MAX_CONCURRENT_IMAGE_LOADS &&
-    state.mediaLoadQueue.length
-  ) {
-    const node = state.mediaLoadQueue.shift();
-    if (!node?.startMediaLoad || !node.mediaLoadQueued) continue;
-    state.activeMediaLoads += 1;
-    node.startMediaLoad();
-  }
-}
-
-function finishMediaLoad(node) {
-  if (!node.mediaLoading) return;
-  node.mediaLoading = false;
-  node.loadingQuality = null;
-  state.activeMediaLoads = Math.max(0, state.activeMediaLoads - 1);
-  if (node.pendingMediaQuality) queueMediaLoad(node, node.pendingMediaQuality);
-  pumpMediaLoadQueue();
 }
 
 function createMediaLabel(node) {
