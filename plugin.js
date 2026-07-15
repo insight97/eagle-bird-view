@@ -11,9 +11,20 @@ const MAX_ROW_HEIGHT = 220;
 const LAYOUT_GAP = 14;
 const KEYBOARD_PAN_STEP = 240;
 const KEYBOARD_ZOOM_FACTOR = 1.5;
+const ARROW_DIRECTIONS = {
+  arrowup: [0, -1],
+  arrowdown: [0, 1],
+  arrowleft: [-1, 0],
+  arrowright: [1, 0],
+};
+const WASD_TO_ARROW = { w: "arrowup", s: "arrowdown", a: "arrowleft", d: "arrowright" };
 const KEYBOARD_SEEK_STEP = 5;
 const KEYBOARD_VOLUME_STEP = 0.05;
 const PAN_START_THRESHOLD = 4;
+
+function directionFor(key) {
+  return ARROW_DIRECTIONS[key] || ARROW_DIRECTIONS[WASD_TO_ARROW[key]];
+}
 
 const state = {
   camera: { x: 0, y: 0, scale: 1 },
@@ -552,11 +563,7 @@ function handleKeyDown(event) {
     return;
   }
 
-  if (
-    state.mode === "free" &&
-    event.ctrlKey &&
-    ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)
-  ) {
+  if (state.mode === "free" && event.ctrlKey && ARROW_DIRECTIONS[event.key.toLowerCase()]) {
     event.preventDefault();
     panOneViewport(event.key);
     return;
@@ -564,16 +571,7 @@ function handleKeyDown(event) {
 
   if (event.ctrlKey || event.metaKey || event.altKey) return;
   const key = event.key.toLowerCase();
-  const direction = {
-    arrowup: [0, -1],
-    w: [0, -1],
-    arrowdown: [0, 1],
-    s: [0, 1],
-    arrowleft: [-1, 0],
-    a: [-1, 0],
-    arrowright: [1, 0],
-    d: [1, 0],
-  }[key];
+  const direction = directionFor(key);
 
   if (state.mode === "selection" && direction) {
     event.preventDefault();
@@ -581,35 +579,22 @@ function handleKeyDown(event) {
     return;
   }
 
-  const movement = {
-    arrowup: [0, KEYBOARD_PAN_STEP],
-    w: [0, KEYBOARD_PAN_STEP],
-    arrowdown: [0, -KEYBOARD_PAN_STEP],
-    s: [0, -KEYBOARD_PAN_STEP],
-    arrowleft: [KEYBOARD_PAN_STEP, 0],
-    a: [KEYBOARD_PAN_STEP, 0],
-    arrowright: [-KEYBOARD_PAN_STEP, 0],
-    d: [-KEYBOARD_PAN_STEP, 0],
-  }[key];
-
-  if (!movement) return;
+  if (!direction) return;
   event.preventDefault();
-  state.camera.x += movement[0];
-  state.camera.y += movement[1];
+  panBy(direction[0] * -KEYBOARD_PAN_STEP, direction[1] * -KEYBOARD_PAN_STEP);
+}
+
+function panBy(dx, dy) {
+  state.camera.x += dx;
+  state.camera.y += dy;
   updateCamera();
 }
 
 function panOneViewport(key) {
-  const movement = {
-    ArrowUp: [0, elements.viewport.clientHeight],
-    ArrowDown: [0, -elements.viewport.clientHeight],
-    ArrowLeft: [elements.viewport.clientWidth, 0],
-    ArrowRight: [-elements.viewport.clientWidth, 0],
-  }[key];
-  if (!movement) return;
-  state.camera.x += movement[0];
-  state.camera.y += movement[1];
-  updateCamera();
+  const direction = ARROW_DIRECTIONS[key.toLowerCase()];
+  if (!direction) return;
+  const magnitude = direction[0] !== 0 ? elements.viewport.clientWidth : elements.viewport.clientHeight;
+  panBy(direction[0] * -magnitude, direction[1] * -magnitude);
 }
 
 function enterSelectionMode() {
