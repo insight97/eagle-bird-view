@@ -219,11 +219,11 @@
     return width / height;
   }
 
-  function selectDiverseExplorationRow(candidates, pivot) {
+  function selectDiverseExplorationRow(candidates, pivot, random = Math.random) {
     const pivotFolders = new Set(pivot.folders || []);
     const pivotTags = new Set(pivot.tags || []);
     const eligible = candidates
-      .map((item) => describeExplorationCandidate(item, pivotFolders, pivotTags, pivot.id))
+      .map((item) => describeExplorationCandidate(item, pivotFolders, pivotTags))
       .filter(({ sharedKeys }) => sharedKeys.length > 0);
     const selected = [];
     const representedNovelKeys = new Set();
@@ -239,20 +239,15 @@
       );
       if (underConnectionLimit.length) pool = underConnectionLimit;
 
-      pool.sort((a, b) => {
-        const aGain = a.novelKeys.filter((key) => !representedNovelKeys.has(key)).length;
-        const bGain = b.novelKeys.filter((key) => !representedNovelKeys.has(key)).length;
-        const aRepeated = Math.max(0, ...a.sharedKeys.map((key) => connectionCounts.get(key) || 0));
-        const bRepeated = Math.max(0, ...b.sharedKeys.map((key) => connectionCounts.get(key) || 0));
-        return (
-          bGain - aGain ||
-          aRepeated - bRepeated ||
-          a.rowOverlap - b.rowOverlap ||
-          a.tieBreaker - b.tieBreaker
-        );
-      });
-
-      const choice = pool[0];
+      const scored = pool.map((candidate) => ({
+        candidate,
+        score: getExplorationScore(candidate, representedNovelKeys, connectionCounts),
+      }));
+      scored.sort((a, b) => compareExplorationScores(a.score, b.score));
+      const shortlist = scored
+        .filter(({ score }) => compareExplorationScores(score, scored[0].score) === 0)
+        .map(({ candidate }) => candidate);
+      const choice = shortlist[getRandomIndex(shortlist.length, random)];
       eligible.splice(eligible.indexOf(choice), 1);
       selected.push(choice.item);
       aspectRatioSum += getAspectRatio(choice.item);
@@ -269,7 +264,28 @@
     return selected;
   }
 
-  function describeExplorationCandidate(item, pivotFolders, pivotTags, pivotId) {
+  function getExplorationScore(candidate, representedNovelKeys, connectionCounts) {
+    return {
+      gain: candidate.novelKeys.filter((key) => !representedNovelKeys.has(key)).length,
+      repeated: Math.max(
+        0,
+        ...candidate.sharedKeys.map((key) => connectionCounts.get(key) || 0),
+      ),
+      overlap: candidate.rowOverlap,
+    };
+  }
+
+  function compareExplorationScores(a, b) {
+    return b.gain - a.gain || a.repeated - b.repeated || a.overlap - b.overlap;
+  }
+
+  function getRandomIndex(length, random) {
+    const value = Number(random());
+    const unit = Number.isFinite(value) ? clamp(value, 0, 1 - Number.EPSILON) : 0;
+    return Math.floor(unit * length);
+  }
+
+  function describeExplorationCandidate(item, pivotFolders, pivotTags) {
     const folderKeys = (item.folders || []).map((value) => `folder:${value}`);
     const tagKeys = (item.tags || []).map((value) => `tag:${value}`);
     const sharedKeys = [
@@ -285,17 +301,7 @@
       sharedKeys,
       novelKeys,
       rowOverlap: sharedKeys.length,
-      tieBreaker: stableHash(`${pivotId || ""}:${item.id || ""}`),
     };
-  }
-
-  function stableHash(value) {
-    let hash = 2166136261;
-    for (let index = 0; index < value.length; index += 1) {
-      hash ^= value.charCodeAt(index);
-      hash = Math.imul(hash, 16777619);
-    }
-    return hash >>> 0;
   }
 
   function createJustifiedLayout(items) {

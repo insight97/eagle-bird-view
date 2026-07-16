@@ -23,6 +23,7 @@ test("exploration prefers bridge items and excludes unrelated items", () => {
   const selected = selectDiverseExplorationRow(
     [clone, bridgeFolder, bridgeTag, unrelated, ...extras],
     pivot,
+    () => 0,
   );
   const ids = selected.map(({ id }) => id);
 
@@ -40,7 +41,7 @@ test("exploration balances different shared connections within one row", () => {
     item("folder-2", ["ui"], ["motion"]),
   ];
 
-  const selected = selectDiverseExplorationRow(candidates, pivot);
+  const selected = selectDiverseExplorationRow(candidates, pivot, () => 0);
   assert.equal(selected.length, 4);
   assert.equal(selected.filter(({ folders }) => folders.includes("ui")).length, 2);
   assert.equal(selected.filter(({ tags }) => tags.includes("dark")).length, 2);
@@ -52,6 +53,28 @@ test("exploration stops as soon as candidates fill one justified row", () => {
     item(`item-${index}`, ["ui", `folder-${index}`], [`tag-${index}`]),
   );
 
-  const selected = selectDiverseExplorationRow(candidates, pivot);
+  const selected = selectDiverseExplorationRow(candidates, pivot, () => 0);
   assert.equal(selected.length, 4);
+});
+
+test("exploration randomizes only among equally suitable candidates", () => {
+  const pivot = item("pivot", ["ui"], []);
+  const candidates = ["a", "b", "c", "d"].map((id) =>
+    item(id, ["ui", `folder-${id}`], [`tag-${id}`], 400, 100),
+  );
+
+  const fromStart = selectDiverseExplorationRow(candidates, pivot, () => 0);
+  const fromEnd = selectDiverseExplorationRow(candidates, pivot, () => 0.999999);
+
+  assert.deepEqual(fromStart.map(({ id }) => id), ["a", "b"]);
+  assert.deepEqual(fromEnd.map(({ id }) => id), ["d", "c"]);
+});
+
+test("exploration does not randomize a weaker candidate into the shortlist", () => {
+  const pivot = item("pivot", ["ui"], []);
+  const stronger = item("stronger", ["ui", "web"], ["bold", "dark"], 400, 100);
+  const weaker = item("weaker", ["ui", "web"], [], 400, 100);
+
+  const selected = selectDiverseExplorationRow([stronger, weaker], pivot, () => 0.999999);
+  assert.equal(selected[0], stronger);
 });
