@@ -963,6 +963,13 @@ function handleKeyDown(event) {
     return;
   }
 
+  if (event.ctrlKey && event.key === "Enter") {
+    event.preventDefault();
+    if (event.repeat) return;
+    void exploreNextRow();
+    return;
+  }
+
   if (event.key === "Enter") {
     event.preventDefault();
     if (event.repeat) return;
