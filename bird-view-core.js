@@ -102,6 +102,85 @@
     return width / height;
   }
 
+  function selectDiverseExplorationRow(candidates, pivot) {
+    const pivotFolders = new Set(pivot.folders || []);
+    const pivotTags = new Set(pivot.tags || []);
+    const eligible = candidates
+      .map((item) => describeExplorationCandidate(item, pivotFolders, pivotTags, pivot.id))
+      .filter(({ sharedKeys }) => sharedKeys.length > 0);
+    const selected = [];
+    const representedNovelKeys = new Set();
+    const connectionCounts = new Map();
+    let aspectRatioSum = 0;
+
+    while (eligible.length) {
+      let pool = eligible;
+      const bridgeCandidates = pool.filter(({ novelKeys }) => novelKeys.length > 0);
+      if (bridgeCandidates.length) pool = bridgeCandidates;
+      const underConnectionLimit = pool.filter(({ sharedKeys }) =>
+        sharedKeys.every((key) => (connectionCounts.get(key) || 0) < 2),
+      );
+      if (underConnectionLimit.length) pool = underConnectionLimit;
+
+      pool.sort((a, b) => {
+        const aGain = a.novelKeys.filter((key) => !representedNovelKeys.has(key)).length;
+        const bGain = b.novelKeys.filter((key) => !representedNovelKeys.has(key)).length;
+        const aRepeated = Math.max(0, ...a.sharedKeys.map((key) => connectionCounts.get(key) || 0));
+        const bRepeated = Math.max(0, ...b.sharedKeys.map((key) => connectionCounts.get(key) || 0));
+        return (
+          bGain - aGain ||
+          aRepeated - bRepeated ||
+          a.rowOverlap - b.rowOverlap ||
+          a.tieBreaker - b.tieBreaker
+        );
+      });
+
+      const choice = pool[0];
+      eligible.splice(eligible.indexOf(choice), 1);
+      selected.push(choice.item);
+      aspectRatioSum += getAspectRatio(choice.item);
+      for (const key of choice.novelKeys) representedNovelKeys.add(key);
+      for (const key of choice.sharedKeys) {
+        connectionCounts.set(key, (connectionCounts.get(key) || 0) + 1);
+      }
+
+      const gapWidth = LAYOUT_GAP * Math.max(0, selected.length - 1);
+      const fittedHeight = (LAYOUT_WIDTH - gapWidth) / aspectRatioSum;
+      if (fittedHeight <= TARGET_ROW_HEIGHT) break;
+    }
+
+    return selected;
+  }
+
+  function describeExplorationCandidate(item, pivotFolders, pivotTags, pivotId) {
+    const folderKeys = (item.folders || []).map((value) => `folder:${value}`);
+    const tagKeys = (item.tags || []).map((value) => `tag:${value}`);
+    const sharedKeys = [
+      ...folderKeys.filter((key) => pivotFolders.has(key.slice(7))),
+      ...tagKeys.filter((key) => pivotTags.has(key.slice(4))),
+    ];
+    const novelKeys = [
+      ...folderKeys.filter((key) => !pivotFolders.has(key.slice(7))),
+      ...tagKeys.filter((key) => !pivotTags.has(key.slice(4))),
+    ];
+    return {
+      item,
+      sharedKeys,
+      novelKeys,
+      rowOverlap: sharedKeys.length,
+      tieBreaker: stableHash(`${pivotId || ""}:${item.id || ""}`),
+    };
+  }
+
+  function stableHash(value) {
+    let hash = 2166136261;
+    for (let index = 0; index < value.length; index += 1) {
+      hash ^= value.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  }
+
   function createJustifiedLayout(items) {
     const nodes = [];
     const rows = [];
@@ -210,6 +289,7 @@
     getViewportPanDelta,
     getViewportWorldCenter,
     isPlayingVideo,
+    selectDiverseExplorationRow,
     zoomCameraAtPoint,
   });
 });
