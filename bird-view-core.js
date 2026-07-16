@@ -61,6 +61,11 @@
     };
   }
 
+  function getPanLayerTranslation(camera, anchorCamera) {
+    if (!anchorCamera || camera.scale !== anchorCamera.scale) return null;
+    return { x: camera.x - anchorCamera.x, y: camera.y - anchorCamera.y };
+  }
+
   function findNearestNodeToPoint(nodes, point) {
     let nearest = null;
     for (const node of nodes) {
@@ -430,6 +435,7 @@
     getItemRating,
     getLabelRect,
     getLabelDetailLevel,
+    getPanLayerTranslation,
     getTagColorStyle,
     normalizeTagColor,
     getViewportPanDelta,

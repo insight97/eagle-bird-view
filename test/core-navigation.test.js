@@ -10,6 +10,7 @@ const {
   getItemRating,
   getLabelDetailLevel,
   getLabelRect,
+  getPanLayerTranslation,
   getTagColorStyle,
   getViewportPanDelta,
   getViewportWorldCenter,
@@ -78,6 +79,16 @@ test("getViewportPanDelta moves two-thirds of the relevant viewport axis", () =>
     x: 0,
     y: 400,
   });
+});
+
+test("getPanLayerTranslation reuses label positions only while scale is unchanged", () => {
+  const anchor = { x: 10, y: 20, scale: 2 };
+  assert.deepEqual(getPanLayerTranslation({ x: 35, y: 5, scale: 2 }, anchor), {
+    x: 25,
+    y: -15,
+  });
+  assert.equal(getPanLayerTranslation({ x: 35, y: 5, scale: 3 }, anchor), null);
+  assert.equal(getPanLayerTranslation({ x: 35, y: 5, scale: 2 }, null), null);
 });
 
 test("findNearestNodeToPoint prefers the item beneath the viewport center", () => {

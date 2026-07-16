@@ -12,6 +12,7 @@ const {
   getItemRating,
   getLabelDetailLevel,
   getLabelRect,
+  getPanLayerTranslation,
   getTagColorStyle,
   getViewportPanDelta,
   getViewportWorldCenter,
@@ -47,6 +48,7 @@ const state = {
   mountedNodes: new Set(),
   materializedNodes: new Set(),
   mountedLabelNodes: new Set(),
+  labelCamera: null,
   selectedNode: null,
   toastTimer: null,
   cameraFrame: null,
@@ -154,6 +156,8 @@ function renderItems(items) {
   releaseAllMediaLabels();
   elements.world.replaceChildren();
   elements.labels.replaceChildren();
+  state.labelCamera = null;
+  elements.labels.style.transform = "none";
   state.mountedNodes.clear();
   const layout = createJustifiedLayout(items);
   state.nodes = layout.nodes;
@@ -789,6 +793,8 @@ function clearBoard() {
   state.mountedNodes.clear();
   elements.world.replaceChildren();
   elements.labels.replaceChildren();
+  state.labelCamera = null;
+  elements.labels.style.transform = "none";
   refreshBaseScale();
   state.camera = { x: 0, y: 0, scale: getBaseScale() };
   updateCamera();
@@ -829,7 +835,8 @@ function renderCamera() {
     state.renderedBaseScale = state.baseScale;
   }
   elements.viewport.style.backgroundPosition = `${state.camera.x}px ${state.camera.y}px`;
-  updateMountedLabelPositions();
+  if (scaleChanged) updateMountedLabelPositions();
+  else updateLabelLayerTransform();
   scheduleViewportWork();
 }
 
@@ -941,10 +948,26 @@ function updateLabels() {
     mountMediaLabel(node);
     positionMediaLabel(node, rect);
   }
+  resetLabelLayerCamera();
 }
 
 function updateMountedLabelPositions() {
   for (const node of state.mountedLabelNodes) positionMediaLabel(node);
+  resetLabelLayerCamera();
+}
+
+function updateLabelLayerTransform() {
+  const translation = getPanLayerTranslation(state.camera, state.labelCamera);
+  if (!translation) {
+    updateMountedLabelPositions();
+    return;
+  }
+  elements.labels.style.transform = `translate3d(${translation.x}px, ${translation.y}px, 0)`;
+}
+
+function resetLabelLayerCamera() {
+  state.labelCamera = { ...state.camera };
+  elements.labels.style.transform = "translate3d(0, 0, 0)";
 }
 
 function positionMediaLabel(node, rect = getLabelRect(node, state.camera)) {
