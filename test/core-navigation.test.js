@@ -7,6 +7,8 @@ const {
   createJustifiedLayout,
   findNearestNodeInRows,
   findNearestNodeToPoint,
+  formatFileSize,
+  formatItemDimensions,
   getItemRating,
   getNextRating,
   getLabelDetailLevel,
@@ -20,6 +22,7 @@ const {
   isPlayingVideo,
   normalizeTags,
   normalizeTagColor,
+  rankTagMatches,
   zoomCameraAtPoint,
 } = require("../bird-view-core.js");
 
@@ -42,6 +45,15 @@ test("getItemRating accepts Eagle stars and clamps invalid values", () => {
   assert.equal(getItemRating({ star: "unknown" }), 0);
 });
 
+test("item dimensions and file sizes use compact readable labels", () => {
+  assert.equal(formatItemDimensions({ width: 1920, height: 1080 }), "1920 × 1080");
+  assert.equal(formatItemDimensions({ width: 0, height: 1080 }), "");
+  assert.equal(formatFileSize(850), "850 B");
+  assert.equal(formatFileSize(1536), "1.5 KB");
+  assert.equal(formatFileSize(2.4 * 1024 * 1024), "2.4 MB");
+  assert.equal(formatFileSize(), "");
+});
+
 test("getNextRating selects a star and clears the active rating", () => {
   assert.equal(getNextRating(2, 4), 4);
   assert.equal(getNextRating(4, 4), 0);
@@ -51,6 +63,13 @@ test("getNextRating selects a star and clears the active rating", () => {
 test("normalizeTags trims, removes blanks, and preserves unique order", () => {
   assert.deepEqual(normalizeTags([" UI ", "", "Photo", "UI", null]), ["UI", "Photo"]);
   assert.deepEqual(normalizeTags(), []);
+});
+
+test("rankTagMatches puts exact and prefix matches before other contains matches", () => {
+  assert.deepEqual(
+    rankTagMatches(["Web Design", "Designer", "Design", "UI Design", "Photo"], "design"),
+    ["Design", "Designer", "UI Design", "Web Design"],
+  );
 });
 
 test("label details progressively hide as media gets smaller", () => {

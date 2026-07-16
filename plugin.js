@@ -9,6 +9,8 @@ const {
   directionFor,
   findNearestNodeInRows,
   findNodesNearViewport,
+  formatFileSize,
+  formatItemDimensions,
   getItemRating,
   getNextRating,
   getLabelDetailLevel,
@@ -23,6 +25,7 @@ const {
   isPlayingVideo,
   normalizeTags,
   normalizeTagColor,
+  rankTagMatches,
   selectDiverseExplorationRow,
   zoomCameraAtPoint,
 } = BirdViewCore;
@@ -377,6 +380,8 @@ function createMediaLabel(node) {
   const tags = document.createElement("span");
   const editTags = document.createElement("button");
   const name = document.createElement("span");
+  const fileInfo = document.createElement("span");
+  const basicInfo = document.createElement("span");
   const type = document.createElement("span");
   const actions = document.createElement("span");
   const rotateLeft = document.createElement("button");
@@ -402,8 +407,16 @@ function createMediaLabel(node) {
   });
   name.className = "media-name";
   name.textContent = item.name || "未命名";
+  fileInfo.className = "media-file-info";
+  basicInfo.className = "media-basic-info";
+  basicInfo.textContent = [formatItemDimensions(item), formatFileSize(item.size)]
+    .filter(Boolean)
+    .join(" · ");
+  basicInfo.hidden = !basicInfo.textContent;
   type.className = "media-extension";
-  type.textContent = String(item.ext || "FILE").toUpperCase();
+  type.textContent = `${basicInfo.textContent ? "· " : ""}${String(
+    item.ext || "FILE",
+  ).toUpperCase()}`;
   actions.className = "media-label-actions";
   rotateLeft.className = "media-rotate";
   rotateLeft.type = "button";
@@ -417,7 +430,8 @@ function createMediaLabel(node) {
   rotateRight.setAttribute("aria-label", `將 ${item.name || "媒體"} 向右旋轉`);
   bindRotationButton(rotateLeft, node, -1);
   bindRotationButton(rotateRight, node, 1);
-  actions.append(type, rotateLeft, rotateRight);
+  fileInfo.append(basicInfo, type);
+  actions.append(fileInfo, rotateLeft, rotateRight);
   metadata.append(rating, tags, editTags);
   main.append(name, actions);
   label.append(main, metadata);
@@ -440,24 +454,37 @@ function createRatingControls(rating, node) {
     star.addEventListener("pointerleave", () => paintRating(rating, getItemRating(node.item)));
     star.addEventListener("click", async (event) => {
       event.stopPropagation();
-      if (node.isSaving) return;
       setSelectedNode(node);
-      const previousRating = getItemRating(node.item);
-      node.item.star = getNextRating(previousRating, index);
-      updateRatingControl(rating, node);
-      await saveItemMetadata(node, {
-        successMessage: node.item.star
-          ? `已將「${node.item.name || "素材"}」設為 ${node.item.star} 顆星。`
-          : `已清除「${node.item.name || "素材"}」的評分。`,
-        rollback: () => {
-          node.item.star = previousRating;
-          updateRatingControl(rating, node);
-        },
-      });
+      await setItemRating(node, index, { toggle: true });
     });
     rating.append(star);
   }
   paintRating(rating, currentRating);
+}
+
+async function setItemRating(node, value, { toggle = false } = {}) {
+  if (!node || node.isSaving) return false;
+  const previousRating = getItemRating(node.item);
+  const nextRating = toggle
+    ? getNextRating(previousRating, value)
+    : clamp(Math.round(Number(value) || 0), 0, 5);
+  if (nextRating === previousRating) return false;
+  node.item.star = nextRating;
+  refreshNodeRating(node);
+  return saveItemMetadata(node, {
+    successMessage: nextRating
+      ? `已將「${node.item.name || "素材"}」設為 ${nextRating} 顆星。`
+      : `已清除「${node.item.name || "素材"}」的評分。`,
+    rollback: () => {
+      node.item.star = previousRating;
+      refreshNodeRating(node);
+    },
+  });
+}
+
+function refreshNodeRating(node) {
+  const rating = node.label?.querySelector(".media-rating");
+  if (rating) updateRatingControl(rating, node);
 }
 
 function paintRating(rating, value) {
@@ -539,6 +566,8 @@ function openTagEditor(node, anchor) {
     input,
     options,
     selected: new Set(normalizeTags(node.item.tags)),
+    actions: [],
+    activeIndex: 0,
     outsideHandler: null,
   };
 
@@ -560,24 +589,28 @@ function openTagEditor(node, anchor) {
   save.type = "button";
   save.textContent = "完成";
 
-  input.addEventListener("input", () => renderTagEditorOptions(session));
+  input.addEventListener("input", () => {
+    session.activeIndex = 0;
+    renderTagEditorOptions(session);
+  });
   input.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       event.preventDefault();
       closeTagEditor();
       return;
     }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      moveTagEditorSelection(session, event.key === "ArrowDown" ? 1 : -1);
+      return;
+    }
     if (event.key !== "Enter") return;
     event.preventDefault();
-    const tag = input.value.trim();
-    if (!tag) return;
-    const existingTag = normalizeTags([
-      ...session.selected,
-      ...state.tagColors.keys(),
-    ]).find((candidate) => candidate.toLocaleLowerCase() === tag.toLocaleLowerCase());
-    session.selected.add(existingTag || tag);
-    input.value = "";
-    renderTagEditorOptions(session);
+    if (!input.value.trim()) {
+      void commitTagEditor(session);
+      return;
+    }
+    session.actions[session.activeIndex]?.activate();
   });
   cancel.addEventListener("click", closeTagEditor);
   save.addEventListener("click", () => commitTagEditor(session));
@@ -601,31 +634,25 @@ function openTagEditor(node, anchor) {
 
 function renderTagEditorOptions(session) {
   const query = session.input.value.trim().toLocaleLowerCase();
-  const candidates = normalizeTags([
-    ...session.selected,
-    ...normalizeTags(session.node.item.tags),
-    ...state.tagColors.keys(),
-  ])
-    .filter((tag) => !query || tag.toLocaleLowerCase().includes(query))
-    .sort((first, second) => {
-      const selectedDifference = Number(session.selected.has(second)) - Number(session.selected.has(first));
+  let candidates = rankTagMatches(
+    [
+      ...session.selected,
+      ...normalizeTags(session.node.item.tags),
+      ...state.tagColors.keys(),
+    ],
+    query,
+  );
+  if (!query) {
+    candidates = candidates.sort((first, second) => {
+      const selectedDifference =
+        Number(session.selected.has(second)) - Number(session.selected.has(first));
       return selectedDifference || first.localeCompare(second);
-    })
-    .slice(0, 80);
+    });
+  }
+  candidates = candidates.slice(0, 80);
 
   session.options.replaceChildren();
-  if (query && !candidates.some((tag) => tag.toLocaleLowerCase() === query)) {
-    const create = document.createElement("button");
-    create.className = "tag-editor-create";
-    create.type = "button";
-    create.textContent = `建立「${session.input.value.trim()}」`;
-    create.addEventListener("click", () => {
-      session.selected.add(session.input.value.trim());
-      session.input.value = "";
-      renderTagEditorOptions(session);
-    });
-    session.options.append(create);
-  }
+  session.actions = [];
 
   for (const tag of candidates) {
     const option = document.createElement("button");
@@ -638,12 +665,33 @@ function renderTagEditorOptions(session) {
     marker.className = "tag-editor-check";
     marker.textContent = isSelected ? "✓" : "";
     option.append(marker, chip);
-    option.addEventListener("click", () => {
+    const activate = () => {
       if (session.selected.has(tag)) session.selected.delete(tag);
       else session.selected.add(tag);
+      session.input.value = "";
+      session.activeIndex = 0;
       renderTagEditorOptions(session);
-    });
+    };
+    option.addEventListener("click", activate);
     session.options.append(option);
+    session.actions.push({ element: option, activate });
+  }
+
+  if (query && !candidates.some((tag) => tag.toLocaleLowerCase() === query)) {
+    const tag = session.input.value.trim();
+    const create = document.createElement("button");
+    const activate = () => {
+      session.selected.add(tag);
+      session.input.value = "";
+      session.activeIndex = 0;
+      renderTagEditorOptions(session);
+    };
+    create.className = "tag-editor-create";
+    create.type = "button";
+    create.textContent = `建立「${tag}」`;
+    create.addEventListener("click", activate);
+    session.options.append(create);
+    session.actions.push({ element: create, activate });
   }
 
   if (!session.options.childElementCount) {
@@ -652,11 +700,33 @@ function renderTagEditorOptions(session) {
     empty.textContent = "沒有符合的標籤";
     session.options.append(empty);
   }
+  session.activeIndex = clamp(session.activeIndex, 0, Math.max(0, session.actions.length - 1));
+  updateTagEditorSelection(session);
+}
+
+function moveTagEditorSelection(session, direction) {
+  if (!session.actions.length) return;
+  session.activeIndex =
+    (session.activeIndex + direction + session.actions.length) % session.actions.length;
+  updateTagEditorSelection(session, true);
+}
+
+function updateTagEditorSelection(session, scroll = false) {
+  for (const [index, action] of session.actions.entries()) {
+    action.element.classList.toggle("is-active", index === session.activeIndex);
+  }
+  if (scroll) {
+    session.actions[session.activeIndex]?.element.scrollIntoView({ block: "nearest" });
+  }
 }
 
 function positionTagEditor(session) {
   const viewportRect = elements.viewport.getBoundingClientRect();
-  const anchorRect = session.anchor.getBoundingClientRect();
+  const anchorRect = session.anchor?.getBoundingClientRect() || {
+    left: viewportRect.left + viewportRect.width / 2,
+    top: viewportRect.top + viewportRect.height / 2,
+    height: 0,
+  };
   const width = session.editor.offsetWidth;
   const height = session.editor.offsetHeight;
   const anchorLeft = anchorRect.left - viewportRect.left;
@@ -865,6 +935,20 @@ function handleWheel(event) {
 function handleKeyDown(event) {
   if (isInteractiveTarget(event.target)) return;
 
+  if (!event.ctrlKey && !event.metaKey && !event.altKey && /^[1-5]$/.test(event.key)) {
+    event.preventDefault();
+    if (event.repeat) return;
+    void setItemRating(state.selectedNode, Number(event.key));
+    return;
+  }
+
+  if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === "t") {
+    event.preventDefault();
+    if (event.repeat) return;
+    openSelectedTagEditor();
+    return;
+  }
+
   if (
     event.ctrlKey &&
     ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)
@@ -905,6 +989,13 @@ function handleKeyDown(event) {
   event.preventDefault();
   panBy(direction[0] * -KEYBOARD_PAN_STEP, direction[1] * -KEYBOARD_PAN_STEP);
   selectNodeAtViewportCenter();
+}
+
+function openSelectedTagEditor() {
+  const node = state.selectedNode;
+  if (!node || node.isSaving) return;
+  const anchor = node.label?.querySelector(".media-tag-edit") || node.element;
+  openTagEditor(node, anchor);
 }
 
 function panBy(dx, dy) {

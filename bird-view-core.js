@@ -180,6 +180,27 @@
     return Number.isFinite(rating) ? clamp(Math.round(rating), 0, 5) : 0;
   }
 
+  function formatItemDimensions(item) {
+    const width = Math.round(Number(item?.width));
+    const height = Math.round(Number(item?.height));
+    return width > 0 && height > 0 ? `${width} × ${height}` : "";
+  }
+
+  function formatFileSize(bytes) {
+    const value = Number(bytes);
+    if (!Number.isFinite(value) || value < 0) return "";
+    if (value < 1024) return `${Math.round(value)} B`;
+    const units = ["KB", "MB", "GB", "TB"];
+    let size = value / 1024;
+    let unitIndex = 0;
+    while (size >= 1024 && unitIndex < units.length - 1) {
+      size /= 1024;
+      unitIndex += 1;
+    }
+    const precision = size < 10 ? 1 : 0;
+    return `${size.toFixed(precision)} ${units[unitIndex]}`;
+  }
+
   function getNextRating(current, selected) {
     const normalizedCurrent = clamp(Math.round(Number(current) || 0), 0, 5);
     const normalizedSelected = clamp(Math.round(Number(selected) || 0), 0, 5);
@@ -197,6 +218,31 @@
           .filter(Boolean),
       ),
     ];
+  }
+
+  function rankTagMatches(tags, query) {
+    const needle = String(query || "").trim().toLocaleLowerCase();
+    const values = normalizeTags(tags);
+    if (!needle) return values.sort((first, second) => first.localeCompare(second));
+    return values
+      .map((tag) => {
+        const normalized = tag.toLocaleLowerCase();
+        const matchIndex = normalized.indexOf(needle);
+        return {
+          tag,
+          matchIndex,
+          rank: normalized === needle ? 0 : normalized.startsWith(needle) ? 1 : 2,
+        };
+      })
+      .filter(({ matchIndex }) => matchIndex >= 0)
+      .sort(
+        (first, second) =>
+          first.rank - second.rank ||
+          first.matchIndex - second.matchIndex ||
+          first.tag.length - second.tag.length ||
+          first.tag.localeCompare(second.tag),
+      )
+      .map(({ tag }) => tag);
   }
 
   function getLabelDetailLevel(zoom, scale) {
@@ -475,6 +521,8 @@
     findNearestNodeToPoint,
     findNearestNodeInRows,
     findNodesNearViewport,
+    formatFileSize,
+    formatItemDimensions,
     getAspectRatio,
     getItemRating,
     getNextRating,
@@ -486,6 +534,7 @@
     getTagColorStyle,
     normalizeTags,
     normalizeTagColor,
+    rankTagMatches,
     getViewportPanDelta,
     getViewportWorldCenter,
     insertExplorationRow,

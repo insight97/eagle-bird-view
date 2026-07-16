@@ -400,6 +400,7 @@ button {
 .media-rating[hidden],
 .media-tags[hidden],
 .media-label.is-compact .media-metadata,
+.media-label.is-compact .media-basic-info,
 .media-label.is-compact .media-label-actions {
   display: none;
 }
@@ -547,7 +548,9 @@ button {
 }
 
 .tag-editor-option:hover,
-.tag-editor-create:hover {
+.tag-editor-create:hover,
+.tag-editor-option.is-active,
+.tag-editor-create.is-active {
   background: #2c3036;
 }
 
@@ -624,7 +627,28 @@ button {
 
 .media-name {
   min-width: 0;
+  flex: 1;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.media-file-info {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.media-basic-info {
+  max-width: 190px;
+  flex: none;
+  min-width: 0;
+  overflow: hidden;
+  color: #858a93;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
