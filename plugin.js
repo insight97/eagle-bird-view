@@ -44,6 +44,7 @@ const ORIGINAL_IMAGE_ZOOM = 1;
 const MAX_CONCURRENT_IMAGE_LOADS = 4;
 const RESOURCE_RELEASE_VIEWPORTS = 3;
 const GRID_LAYER_OVERFLOW = 768;
+const METADATA_SUCCESS_TOAST_MS = 1200;
 
 const state = {
   camera: { x: 0, y: 0, scale: 1 },
@@ -529,7 +530,7 @@ async function saveItemMetadata(node, { rollback, successMessage }) {
     const result = await node.item.save();
     if (result === false) throw new Error("Eagle 拒絕儲存變更");
     state.explorationSource?.clear();
-    showToast(successMessage);
+    showToast(successMessage, false, METADATA_SUCCESS_TOAST_MS);
     return true;
   } catch (error) {
     rollback();
@@ -1427,12 +1428,12 @@ function refreshBaseScale() {
   state.baseScale = Math.max(0.01, Math.min(widthScale, heightScale));
 }
 
-function showToast(message, isError = false) {
+function showToast(message, isError = false, duration = 3200) {
   window.clearTimeout(state.toastTimer);
   elements.toast.textContent = message;
   elements.toast.classList.toggle("is-error", isError);
   elements.toast.classList.add("is-visible");
   state.toastTimer = window.setTimeout(() => {
     elements.toast.classList.remove("is-visible");
-  }, 3200);
+  }, duration);
 }
