@@ -2,7 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { MediaLoadQueue } = require("../media-load-queue.js");
+const { MediaLoadQueue, waitForImageDecode } = require("../media-load-queue.js");
 
 function register(queue, starts, options = {}) {
   const node = {};
@@ -132,4 +132,36 @@ test("canceling an active original frees its slot and allows a later retry", () 
   queue.request(original, "original");
   assert.equal(starts.at(-1).node, original);
   assert.equal(starts.at(-1).quality, "original");
+});
+
+test("image decoding stops waiting when the timeout wins", async () => {
+  const cleared = [];
+  const timers = {
+    setTimeout(callback) {
+      callback();
+      return 7;
+    },
+    clearTimeout(id) {
+      cleared.push(id);
+    },
+  };
+  const image = { decode: () => new Promise(() => {}) };
+
+  await waitForImageDecode(image, 1500, timers);
+  assert.deepEqual(cleared, [7]);
+});
+
+test("image decoding clears its timeout after decoding succeeds", async () => {
+  const cleared = [];
+  const timers = {
+    setTimeout() {
+      return 11;
+    },
+    clearTimeout(id) {
+      cleared.push(id);
+    },
+  };
+
+  await waitForImageDecode({ decode: () => Promise.resolve() }, 1500, timers);
+  assert.deepEqual(cleared, [11]);
 });

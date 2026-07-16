@@ -189,5 +189,16 @@
     return current === "original" || requested === "original" ? "original" : requested;
   }
 
-  return Object.freeze({ MediaLoadQueue });
+  function waitForImageDecode(image, timeoutMs = 1500, timers = globalThis) {
+    if (typeof image?.decode !== "function") return Promise.resolve();
+    let timeoutId;
+    const timeout = new Promise((resolve) => {
+      timeoutId = timers.setTimeout(resolve, timeoutMs);
+    });
+    return Promise.race([Promise.resolve().then(() => image.decode()), timeout])
+      .catch(() => {})
+      .finally(() => timers.clearTimeout(timeoutId));
+  }
+
+  return Object.freeze({ MediaLoadQueue, waitForImageDecode });
 });

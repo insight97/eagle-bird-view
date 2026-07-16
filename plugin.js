@@ -26,7 +26,7 @@ const {
   selectDiverseExplorationRow,
   zoomCameraAtPoint,
 } = BirdViewCore;
-const { MediaLoadQueue } = BirdViewMedia;
+const { MediaLoadQueue, waitForImageDecode } = BirdViewMedia;
 const { RelatedItemSource } = BirdViewExploration;
 const { startVideoPlayer } = BirdViewVideo;
 const MIN_ZOOM = 0.08;
@@ -234,6 +234,7 @@ function createMediaCard(node) {
 
   card.className = "media-card";
   card.dataset.itemId = item.id;
+  card.dataset.mediaQuality = "idle";
   card.title = isVideo
     ? `${item.name || "未命名"}（雙擊播放或暫停）`
     : item.name || "未命名";
@@ -258,6 +259,7 @@ function createMediaCard(node) {
       const originalImage = node.preloadImage;
       node.preloadImage = null;
       originalImage.removeAttribute("src");
+      card.dataset.mediaQuality = mediaLoadQueue.snapshot(node)?.readyQuality || "idle";
     },
     start: (quality) => {
       const mediaURL = quality === "original" ? originalImageURL : fallbackURL;
@@ -265,6 +267,8 @@ function createMediaCard(node) {
         mediaLoadQueue.complete(node, quality, false);
         return;
       }
+      card.dataset.mediaQuality =
+        quality === "original" ? "loading-original" : "loading-thumbnail";
       if (quality === "original") {
         const originalImage = document.createElement("img");
         originalImage.alt = image.alt;
@@ -272,11 +276,7 @@ function createMediaCard(node) {
         originalImage.draggable = false;
         node.preloadImage = originalImage;
         originalImage.addEventListener("load", async () => {
-          try {
-            await originalImage.decode();
-          } catch {
-            // A completed load is still safe to reveal when decode() is unavailable.
-          }
+          await waitForImageDecode(originalImage);
           if (
             node.mediaGeneration !== mediaGeneration ||
             node.preloadImage !== originalImage ||
@@ -290,6 +290,7 @@ function createMediaCard(node) {
           node.previewImage = originalImage;
           node.preloadImage = null;
           if (node.mediaElement === previousImage) node.mediaElement = originalImage;
+          card.dataset.mediaQuality = "original";
           applyMediaRotation(node);
           mediaLoadQueue.complete(node, "original", true);
         });
@@ -301,6 +302,8 @@ function createMediaCard(node) {
             return;
           }
           node.preloadImage = null;
+          card.dataset.mediaQuality =
+            mediaLoadQueue.snapshot(node)?.readyQuality || "original-failed";
           mediaLoadQueue.complete(node, "original", false);
         });
         originalImage.src = mediaURL;
@@ -317,6 +320,7 @@ function createMediaCard(node) {
       return;
     }
     image.style.visibility = "visible";
+    card.dataset.mediaQuality = "thumbnail";
     applyMediaRotation(node);
     mediaLoadQueue.complete(node, "thumbnail", true);
   });
@@ -328,6 +332,7 @@ function createMediaCard(node) {
       return;
     }
     image.alt = "無法顯示縮圖";
+    card.dataset.mediaQuality = "thumbnail-failed";
     mediaLoadQueue.complete(node, "thumbnail", false);
   });
 
