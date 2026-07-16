@@ -354,13 +354,59 @@ button {
   display: flex;
   height: 22px;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
   padding: 0 2px;
   color: #e2e4e7;
   font-size: 12px;
-  line-height: 22px;
   text-rendering: geometricPrecision;
+}
+
+.media-label-main {
+  display: flex;
+  width: 100%;
+  height: 22px;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  line-height: 22px;
+  overflow: hidden;
+}
+
+.media-metadata {
+  position: absolute;
+  top: calc(32px + var(--media-screen-height, 0px));
+  left: 2px;
+  display: flex;
+  width: calc(100% - 4px);
+  height: 16px;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  overflow: hidden;
+  color: #989da5;
+  font-size: 10px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.media-metadata[hidden],
+.media-rating[hidden],
+.media-tags[hidden],
+.media-label.is-compact .media-metadata,
+.media-label.is-compact .media-label-actions {
+  display: none;
+}
+
+.media-rating {
+  flex: none;
+  color: #e7b94e;
+  letter-spacing: 1px;
+}
+
+.media-tags {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .media-label.is-selected {

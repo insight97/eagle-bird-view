@@ -12,6 +12,9 @@
   const MIN_ROW_HEIGHT = 140;
   const MAX_ROW_HEIGHT = 220;
   const LAYOUT_GAP = 14;
+  const LABEL_MIN_ZOOM = 0.45;
+  const LABEL_MIN_SCALE = 2;
+  const LABEL_DETAILS_MIN_ZOOM = 1;
   const ARROW_DIRECTIONS = {
     arrowup: [0, -1],
     arrowdown: [0, 1],
@@ -140,6 +143,16 @@
       width: Math.round(node.width * camera.scale),
       height: 22,
     };
+  }
+
+  function getItemRating(item) {
+    const rating = Number(item?.star ?? item?.rating);
+    return Number.isFinite(rating) ? clamp(Math.round(rating), 0, 5) : 0;
+  }
+
+  function getLabelDetailLevel(zoom, scale) {
+    if (zoom < LABEL_MIN_ZOOM || scale < LABEL_MIN_SCALE) return "hidden";
+    return zoom >= LABEL_DETAILS_MIN_ZOOM ? "details" : "name";
   }
 
   function getAspectRatio(item) {
@@ -375,7 +388,9 @@
     findNearestNodeInRows,
     findNodesNearViewport,
     getAspectRatio,
+    getItemRating,
     getLabelRect,
+    getLabelDetailLevel,
     getViewportPanDelta,
     getViewportWorldCenter,
     insertExplorationRow,

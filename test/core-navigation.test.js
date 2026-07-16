@@ -7,6 +7,8 @@ const {
   createJustifiedLayout,
   findNearestNodeInRows,
   findNearestNodeToPoint,
+  getItemRating,
+  getLabelDetailLevel,
   getLabelRect,
   getViewportPanDelta,
   getViewportWorldCenter,
@@ -22,6 +24,22 @@ test("getLabelRect projects a node into rounded screen coordinates", () => {
     ),
     { left: 20, top: 1, width: 150, height: 22 },
   );
+});
+
+test("getItemRating accepts Eagle stars and clamps invalid values", () => {
+  assert.equal(getItemRating({ star: 3 }), 3);
+  assert.equal(getItemRating({ star: "5" }), 5);
+  assert.equal(getItemRating({ rating: 2 }), 2);
+  assert.equal(getItemRating({ star: 9 }), 5);
+  assert.equal(getItemRating({ star: -1 }), 0);
+  assert.equal(getItemRating({ star: "unknown" }), 0);
+});
+
+test("label details progressively hide as media gets smaller", () => {
+  assert.equal(getLabelDetailLevel(1, 3), "details");
+  assert.equal(getLabelDetailLevel(0.75, 3), "name");
+  assert.equal(getLabelDetailLevel(0.4, 3), "hidden");
+  assert.equal(getLabelDetailLevel(1, 1.5), "hidden");
 });
 
 test("directionFor normalizes arrow keys and WASD", () => {

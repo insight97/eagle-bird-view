@@ -9,6 +9,8 @@ const {
   directionFor,
   findNearestNodeInRows,
   findNodesNearViewport,
+  getItemRating,
+  getLabelDetailLevel,
   getLabelRect,
   getViewportPanDelta,
   getViewportWorldCenter,
@@ -341,6 +343,10 @@ function createMediaCard(node) {
 function createMediaLabel(node) {
   const { item } = node;
   const label = document.createElement("div");
+  const main = document.createElement("div");
+  const metadata = document.createElement("div");
+  const rating = document.createElement("span");
+  const tags = document.createElement("span");
   const name = document.createElement("span");
   const type = document.createElement("span");
   const actions = document.createElement("span");
@@ -348,6 +354,21 @@ function createMediaLabel(node) {
   const rotateRight = document.createElement("button");
 
   label.className = "media-label";
+  main.className = "media-label-main";
+  metadata.className = "media-metadata";
+  rating.className = "media-rating";
+  tags.className = "media-tags";
+  const ratingValue = getItemRating(item);
+  const tagValues = [
+    ...new Set((item.tags || []).map(String).map((tag) => tag.trim()).filter(Boolean)),
+  ];
+  rating.textContent = "★".repeat(ratingValue);
+  rating.hidden = ratingValue === 0;
+  rating.setAttribute("aria-label", `評分 ${ratingValue} 顆星`);
+  tags.textContent = tagValues.map((tag) => `#${tag}`).join("  ");
+  tags.title = tagValues.join(", ");
+  tags.hidden = tagValues.length === 0;
+  metadata.hidden = ratingValue === 0 && tagValues.length === 0;
   name.className = "media-name";
   name.textContent = item.name || "未命名";
   type.className = "media-extension";
@@ -366,7 +387,9 @@ function createMediaLabel(node) {
   bindRotationButton(rotateLeft, node, -1);
   bindRotationButton(rotateRight, node, 1);
   actions.append(type, rotateLeft, rotateRight);
-  label.append(name, actions);
+  metadata.append(rating, tags);
+  main.append(name, actions);
+  label.append(main, metadata);
   return label;
 }
 
@@ -827,13 +850,14 @@ function updateLabels() {
   const viewportHeight = elements.viewport.clientHeight;
   const scale = state.camera.scale;
   const zoom = scale / getBaseScale();
-  const labelNodes = zoom >= 0.28 ? getNodesNearViewport(30) : [];
+  const showLabels = getLabelDetailLevel(zoom, scale) !== "hidden";
+  const labelNodes = showLabels ? getNodesNearViewport(30) : [];
   const visibleLabels = [];
 
   for (const node of labelNodes) {
     const rect = getLabelRect(node, state.camera);
     const isVisible =
-      zoom >= 0.28 &&
+      showLabels &&
       rect.left + rect.width >= 0 &&
       rect.left <= viewportWidth &&
       rect.top + rect.height >= 0 &&
@@ -859,9 +883,19 @@ function updateMountedLabelPositions() {
 }
 
 function positionMediaLabel(node, rect = getLabelRect(node, state.camera)) {
+  const detailLevel = getLabelDetailLevel(
+    state.camera.scale / getBaseScale(),
+    state.camera.scale,
+  );
+  const showDetails = detailLevel === "details";
+  node.label.classList.toggle("is-compact", !showDetails);
   node.label.style.left = `${rect.left}px`;
   node.label.style.top = `${rect.top}px`;
-  node.label.style.width = `${Math.max(100, rect.width)}px`;
+  node.label.style.width = `${Math.max(1, rect.width)}px`;
+  node.label.style.setProperty(
+    "--media-screen-height",
+    `${Math.round(node.height * state.camera.scale)}px`,
+  );
 }
 
 function positionNode(node) {
