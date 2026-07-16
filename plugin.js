@@ -39,6 +39,9 @@ const VIEWPORT_WORK_INTERVAL = 100;
 
 const state = {
   camera: { x: 0, y: 0, scale: 1 },
+  baseScale: 1,
+  renderedScale: null,
+  renderedBaseScale: null,
   nodes: [],
   rows: [],
   mountedNodes: new Set(),
@@ -82,9 +85,10 @@ function setup() {
   elements.viewport.addEventListener("pointerdown", beginPan);
   elements.viewport.addEventListener("wheel", handleWheel, { passive: false });
   window.addEventListener("keydown", handleKeyDown);
-  window.addEventListener("resize", updateCamera);
+  window.addEventListener("resize", handleResize);
   elements.exploreButton.addEventListener("click", exploreNextRow);
 
+  refreshBaseScale();
   state.camera.scale = getBaseScale();
   updateCamera();
   if (
@@ -154,6 +158,7 @@ function renderItems(items) {
   const layout = createJustifiedLayout(items);
   state.nodes = layout.nodes;
   state.rows = layout.rows;
+  refreshBaseScale();
 
   updateBoardMeta();
   updateLabels();
@@ -764,6 +769,7 @@ function focusFirstItem() {
   if (!node) return;
   const viewportWidth = elements.viewport.clientWidth;
   const viewportHeight = elements.viewport.clientHeight;
+  refreshBaseScale();
   const scale = getBaseScale();
   const displayHeight = node.mediaHeight + (node.isVideo ? VIDEO_CONTROLS_HEIGHT : 0);
 
@@ -783,6 +789,7 @@ function clearBoard() {
   state.mountedNodes.clear();
   elements.world.replaceChildren();
   elements.labels.replaceChildren();
+  refreshBaseScale();
   state.camera = { x: 0, y: 0, scale: getBaseScale() };
   updateCamera();
   updateBoardMeta();
@@ -800,15 +807,28 @@ function updateCamera() {
   state.cameraFrame = requestAnimationFrame(renderCamera);
 }
 
+function handleResize() {
+  refreshBaseScale();
+  updateCamera();
+}
+
 function renderCamera() {
   state.cameraFrame = null;
-  const inverseScale = 1 / state.camera.scale;
-  elements.world.style.setProperty("--media-border-width", `${inverseScale}px`);
+  const scaleChanged = state.renderedScale !== state.camera.scale;
+  const baseScaleChanged = state.renderedBaseScale !== state.baseScale;
+  if (scaleChanged) {
+    const inverseScale = 1 / state.camera.scale;
+    elements.world.style.setProperty("--media-border-width", `${inverseScale}px`);
+    const gridSize = Math.max(8, 24 * state.camera.scale);
+    elements.viewport.style.backgroundSize = `${gridSize}px ${gridSize}px`;
+    state.renderedScale = state.camera.scale;
+  }
   elements.world.style.transform = `translate(${state.camera.x}px, ${state.camera.y}px) scale(${state.camera.scale})`;
-  elements.zoomLabel.textContent = `${Math.round((state.camera.scale / getBaseScale()) * 100)}%`;
+  if (scaleChanged || baseScaleChanged) {
+    elements.zoomLabel.textContent = `${Math.round((state.camera.scale / getBaseScale()) * 100)}%`;
+    state.renderedBaseScale = state.baseScale;
+  }
   elements.viewport.style.backgroundPosition = `${state.camera.x}px ${state.camera.y}px`;
-  const gridSize = Math.max(8, 24 * state.camera.scale);
-  elements.viewport.style.backgroundSize = `${gridSize}px ${gridSize}px`;
   updateMountedLabelPositions();
   scheduleViewportWork();
 }
@@ -946,6 +966,10 @@ function positionNode(node) {
 }
 
 function getBaseScale() {
+  return state.baseScale;
+}
+
+function refreshBaseScale() {
   const padding = 64;
   const viewportWidth = Math.max(elements.viewport?.clientWidth || 0, 1);
   const viewportHeight = Math.max(elements.viewport?.clientHeight || 0, 1);
@@ -956,7 +980,7 @@ function getBaseScale() {
   const referenceWidth = state.nodes[0]?.width || TARGET_ROW_HEIGHT * (16 / 10);
   const widthScale = (viewportWidth - padding * 2) / referenceWidth;
   const heightScale = (viewportHeight - padding * 2) / referenceHeight;
-  return Math.max(0.01, Math.min(widthScale, heightScale));
+  state.baseScale = Math.max(0.01, Math.min(widthScale, heightScale));
 }
 
 function showToast(message, isError = false) {
