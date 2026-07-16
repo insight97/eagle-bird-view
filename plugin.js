@@ -7,7 +7,7 @@ const {
   clamp,
   createJustifiedLayout,
   directionFor,
-  findNearestNodeToPoint,
+  findNearestNodeInRows,
   findNodesNearViewport,
   getLabelRect,
   getViewportPanDelta,
@@ -633,7 +633,7 @@ function selectNodeAtViewportCenter() {
     width: elements.viewport.clientWidth,
     height: elements.viewport.clientHeight,
   });
-  const node = findNearestNodeToPoint(state.nodes, center);
+  const node = findNearestNodeInRows(state.rows, center);
   if (node && node !== state.selectedNode) setSelectedNode(node);
 }
 

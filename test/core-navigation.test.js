@@ -4,6 +4,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   directionFor,
+  createJustifiedLayout,
+  findNearestNodeInRows,
   findNearestNodeToPoint,
   getLabelRect,
   getViewportPanDelta,
@@ -51,6 +53,31 @@ test("findNearestNodeToPoint prefers the item beneath the viewport center", () =
   assert.equal(findNearestNodeToPoint([first, second], center), second);
   assert.equal(findNearestNodeToPoint([first, second], { x: 109, y: 50 }), first);
   assert.equal(findNearestNodeToPoint([first, second], { x: 111, y: 50 }), second);
+});
+
+test("row-indexed nearest selection matches a full node scan", () => {
+  const items = Array.from({ length: 40 }, (_, index) => ({
+    id: `item-${index}`,
+    width: 100 + (index % 5) * 70,
+    height: 100 + (index % 3) * 40,
+    ext: index % 9 === 0 ? "mp4" : "jpg",
+  }));
+  const layout = createJustifiedLayout(items);
+  const points = [
+    { x: 400, y: 90 },
+    { x: 1100, y: 350 },
+    { x: -500, y: 700 },
+    { x: 2000, y: 1200 },
+    { x: 600, y: 10000 },
+  ];
+
+  for (const point of points) {
+    assert.equal(
+      findNearestNodeInRows(layout.rows, point),
+      findNearestNodeToPoint(layout.nodes, point),
+    );
+  }
+  assert.equal(findNearestNodeInRows([], { x: 0, y: 0 }), null);
 });
 
 test("video controls take over ctrl arrows only during playback", () => {

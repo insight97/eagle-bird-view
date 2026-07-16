@@ -49,20 +49,69 @@
   function findNearestNodeToPoint(nodes, point) {
     let nearest = null;
     for (const node of nodes) {
-      const dx = Math.max(node.x - point.x, 0, point.x - (node.x + node.width));
-      const dy = Math.max(node.y - point.y, 0, point.y - (node.y + node.height));
-      const edgeDistance = dx ** 2 + dy ** 2;
-      const center = getNodeCenter(node);
-      const centerDistance = (center.x - point.x) ** 2 + (center.y - point.y) ** 2;
-      if (
-        !nearest ||
-        edgeDistance < nearest.edgeDistance ||
-        (edgeDistance === nearest.edgeDistance && centerDistance < nearest.centerDistance)
-      ) {
-        nearest = { node, edgeDistance, centerDistance };
+      nearest = chooseNearestMatch(nearest, describeNodeDistance(node, point));
+    }
+    return nearest?.node || null;
+  }
+
+  function findNearestNodeInRows(rows, point) {
+    let low = 0;
+    let high = rows.length;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (getRowSelectionBottom(rows[middle]) < point.y) low = middle + 1;
+      else high = middle;
+    }
+
+    let above = low - 1;
+    let below = low;
+    let nearest = null;
+    while (above >= 0 || below < rows.length) {
+      const aboveDistance =
+        above >= 0 ? getRowVerticalDistanceSquared(rows[above], point.y) : Infinity;
+      const belowDistance =
+        below < rows.length ? getRowVerticalDistanceSquared(rows[below], point.y) : Infinity;
+      const minimumDistance = Math.min(aboveDistance, belowDistance);
+      if (nearest && minimumDistance > nearest.edgeDistance) break;
+
+      const row = aboveDistance <= belowDistance ? rows[above--] : rows[below++];
+      for (const node of row.nodes) {
+        nearest = chooseNearestMatch(nearest, describeNodeDistance(node, point));
       }
     }
     return nearest?.node || null;
+  }
+
+  function describeNodeDistance(node, point) {
+    const dx = Math.max(node.x - point.x, 0, point.x - (node.x + node.width));
+    const dy = Math.max(node.y - point.y, 0, point.y - (node.y + node.height));
+    const center = getNodeCenter(node);
+    return {
+      node,
+      edgeDistance: dx ** 2 + dy ** 2,
+      centerDistance: (center.x - point.x) ** 2 + (center.y - point.y) ** 2,
+    };
+  }
+
+  function chooseNearestMatch(current, candidate) {
+    if (
+      !current ||
+      candidate.edgeDistance < current.edgeDistance ||
+      (candidate.edgeDistance === current.edgeDistance &&
+        candidate.centerDistance < current.centerDistance)
+    ) {
+      return candidate;
+    }
+    return current;
+  }
+
+  function getRowVerticalDistanceSquared(row, y) {
+    const dy = Math.max(row.top - y, 0, y - getRowSelectionBottom(row));
+    return dy ** 2;
+  }
+
+  function getRowSelectionBottom(row) {
+    return row.bottom + getRowControlsHeight(row);
   }
 
   function isPlayingVideo(video) {
@@ -323,6 +372,7 @@
     createJustifiedLayout,
     directionFor,
     findNearestNodeToPoint,
+    findNearestNodeInRows,
     findNodesNearViewport,
     getAspectRatio,
     getLabelRect,
