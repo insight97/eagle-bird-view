@@ -47,7 +47,6 @@ const state = {
   lastViewportWork: -Infinity,
   explorationSource: null,
   explorationLoading: false,
-  explorationTails: new Map(),
   started: false,
   eagleReady: false,
 };
@@ -144,7 +143,6 @@ function renderItems(items) {
   elements.world.replaceChildren();
   elements.labels.replaceChildren();
   state.mountedNodes.clear();
-  state.explorationTails.clear();
   const layout = createJustifiedLayout(items);
   state.nodes = layout.nodes;
   state.rows = layout.rows;
@@ -594,16 +592,13 @@ async function exploreNextRow() {
 
     const pivotRow = state.rows.find((row) => row.nodes.includes(pivotNode));
     if (!pivotRow) return;
-    const previousTail = state.explorationTails.get(pivot.id);
-    const anchorRow = state.rows.includes(previousTail) ? previousTail : pivotRow;
     const layout = insertExplorationRow(
       { nodes: state.nodes, rows: state.rows },
-      anchorRow,
+      pivotRow,
       items,
     );
     state.nodes = layout.nodes;
     state.rows = layout.rows;
-    state.explorationTails.set(pivot.id, layout.insertedRow);
     for (const node of state.materializedNodes) positionNode(node);
     updateBoardMeta();
     updateMediaVisibility();
@@ -712,7 +707,6 @@ function clearBoard() {
   state.nodes = [];
   state.rows = [];
   state.mountedNodes.clear();
-  state.explorationTails.clear();
   elements.world.replaceChildren();
   elements.labels.replaceChildren();
   state.camera = { x: 0, y: 0, scale: getBaseScale() };

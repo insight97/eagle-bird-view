@@ -103,3 +103,22 @@ test("insertExplorationRow inserts below its anchor and shifts later rows", () =
     result.insertedRow.nodes,
   );
 });
+
+test("repeated exploration keeps the newest row directly below the same anchor", () => {
+  const layout = createJustifiedLayout([
+    { id: "anchor", width: 100, height: 100, ext: "jpg" },
+  ]);
+  const anchorRow = layout.rows[0];
+  const firstItems = [{ id: "first", width: 200, height: 100, ext: "jpg" }];
+  const secondItems = [{ id: "second", width: 200, height: 100, ext: "jpg" }];
+
+  const firstResult = insertExplorationRow(layout, anchorRow, firstItems);
+  const firstRow = firstResult.insertedRow;
+  const secondResult = insertExplorationRow(firstResult, anchorRow, secondItems);
+
+  assert.equal(secondResult.rows[0], anchorRow);
+  assert.equal(secondResult.rows[1], secondResult.insertedRow);
+  assert.equal(secondResult.rows[1].nodes[0].item.id, "second");
+  assert.equal(secondResult.rows[2], firstRow);
+  assert.equal(secondResult.rows[2].nodes[0].item.id, "first");
+});
