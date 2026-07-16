@@ -10,6 +10,7 @@ const {
   getItemRating,
   getLabelDetailLevel,
   getLabelRect,
+  getTagColorStyle,
   getViewportPanDelta,
   getViewportWorldCenter,
   isPlayingVideo,
@@ -49,6 +50,17 @@ test("normalizeTagColor maps Eagle colors and falls back safely", () => {
   assert.equal(normalizeTagColor("#12abef"), "#12abef");
   assert.equal(normalizeTagColor("not-a-color"), "#858a93");
   assert.equal(normalizeTagColor(), "#858a93");
+});
+
+test("getTagColorStyle returns Chromium-compatible explicit colors", () => {
+  assert.deepEqual(getTagColorStyle("blue"), {
+    color: "#7aa5df",
+    background: "rgba(93, 145, 216, 0.24)",
+  });
+  assert.deepEqual(getTagColorStyle("#abc"), {
+    color: "#b9c7d5",
+    background: "rgba(170, 187, 204, 0.24)",
+  });
 });
 
 test("directionFor normalizes arrow keys and WASD", () => {

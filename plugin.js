@@ -12,6 +12,7 @@ const {
   getItemRating,
   getLabelDetailLevel,
   getLabelRect,
+  getTagColorStyle,
   getViewportPanDelta,
   getViewportWorldCenter,
   insertExplorationRow,
@@ -400,9 +401,11 @@ function createMediaLabel(node) {
 
 function createTagChip(tag) {
   const chip = document.createElement("span");
+  const style = getTagColorStyle(state.tagColors.get(tag));
   chip.className = "media-tag";
   chip.textContent = tag;
-  chip.style.setProperty("--tag-color", normalizeTagColor(state.tagColors.get(tag)));
+  chip.style.setProperty("--tag-outline", style.color);
+  chip.style.setProperty("--tag-background", style.background);
   return chip;
 }
 

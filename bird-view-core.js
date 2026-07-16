@@ -175,6 +175,24 @@
     return /^#[\da-f]{3}([\da-f]{3})?$/.test(value) ? value : "#858a93";
   }
 
+  function getTagColorStyle(color) {
+    const normalized = normalizeTagColor(color);
+    const hex =
+      normalized.length === 4
+        ? normalized
+            .slice(1)
+            .split("")
+            .map((value) => value + value)
+            .join("")
+        : normalized.slice(1);
+    const channels = [0, 2, 4].map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16));
+    const outline = channels.map((channel) => Math.round(channel * 0.82 + 255 * 0.18));
+    return {
+      color: `#${outline.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`,
+      background: `rgba(${channels.join(", ")}, 0.24)`,
+    };
+  }
+
   function getAspectRatio(item) {
     const width = Number(item.width);
     const height = Number(item.height);
@@ -412,6 +430,7 @@
     getItemRating,
     getLabelRect,
     getLabelDetailLevel,
+    getTagColorStyle,
     normalizeTagColor,
     getViewportPanDelta,
     getViewportWorldCenter,

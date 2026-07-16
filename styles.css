@@ -409,17 +409,15 @@ button {
 }
 
 .media-tag {
-  --tag-outline: color-mix(in srgb, var(--tag-color) 82%, white);
-
   max-width: 120px;
   height: 16px;
   flex: none;
   overflow: hidden;
   padding: 0 5px;
-  border: 1px solid var(--tag-outline);
+  border: 1px solid var(--tag-outline, #a8abb1);
   border-radius: 3px;
-  background: color-mix(in srgb, var(--tag-color) 24%, transparent);
-  color: var(--tag-outline);
+  background: var(--tag-background, rgba(133, 138, 147, 0.24));
+  color: var(--tag-outline, #a8abb1);
   line-height: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
