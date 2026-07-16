@@ -160,20 +160,6 @@ button {
   box-shadow: none;
 }
 
-.selection-frame {
-  position: absolute;
-  z-index: 9;
-  box-sizing: border-box;
-  border: 1px solid #7168ee;
-  border-radius: 6px;
-  box-shadow: 0 0 0 1px #c8c4ff;
-  pointer-events: none;
-}
-
-.selection-frame[hidden] {
-  display: none;
-}
-
 .media-frame {
   position: relative;
   display: grid;

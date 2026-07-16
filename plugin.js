@@ -10,7 +10,6 @@ const {
   findNearestNodeInRows,
   findNodesNearViewport,
   getLabelRect,
-  getSelectionRect,
   getViewportPanDelta,
   getViewportWorldCenter,
   insertExplorationRow,
@@ -68,7 +67,6 @@ function setup() {
   elements.viewport = document.querySelector("#viewport");
   elements.world = document.querySelector("#world");
   elements.labels = document.querySelector("#labels");
-  elements.selectionFrame = document.querySelector("#selection-frame");
   elements.emptyState = document.querySelector("#empty-state");
   elements.itemCount = document.querySelector("#item-count");
   elements.zoomLabel = document.querySelector("#zoom-label");
@@ -554,7 +552,6 @@ function clearSelection() {
   state.selectedNode?.element?.classList.remove("is-selected");
   state.selectedNode?.label?.classList.remove("is-selected");
   state.selectedNode = null;
-  updateSelectionFrame();
   updateExploreButton();
 }
 
@@ -566,7 +563,6 @@ function setSelectedNode(node) {
   mountMediaCard(node);
   node.element.classList.add("is-selected");
   node.label?.classList.add("is-selected");
-  updateSelectionFrame();
   updateExploreButton();
 }
 
@@ -745,7 +741,6 @@ function renderCamera() {
   elements.viewport.style.backgroundPosition = `${state.camera.x}px ${state.camera.y}px`;
   const gridSize = Math.max(8, 24 * state.camera.scale);
   elements.viewport.style.backgroundSize = `${gridSize}px ${gridSize}px`;
-  updateSelectionFrame();
   updateMountedLabelPositions();
   scheduleViewportWork();
 }
@@ -873,22 +868,6 @@ function positionNode(node) {
   if (!node.element) return;
   node.element.style.width = `${node.width}px`;
   node.element.style.transform = `translate(${node.x}px, ${node.y}px)`;
-  if (node === state.selectedNode) updateSelectionFrame();
-}
-
-function updateSelectionFrame() {
-  const frame = elements.selectionFrame;
-  const node = state.selectedNode;
-  if (!frame || !node) {
-    if (frame) frame.hidden = true;
-    return;
-  }
-  const rect = getSelectionRect(node, state.camera);
-  frame.hidden = false;
-  frame.style.left = `${rect.left}px`;
-  frame.style.top = `${rect.top}px`;
-  frame.style.width = `${rect.width}px`;
-  frame.style.height = `${rect.height}px`;
 }
 
 function getBaseScale() {

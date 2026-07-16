@@ -142,19 +142,6 @@
     };
   }
 
-  function getSelectionRect(node, camera, gap = 2) {
-    const left = Math.round(camera.x + node.x * camera.scale);
-    const top = Math.round(camera.y + node.y * camera.scale);
-    const right = Math.round(camera.x + (node.x + node.width) * camera.scale);
-    const bottom = Math.round(camera.y + (node.y + node.height) * camera.scale);
-    return {
-      left: left - gap,
-      top: top - gap,
-      width: right - left + gap * 2,
-      height: bottom - top + gap * 2,
-    };
-  }
-
   function getAspectRatio(item) {
     const width = Number(item.width);
     const height = Number(item.height);
@@ -389,7 +376,6 @@
     findNodesNearViewport,
     getAspectRatio,
     getLabelRect,
-    getSelectionRect,
     getViewportPanDelta,
     getViewportWorldCenter,
     insertExplorationRow,
