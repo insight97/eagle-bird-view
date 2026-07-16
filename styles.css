@@ -77,6 +77,28 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
+.explore-button {
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid #454950;
+  border-radius: 5px;
+  background: #292c31;
+  color: #e5e7eb;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.explore-button:hover:not(:disabled) {
+  border-color: #7971ed;
+  background: #34333f;
+}
+
+.explore-button:disabled {
+  color: #777b82;
+  cursor: default;
+  opacity: 0.7;
+}
+
 .divider {
   width: 1px;
   height: 14px;

@@ -12,10 +12,13 @@ const {
   getLabelRect,
   getViewportPanDelta,
   getViewportWorldCenter,
+  insertExplorationRow,
   isPlayingVideo,
+  selectDiverseExplorationRow,
   zoomCameraAtPoint,
 } = BirdViewCore;
 const { MediaLoadQueue } = BirdViewMedia;
+const { RelatedItemSource } = BirdViewExploration;
 const { startVideoPlayer } = BirdViewVideo;
 const MIN_ZOOM = 0.08;
 const MAX_ZOOM = 8;
@@ -42,6 +45,9 @@ const state = {
   cameraFrame: null,
   viewportWorkTimer: null,
   lastViewportWork: -Infinity,
+  explorationSource: null,
+  explorationLoading: false,
+  explorationTails: new Map(),
   started: false,
   eagleReady: false,
 };
@@ -65,12 +71,14 @@ function setup() {
   elements.emptyState = document.querySelector("#empty-state");
   elements.itemCount = document.querySelector("#item-count");
   elements.zoomLabel = document.querySelector("#zoom-label");
+  elements.exploreButton = document.querySelector("#explore-button");
   elements.toast = document.querySelector("#toast");
 
   elements.viewport.addEventListener("pointerdown", beginPan);
   elements.viewport.addEventListener("wheel", handleWheel, { passive: false });
   window.addEventListener("keydown", handleKeyDown);
   window.addEventListener("resize", updateCamera);
+  elements.exploreButton.addEventListener("click", exploreNextRow);
 
   state.camera.scale = getBaseScale();
   updateCamera();
@@ -92,11 +100,14 @@ function startEagleIntegration() {
     return;
   }
 
+  state.explorationSource = new RelatedItemSource(eagle.item);
+  updateExploreButton();
   loadSelectedItems();
 
   if (typeof eagle.onLibraryChanged === "function") {
     eagle.onLibraryChanged(() => {
       clearBoard();
+      state.explorationSource.clear();
       showToast("Eagle 資料庫已切換，請重新選取素材。", false);
     });
   }
@@ -133,6 +144,7 @@ function renderItems(items) {
   elements.world.replaceChildren();
   elements.labels.replaceChildren();
   state.mountedNodes.clear();
+  state.explorationTails.clear();
   const layout = createJustifiedLayout(items);
   state.nodes = layout.nodes;
   state.rows = layout.rows;
@@ -536,6 +548,7 @@ function clearSelection() {
   state.selectedNode?.element?.classList.remove("is-selected");
   state.selectedNode?.label?.classList.remove("is-selected");
   state.selectedNode = null;
+  updateExploreButton();
 }
 
 function setSelectedNode(node) {
@@ -546,6 +559,72 @@ function setSelectedNode(node) {
   mountMediaCard(node);
   node.element.classList.add("is-selected");
   node.label?.classList.add("is-selected");
+  updateExploreButton();
+}
+
+async function exploreNextRow() {
+  const pivotNode = state.selectedNode;
+  const source = state.explorationSource;
+  if (!pivotNode || !source || state.explorationLoading) return;
+  const pivot = pivotNode.item;
+  if (!(pivot.folders?.length || pivot.tags?.length)) {
+    showToast("目前素材沒有資料夾或標籤，無法探索相關素材。", false);
+    return;
+  }
+
+  const boardNodes = state.nodes;
+  state.explorationLoading = true;
+  updateExploreButton();
+  try {
+    const excludedIds = new Set(boardNodes.map(({ item }) => item.id));
+    const candidates = await source.findCandidates(pivot, excludedIds);
+    if (state.nodes !== boardNodes) return;
+    const selectedCandidates = selectDiverseExplorationRow(candidates, pivot);
+    if (!selectedCandidates.length) {
+      showToast(`找不到更多與「${pivot.name || "目前素材"}」相關的素材。`, false);
+      return;
+    }
+
+    const items = await source.hydrate(selectedCandidates);
+    if (state.nodes !== boardNodes) return;
+    if (!items.length) {
+      showToast("相關素材目前無法載入。", true);
+      return;
+    }
+
+    const pivotRow = state.rows.find((row) => row.nodes.includes(pivotNode));
+    if (!pivotRow) return;
+    const previousTail = state.explorationTails.get(pivot.id);
+    const anchorRow = state.rows.includes(previousTail) ? previousTail : pivotRow;
+    const layout = insertExplorationRow(
+      { nodes: state.nodes, rows: state.rows },
+      anchorRow,
+      items,
+    );
+    state.nodes = layout.nodes;
+    state.rows = layout.rows;
+    state.explorationTails.set(pivot.id, layout.insertedRow);
+    for (const node of state.materializedNodes) positionNode(node);
+    updateBoardMeta();
+    updateMediaVisibility();
+    updateLabels();
+    showToast(`已根據「${pivot.name || "目前素材"}」加入 ${items.length} 個相關素材。`);
+  } catch (error) {
+    console.error("Failed to explore related Eagle items", error);
+    showToast(`探索失敗：${error.message || error}`, true);
+  } finally {
+    state.explorationLoading = false;
+    updateExploreButton();
+  }
+}
+
+function updateExploreButton() {
+  if (!elements.exploreButton) return;
+  elements.exploreButton.disabled =
+    state.explorationLoading || !state.explorationSource || !state.selectedNode;
+  elements.exploreButton.textContent = state.explorationLoading
+    ? "探索中…"
+    : "探索下一列";
 }
 
 function selectNodeAtViewportCenter() {
@@ -633,11 +712,13 @@ function clearBoard() {
   state.nodes = [];
   state.rows = [];
   state.mountedNodes.clear();
+  state.explorationTails.clear();
   elements.world.replaceChildren();
   elements.labels.replaceChildren();
   state.camera = { x: 0, y: 0, scale: getBaseScale() };
   updateCamera();
   updateBoardMeta();
+  updateExploreButton();
 }
 
 function updateBoardMeta() {
