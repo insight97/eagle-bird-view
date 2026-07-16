@@ -152,6 +152,7 @@ function mountMediaCard(node) {
 }
 
 function unmountMediaCard(node) {
+  node.videoElement?.pause();
   node.element?.remove();
   state.mountedNodes.delete(node);
 }
