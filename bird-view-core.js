@@ -15,8 +15,8 @@
   const ROW_GAP = 32;
   const LABEL_MIN_ZOOM = 0.3;
   const LABEL_MIN_SCALE = 1;
-  const LABEL_DETAILS_MIN_ZOOM = 0.65;
-  const LABEL_DETAILS_MIN_SCALE = 1.6;
+  const LABEL_DETAILS_MIN_ZOOM = 0.5;
+  const LABEL_DETAILS_MIN_SCALE = 1.5;
   const TAG_COLOR_PALETTE = Object.freeze({
     red: "#e56b6f",
     orange: "#e99045",
@@ -177,6 +177,25 @@
   function getItemRating(item) {
     const rating = Number(item?.star ?? item?.rating);
     return Number.isFinite(rating) ? clamp(Math.round(rating), 0, 5) : 0;
+  }
+
+  function getNextRating(current, selected) {
+    const normalizedCurrent = clamp(Math.round(Number(current) || 0), 0, 5);
+    const normalizedSelected = clamp(Math.round(Number(selected) || 0), 0, 5);
+    return normalizedCurrent === normalizedSelected ? 0 : normalizedSelected;
+  }
+
+  function normalizeTags(tags) {
+    if (!Array.isArray(tags)) return [];
+    return [
+      ...new Set(
+        tags
+          .filter((tag) => tag !== null && tag !== undefined)
+          .map(String)
+          .map((tag) => tag.trim())
+          .filter(Boolean),
+      ),
+    ];
   }
 
   function getLabelDetailLevel(zoom, scale) {
@@ -455,12 +474,14 @@
     findNodesNearViewport,
     getAspectRatio,
     getItemRating,
+    getNextRating,
     getLabelRect,
     getLabelDetailLevel,
     getPanLayerTranslation,
     getWrappedGridTranslation,
     getViewportWorkInterval,
     getTagColorStyle,
+    normalizeTags,
     normalizeTagColor,
     getViewportPanDelta,
     getViewportWorldCenter,

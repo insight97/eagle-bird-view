@@ -10,6 +10,7 @@ const {
   findNearestNodeInRows,
   findNodesNearViewport,
   getItemRating,
+  getNextRating,
   getLabelDetailLevel,
   getLabelRect,
   getPanLayerTranslation,
@@ -20,6 +21,7 @@ const {
   getViewportWorldCenter,
   insertExplorationRow,
   isPlayingVideo,
+  normalizeTags,
   normalizeTagColor,
   selectDiverseExplorationRow,
   zoomCameraAtPoint,
@@ -62,6 +64,7 @@ const state = {
   explorationLoading: false,
   tagColors: new Map(),
   tagColorGeneration: 0,
+  tagEditor: null,
   started: false,
   eagleReady: false,
 };
@@ -367,6 +370,7 @@ function createMediaLabel(node) {
   const metadata = document.createElement("div");
   const rating = document.createElement("span");
   const tags = document.createElement("span");
+  const editTags = document.createElement("button");
   const name = document.createElement("span");
   const type = document.createElement("span");
   const actions = document.createElement("span");
@@ -378,22 +382,19 @@ function createMediaLabel(node) {
   metadata.className = "media-metadata";
   rating.className = "media-rating";
   tags.className = "media-tags";
-  const ratingValue = getItemRating(item);
-  const tagValues = [
-    ...new Set((item.tags || []).map(String).map((tag) => tag.trim()).filter(Boolean)),
-  ];
-  rating.setAttribute("aria-label", `評分 ${ratingValue} 顆星`);
-  for (let index = 1; index <= 5; index += 1) {
-    const star = document.createElement("span");
-    star.className = "media-rating-star";
-    star.classList.toggle("is-filled", index <= ratingValue);
-    star.textContent = "★";
-    star.setAttribute("aria-hidden", "true");
-    rating.append(star);
-  }
-  tags.title = tagValues.join(", ");
-  tags.hidden = tagValues.length === 0;
-  for (const tag of tagValues) tags.append(createTagChip(tag));
+  editTags.className = "media-tag-edit";
+  editTags.type = "button";
+  editTags.textContent = "+";
+  editTags.title = "新增或移除標籤";
+  editTags.setAttribute("aria-label", `編輯 ${item.name || "素材"} 的標籤`);
+  editTags.dataset.editControl = "true";
+  createRatingControls(rating, node);
+  renderTagChips(tags, item.tags);
+  editTags.addEventListener("pointerdown", (event) => event.stopPropagation());
+  editTags.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (!node.isSaving) openTagEditor(node, editTags);
+  });
   name.className = "media-name";
   name.textContent = item.name || "未命名";
   type.className = "media-extension";
@@ -412,10 +413,69 @@ function createMediaLabel(node) {
   bindRotationButton(rotateLeft, node, -1);
   bindRotationButton(rotateRight, node, 1);
   actions.append(type, rotateLeft, rotateRight);
-  metadata.append(rating, tags);
+  metadata.append(rating, tags, editTags);
   main.append(name, actions);
   label.append(main, metadata);
   return label;
+}
+
+function createRatingControls(rating, node) {
+  const currentRating = getItemRating(node.item);
+  rating.setAttribute("aria-label", `評分 ${currentRating} 顆星`);
+  for (let index = 1; index <= 5; index += 1) {
+    const star = document.createElement("button");
+    star.className = "media-rating-star";
+    star.type = "button";
+    star.textContent = "★";
+    star.title = `${index} 顆星${index === currentRating ? "（再次點擊可清除）" : ""}`;
+    star.setAttribute("aria-label", `設定為 ${index} 顆星`);
+    star.dataset.editControl = "true";
+    star.addEventListener("pointerdown", (event) => event.stopPropagation());
+    star.addEventListener("pointerenter", () => paintRating(rating, index));
+    star.addEventListener("pointerleave", () => paintRating(rating, getItemRating(node.item)));
+    star.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      if (node.isSaving) return;
+      setSelectedNode(node);
+      const previousRating = getItemRating(node.item);
+      node.item.star = getNextRating(previousRating, index);
+      updateRatingControl(rating, node);
+      await saveItemMetadata(node, {
+        successMessage: node.item.star
+          ? `已將「${node.item.name || "素材"}」設為 ${node.item.star} 顆星。`
+          : `已清除「${node.item.name || "素材"}」的評分。`,
+        rollback: () => {
+          node.item.star = previousRating;
+          updateRatingControl(rating, node);
+        },
+      });
+    });
+    rating.append(star);
+  }
+  paintRating(rating, currentRating);
+}
+
+function paintRating(rating, value) {
+  for (const [index, star] of [...rating.children].entries()) {
+    star.classList.toggle("is-filled", index < value);
+  }
+}
+
+function updateRatingControl(rating, node) {
+  const value = getItemRating(node.item);
+  rating.setAttribute("aria-label", `評分 ${value} 顆星`);
+  for (const [index, star] of [...rating.children].entries()) {
+    const starValue = index + 1;
+    star.title = `${starValue} 顆星${starValue === value ? "（再次點擊可清除）" : ""}`;
+  }
+  paintRating(rating, value);
+}
+
+function renderTagChips(tags, values) {
+  const tagValues = normalizeTags(values);
+  tags.replaceChildren(...tagValues.map(createTagChip));
+  tags.title = tagValues.join(", ");
+  tags.hidden = tagValues.length === 0;
 }
 
 function createTagChip(tag) {
@@ -426,6 +486,217 @@ function createTagChip(tag) {
   chip.style.setProperty("--tag-outline", style.color);
   chip.style.setProperty("--tag-background", style.background);
   return chip;
+}
+
+async function saveItemMetadata(node, { rollback, successMessage }) {
+  if (node.isSaving) return false;
+  node.isSaving = true;
+  setLabelSaving(node, true);
+  try {
+    if (typeof node.item.save !== "function") throw new Error("素材不支援儲存");
+    const result = await node.item.save();
+    if (result === false) throw new Error("Eagle 拒絕儲存變更");
+    state.explorationSource?.clear();
+    showToast(successMessage);
+    return true;
+  } catch (error) {
+    rollback();
+    console.error("Failed to save Eagle item metadata", error);
+    showToast(`無法儲存素材資料：${error.message || error}`, true);
+    return false;
+  } finally {
+    node.isSaving = false;
+    setLabelSaving(node, false);
+  }
+}
+
+function setLabelSaving(node, isSaving) {
+  node.label?.classList.toggle("is-saving", isSaving);
+  for (const control of node.label?.querySelectorAll("[data-edit-control]") || []) {
+    control.disabled = isSaving;
+  }
+}
+
+function openTagEditor(node, anchor) {
+  closeTagEditor();
+  setSelectedNode(node);
+  const editor = document.createElement("div");
+  const heading = document.createElement("div");
+  const input = document.createElement("input");
+  const options = document.createElement("div");
+  const footer = document.createElement("div");
+  const cancel = document.createElement("button");
+  const save = document.createElement("button");
+  const session = {
+    node,
+    anchor,
+    editor,
+    input,
+    options,
+    selected: new Set(normalizeTags(node.item.tags)),
+    outsideHandler: null,
+  };
+
+  editor.className = "tag-editor";
+  editor.setAttribute("role", "dialog");
+  editor.setAttribute("aria-label", `編輯 ${node.item.name || "素材"} 的標籤`);
+  heading.className = "tag-editor-heading";
+  heading.textContent = "編輯標籤";
+  input.className = "tag-editor-search";
+  input.type = "search";
+  input.placeholder = "搜尋或輸入新標籤";
+  input.setAttribute("aria-label", "搜尋或輸入新標籤");
+  options.className = "tag-editor-options";
+  footer.className = "tag-editor-footer";
+  cancel.className = "tag-editor-button";
+  cancel.type = "button";
+  cancel.textContent = "取消";
+  save.className = "tag-editor-button is-primary";
+  save.type = "button";
+  save.textContent = "完成";
+
+  input.addEventListener("input", () => renderTagEditorOptions(session));
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeTagEditor();
+      return;
+    }
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    const tag = input.value.trim();
+    if (!tag) return;
+    const existingTag = normalizeTags([
+      ...session.selected,
+      ...state.tagColors.keys(),
+    ]).find((candidate) => candidate.toLocaleLowerCase() === tag.toLocaleLowerCase());
+    session.selected.add(existingTag || tag);
+    input.value = "";
+    renderTagEditorOptions(session);
+  });
+  cancel.addEventListener("click", closeTagEditor);
+  save.addEventListener("click", () => commitTagEditor(session));
+  editor.addEventListener("pointerdown", (event) => event.stopPropagation());
+  footer.append(cancel, save);
+  editor.append(heading, input, options, footer);
+  elements.viewport.append(editor);
+  state.tagEditor = session;
+  renderTagEditorOptions(session);
+
+  session.outsideHandler = (event) => {
+    if (!editor.contains(event.target) && event.target !== anchor) closeTagEditor();
+  };
+  document.addEventListener("pointerdown", session.outsideHandler, true);
+  requestAnimationFrame(() => {
+    if (state.tagEditor !== session) return;
+    positionTagEditor(session);
+    input.focus();
+  });
+}
+
+function renderTagEditorOptions(session) {
+  const query = session.input.value.trim().toLocaleLowerCase();
+  const candidates = normalizeTags([
+    ...session.selected,
+    ...normalizeTags(session.node.item.tags),
+    ...state.tagColors.keys(),
+  ])
+    .filter((tag) => !query || tag.toLocaleLowerCase().includes(query))
+    .sort((first, second) => {
+      const selectedDifference = Number(session.selected.has(second)) - Number(session.selected.has(first));
+      return selectedDifference || first.localeCompare(second);
+    })
+    .slice(0, 80);
+
+  session.options.replaceChildren();
+  if (query && !candidates.some((tag) => tag.toLocaleLowerCase() === query)) {
+    const create = document.createElement("button");
+    create.className = "tag-editor-create";
+    create.type = "button";
+    create.textContent = `建立「${session.input.value.trim()}」`;
+    create.addEventListener("click", () => {
+      session.selected.add(session.input.value.trim());
+      session.input.value = "";
+      renderTagEditorOptions(session);
+    });
+    session.options.append(create);
+  }
+
+  for (const tag of candidates) {
+    const option = document.createElement("button");
+    const marker = document.createElement("span");
+    const chip = createTagChip(tag);
+    const isSelected = session.selected.has(tag);
+    option.className = "tag-editor-option";
+    option.type = "button";
+    option.setAttribute("aria-pressed", String(isSelected));
+    marker.className = "tag-editor-check";
+    marker.textContent = isSelected ? "✓" : "";
+    option.append(marker, chip);
+    option.addEventListener("click", () => {
+      if (session.selected.has(tag)) session.selected.delete(tag);
+      else session.selected.add(tag);
+      renderTagEditorOptions(session);
+    });
+    session.options.append(option);
+  }
+
+  if (!session.options.childElementCount) {
+    const empty = document.createElement("div");
+    empty.className = "tag-editor-empty";
+    empty.textContent = "沒有符合的標籤";
+    session.options.append(empty);
+  }
+}
+
+function positionTagEditor(session) {
+  const viewportRect = elements.viewport.getBoundingClientRect();
+  const anchorRect = session.anchor.getBoundingClientRect();
+  const width = session.editor.offsetWidth;
+  const height = session.editor.offsetHeight;
+  const anchorLeft = anchorRect.left - viewportRect.left;
+  const anchorTop = anchorRect.top - viewportRect.top;
+  const left = clamp(anchorLeft, 8, Math.max(8, viewportRect.width - width - 8));
+  const below = anchorTop + anchorRect.height + 6;
+  const top = below + height <= viewportRect.height - 8
+    ? below
+    : Math.max(8, anchorTop - height - 6);
+  session.editor.style.left = `${Math.round(left)}px`;
+  session.editor.style.top = `${Math.round(top)}px`;
+}
+
+async function commitTagEditor(session) {
+  if (state.tagEditor !== session || session.node.isSaving) return;
+  const previousTags = normalizeTags(session.node.item.tags);
+  const nextTags = [...session.selected];
+  closeTagEditor();
+  if (
+    previousTags.length === nextTags.length &&
+    previousTags.every((tag, index) => tag === nextTags[index])
+  ) {
+    return;
+  }
+
+  session.node.item.tags = nextTags;
+  const tags = session.node.label?.querySelector(".media-tags");
+  if (tags) renderTagChips(tags, nextTags);
+  const saved = await saveItemMetadata(session.node, {
+    successMessage: `已更新「${session.node.item.name || "素材"}」的標籤。`,
+    rollback: () => {
+      session.node.item.tags = previousTags;
+      const tags = session.node.label?.querySelector(".media-tags");
+      if (tags) renderTagChips(tags, previousTags);
+    },
+  });
+  if (saved) loadTagColors();
+}
+
+function closeTagEditor() {
+  const session = state.tagEditor;
+  if (!session) return;
+  document.removeEventListener("pointerdown", session.outsideHandler, true);
+  session.editor.remove();
+  state.tagEditor = null;
 }
 
 async function loadTagColors() {
@@ -460,6 +731,7 @@ function mountMediaLabel(node) {
 }
 
 function releaseMediaLabel(node) {
+  if (state.tagEditor?.node === node) closeTagEditor();
   node.label?.remove();
   node.label = null;
   state.mountedLabelNodes.delete(node);
@@ -562,6 +834,7 @@ function beginPan(event) {
 }
 
 function startViewportPan() {
+  closeTagEditor();
   state.isPanning = true;
   state.lastViewportWork = performance.now();
   elements.viewport.classList.add("is-panning");
@@ -576,6 +849,7 @@ function finishViewportPan() {
 
 function handleWheel(event) {
   event.preventDefault();
+  closeTagEditor();
   const rect = elements.viewport.getBoundingClientRect();
   const pointerX = event.clientX - rect.left;
   const pointerY = event.clientY - rect.top;
@@ -584,6 +858,8 @@ function handleWheel(event) {
 }
 
 function handleKeyDown(event) {
+  if (isInteractiveTarget(event.target)) return;
+
   if (
     event.ctrlKey &&
     ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)
@@ -597,8 +873,6 @@ function handleKeyDown(event) {
     }
     return;
   }
-
-  if (isInteractiveTarget(event.target)) return;
 
   if (event.key === "Enter") {
     event.preventDefault();
@@ -782,7 +1056,7 @@ function zoomAtPoint(pointerX, pointerY, factor) {
 function isInteractiveTarget(target) {
   return (
     target instanceof Element &&
-    Boolean(target.closest("input, textarea, select, [contenteditable='true']"))
+    Boolean(target.closest("button, input, textarea, select, [contenteditable='true']"))
   );
 }
 
@@ -832,6 +1106,7 @@ function updateCamera() {
 }
 
 function handleResize() {
+  closeTagEditor();
   refreshBaseScale();
   updateCamera();
 }

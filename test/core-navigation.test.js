@@ -8,6 +8,7 @@ const {
   findNearestNodeInRows,
   findNearestNodeToPoint,
   getItemRating,
+  getNextRating,
   getLabelDetailLevel,
   getLabelRect,
   getPanLayerTranslation,
@@ -17,6 +18,7 @@ const {
   getViewportPanDelta,
   getViewportWorldCenter,
   isPlayingVideo,
+  normalizeTags,
   normalizeTagColor,
   zoomCameraAtPoint,
 } = require("../bird-view-core.js");
@@ -40,9 +42,21 @@ test("getItemRating accepts Eagle stars and clamps invalid values", () => {
   assert.equal(getItemRating({ star: "unknown" }), 0);
 });
 
+test("getNextRating selects a star and clears the active rating", () => {
+  assert.equal(getNextRating(2, 4), 4);
+  assert.equal(getNextRating(4, 4), 0);
+  assert.equal(getNextRating(0, 9), 5);
+});
+
+test("normalizeTags trims, removes blanks, and preserves unique order", () => {
+  assert.deepEqual(normalizeTags([" UI ", "", "Photo", "UI", null]), ["UI", "Photo"]);
+  assert.deepEqual(normalizeTags(), []);
+});
+
 test("label details progressively hide as media gets smaller", () => {
-  assert.equal(getLabelDetailLevel(0.7, 1.7), "details");
-  assert.equal(getLabelDetailLevel(0.5, 1.2), "name");
+  assert.equal(getLabelDetailLevel(0.5, 1.5), "details");
+  assert.equal(getLabelDetailLevel(0.49, 1.5), "name");
+  assert.equal(getLabelDetailLevel(0.5, 1.49), "name");
   assert.equal(getLabelDetailLevel(0.2, 3), "hidden");
   assert.equal(getLabelDetailLevel(1, 0.9), "hidden");
 });
