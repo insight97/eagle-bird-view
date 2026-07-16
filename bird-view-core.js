@@ -239,14 +239,20 @@
       );
       if (underConnectionLimit.length) pool = underConnectionLimit;
 
-      const scored = pool.map((candidate) => ({
-        candidate,
-        score: getExplorationScore(candidate, representedNovelKeys, connectionCounts),
-      }));
-      scored.sort((a, b) => compareExplorationScores(a.score, b.score));
-      const shortlist = scored
-        .filter(({ score }) => compareExplorationScores(score, scored[0].score) === 0)
-        .map(({ candidate }) => candidate);
+      const scored = pool
+        .map((candidate) => ({
+          candidate,
+          score: getExplorationScore(candidate, representedNovelKeys, connectionCounts),
+        }))
+        .sort((a, b) => compareExplorationScores(a.score, b.score));
+      let tieCount = 1;
+      while (
+        tieCount < scored.length &&
+        compareExplorationScores(scored[tieCount].score, scored[0].score) === 0
+      ) {
+        tieCount += 1;
+      }
+      const shortlist = scored.slice(0, tieCount).map(({ candidate }) => candidate);
       const choice = shortlist[getRandomIndex(shortlist.length, random)];
       eligible.splice(eligible.indexOf(choice), 1);
       selected.push(choice.item);
@@ -280,9 +286,7 @@
   }
 
   function getRandomIndex(length, random) {
-    const value = Number(random());
-    const unit = Number.isFinite(value) ? clamp(value, 0, 1 - Number.EPSILON) : 0;
-    return Math.floor(unit * length);
+    return Math.floor(clamp(random(), 0, 1 - Number.EPSILON) * length);
   }
 
   function describeExplorationCandidate(item, pivotFolders, pivotTags) {

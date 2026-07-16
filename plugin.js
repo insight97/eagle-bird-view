@@ -678,7 +678,7 @@ async function exploreNextRow() {
     const excludedIds = new Set(boardNodes.map(({ item }) => item.id));
     const candidates = await source.findCandidates(pivot, excludedIds);
     if (state.nodes !== boardNodes) return;
-    const selectedCandidates = selectDiverseExplorationRow(candidates, pivot, secureRandom);
+    const selectedCandidates = selectDiverseExplorationRow(candidates, pivot);
     if (!selectedCandidates.length) {
       showToast(`找不到更多與「${pivot.name || "目前素材"}」相關的素材。`, false);
       return;
@@ -712,15 +712,6 @@ async function exploreNextRow() {
     state.explorationLoading = false;
     updateExploreButton();
   }
-}
-
-function secureRandom() {
-  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
-    const values = new Uint32Array(1);
-    crypto.getRandomValues(values);
-    return values[0] / 0x100000000;
-  }
-  return Math.random();
 }
 
 function updateExploreButton() {
