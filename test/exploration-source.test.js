@@ -63,6 +63,34 @@ test("findCandidates limits the number of queries from heavily tagged items", as
   assert.equal(calls, 18);
 });
 
+test("findCandidates bounds cached results and stops after collecting enough candidates", async () => {
+  const calls = [];
+  const source = new RelatedItemSource({
+    get: async (options) => {
+      const connection = options.folders?.[0] || options.tags?.[0];
+      calls.push(options);
+      return Array.from({ length: 1000 }, (_, index) => ({
+        id: `${connection}-${index}`,
+        folders: options.folders || ["other"],
+        tags: options.tags || ["other"],
+      }));
+    },
+    getByIds: async () => [],
+  });
+  const pivot = {
+    folders: Array.from({ length: 6 }, (_, index) => `folder-${index}`),
+    tags: Array.from({ length: 12 }, (_, index) => `tag-${index}`),
+  };
+
+  const result = await source.findCandidates(pivot);
+
+  assert.equal(result.length, 600);
+  assert.equal(calls.length, 3);
+  assert.deepEqual(calls[0].folders, ["folder-0"]);
+  assert.deepEqual(calls[1].tags, ["tag-0"]);
+  assert.deepEqual(calls[2].folders, ["folder-1"]);
+});
+
 test("hydrate preserves the selected exploration order", async () => {
   const source = new RelatedItemSource({
     get: async () => [],

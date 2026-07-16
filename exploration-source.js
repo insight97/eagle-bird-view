@@ -7,6 +7,8 @@
 })(typeof globalThis === "object" ? globalThis : this, () => {
   const MAX_FOLDER_QUERIES = 6;
   const MAX_TAG_QUERIES = 12;
+  const MAX_CACHED_ITEMS_PER_QUERY = 240;
+  const MAX_CANDIDATES = 600;
   const INDEX_FIELDS = [
     "id",
     "name",
@@ -28,21 +30,24 @@
     }
 
     async findCandidates(pivot, excludedIds = new Set()) {
-      const queries = [];
-      for (const folderId of uniqueValues(pivot.folders).slice(0, MAX_FOLDER_QUERIES)) {
-        queries.push(this.#query(`folder:${folderId}`, { folders: [folderId] }));
-      }
-      for (const tag of uniqueValues(pivot.tags).slice(0, MAX_TAG_QUERIES)) {
-        queries.push(this.#query(`tag:${tag}`, { tags: [tag] }));
-      }
-      if (!queries.length) return [];
+      const queries = interleave(
+        uniqueValues(pivot.folders)
+          .slice(0, MAX_FOLDER_QUERIES)
+          .map((folderId) => [`folder:${folderId}`, { folders: [folderId] }]),
+        uniqueValues(pivot.tags)
+          .slice(0, MAX_TAG_QUERIES)
+          .map((tag) => [`tag:${tag}`, { tags: [tag] }]),
+      );
 
       const itemsById = new Map();
-      for (const items of await Promise.all(queries)) {
+      for (const [cacheKey, conditions] of queries) {
+        const items = await this.#query(cacheKey, conditions);
         for (const item of items) {
           if (!item?.id || item.isDeleted || excludedIds.has(item.id)) continue;
           itemsById.set(item.id, item);
+          if (itemsById.size >= MAX_CANDIDATES) break;
         }
+        if (itemsById.size >= MAX_CANDIDATES) break;
       }
       return [...itemsById.values()];
     }
@@ -62,6 +67,7 @@
       if (this.#cache.has(cacheKey)) return this.#cache.get(cacheKey);
       const request = this.#itemApi
         .get({ ...conditions, fields: INDEX_FIELDS })
+        .then((items) => sampleEvenly(items, MAX_CACHED_ITEMS_PER_QUERY))
         .catch((error) => {
           this.#cache.delete(cacheKey);
           throw error;
@@ -73,6 +79,26 @@
 
   function uniqueValues(values = []) {
     return [...new Set(values.filter(Boolean))];
+  }
+
+  function interleave(first, second) {
+    const values = [];
+    const length = Math.max(first.length, second.length);
+    for (let index = 0; index < length; index += 1) {
+      if (index < first.length) values.push(first[index]);
+      if (index < second.length) values.push(second[index]);
+    }
+    return values;
+  }
+
+  function sampleEvenly(items, limit) {
+    if (!Array.isArray(items) || items.length <= limit) return items || [];
+    const sampled = [];
+    const step = items.length / limit;
+    for (let index = 0; index < limit; index += 1) {
+      sampled.push(items[Math.floor(index * step)]);
+    }
+    return sampled;
   }
 
   return Object.freeze({ RelatedItemSource });
