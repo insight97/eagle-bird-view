@@ -12,10 +12,11 @@
   const MIN_ROW_HEIGHT = 140;
   const MAX_ROW_HEIGHT = 220;
   const LAYOUT_GAP = 14;
-  const LABEL_MIN_ZOOM = 0.45;
-  const LABEL_MIN_SCALE = 2;
-  const LABEL_DETAILS_MIN_ZOOM = 1;
-  const LABEL_DETAILS_MIN_SCALE = 3.25;
+  const ROW_GAP = 32;
+  const LABEL_MIN_ZOOM = 0.3;
+  const LABEL_MIN_SCALE = 1;
+  const LABEL_DETAILS_MIN_ZOOM = 0.65;
+  const LABEL_DETAILS_MIN_SCALE = 1.6;
   const ARROW_DIRECTIONS = {
     arrowup: [0, -1],
     arrowdown: [0, 1],
@@ -140,9 +141,9 @@
   function getLabelRect(node, camera) {
     return {
       left: Math.round(camera.x + node.x * camera.scale),
-      top: Math.round(camera.y + node.y * camera.scale - 45),
+      top: Math.round(camera.y + node.y * camera.scale - 51),
       width: Math.round(node.width * camera.scale),
-      height: 40,
+      height: 46,
     };
   }
 
@@ -286,7 +287,7 @@
     if (rowIndex < 0) throw new Error("Exploration anchor row is not part of the layout");
     if (!items.length) return { ...layout, insertedRow: null, shift: 0 };
 
-    const top = afterRow.bottom + getRowControlsHeight(afterRow) + LAYOUT_GAP;
+    const top = afterRow.bottom + getRowControlsHeight(afterRow) + ROW_GAP;
     const insertedRow = createLayoutRow(items, top, isFilledRow(items));
     const shift = getRowAdvance(insertedRow);
     for (let index = rowIndex + 1; index < layout.rows.length; index += 1) {
@@ -343,7 +344,7 @@
   }
 
   function getRowAdvance(row) {
-    return row.bottom - row.top + getRowControlsHeight(row) + LAYOUT_GAP;
+    return row.bottom - row.top + getRowControlsHeight(row) + ROW_GAP;
   }
 
   function getRowControlsHeight(row) {
@@ -378,6 +379,7 @@
 
   return Object.freeze({
     LAYOUT_GAP,
+    ROW_GAP,
     LAYOUT_WIDTH,
     MAX_ROW_HEIGHT,
     MIN_ROW_HEIGHT,

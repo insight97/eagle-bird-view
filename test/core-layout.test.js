@@ -4,6 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   LAYOUT_GAP,
+  ROW_GAP,
   TARGET_ROW_HEIGHT,
   VIDEO_CONTROLS_HEIGHT,
   createJustifiedLayout,
@@ -42,7 +43,7 @@ test("createJustifiedLayout justifies completed rows and reserves video controls
   assert.equal(layout.rows[0].bottom, firstRowHeight);
   assert.equal(
     layout.rows[1].top,
-    firstRowHeight + VIDEO_CONTROLS_HEIGHT + LAYOUT_GAP,
+    firstRowHeight + VIDEO_CONTROLS_HEIGHT + ROW_GAP,
   );
   assert.equal(layout.nodes[0].isVideo, true);
   assert.equal(layout.nodes[1].x, layout.nodes[0].width + LAYOUT_GAP);
@@ -90,13 +91,13 @@ test("insertExplorationRow inserts below its anchor and shifts later rows", () =
 
   assert.equal(result.rows[1], result.insertedRow);
   assert.equal(result.rows[2], originalNextRow);
-  assert.equal(result.insertedRow.top, anchorRow.bottom + LAYOUT_GAP);
+  assert.equal(result.insertedRow.top, anchorRow.bottom + ROW_GAP);
   assert.equal(originalNextRow.top, originalNextTop + result.shift);
   assert.equal(originalNextRow.nodes[0].y, originalNextNodeY + result.shift);
   assert.equal(anchorRow.nodes[0].y, anchorNodeY);
   assert.equal(
     result.shift,
-    result.insertedRow.bottom - result.insertedRow.top + VIDEO_CONTROLS_HEIGHT + LAYOUT_GAP,
+    result.insertedRow.bottom - result.insertedRow.top + VIDEO_CONTROLS_HEIGHT + ROW_GAP,
   );
   assert.deepEqual(
     result.nodes.slice(anchorRow.nodes.length, anchorRow.nodes.length + 4),
