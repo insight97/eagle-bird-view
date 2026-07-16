@@ -17,6 +17,16 @@
   const LABEL_MIN_SCALE = 1;
   const LABEL_DETAILS_MIN_ZOOM = 0.65;
   const LABEL_DETAILS_MIN_SCALE = 1.6;
+  const TAG_COLOR_PALETTE = Object.freeze({
+    red: "#e56b6f",
+    orange: "#e99045",
+    yellow: "#d4ad42",
+    green: "#64b879",
+    aqua: "#4db7b3",
+    blue: "#5d91d8",
+    purple: "#8b7bd8",
+    pink: "#d978a6",
+  });
   const ARROW_DIRECTIONS = {
     arrowup: [0, -1],
     arrowdown: [0, 1],
@@ -157,6 +167,12 @@
     return zoom >= LABEL_DETAILS_MIN_ZOOM && scale >= LABEL_DETAILS_MIN_SCALE
       ? "details"
       : "name";
+  }
+
+  function normalizeTagColor(color) {
+    const value = String(color || "").trim().toLowerCase();
+    if (TAG_COLOR_PALETTE[value]) return TAG_COLOR_PALETTE[value];
+    return /^#[\da-f]{3}([\da-f]{3})?$/.test(value) ? value : "#858a93";
   }
 
   function getAspectRatio(item) {
@@ -396,6 +412,7 @@
     getItemRating,
     getLabelRect,
     getLabelDetailLevel,
+    normalizeTagColor,
     getViewportPanDelta,
     getViewportWorldCenter,
     insertExplorationRow,

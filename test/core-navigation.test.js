@@ -13,6 +13,7 @@ const {
   getViewportPanDelta,
   getViewportWorldCenter,
   isPlayingVideo,
+  normalizeTagColor,
   zoomCameraAtPoint,
 } = require("../bird-view-core.js");
 
@@ -40,6 +41,14 @@ test("label details progressively hide as media gets smaller", () => {
   assert.equal(getLabelDetailLevel(0.5, 1.2), "name");
   assert.equal(getLabelDetailLevel(0.2, 3), "hidden");
   assert.equal(getLabelDetailLevel(1, 0.9), "hidden");
+});
+
+test("normalizeTagColor maps Eagle colors and falls back safely", () => {
+  assert.equal(normalizeTagColor("blue"), "#5d91d8");
+  assert.equal(normalizeTagColor("#ABC"), "#abc");
+  assert.equal(normalizeTagColor("#12abef"), "#12abef");
+  assert.equal(normalizeTagColor("not-a-color"), "#858a93");
+  assert.equal(normalizeTagColor(), "#858a93");
 });
 
 test("directionFor normalizes arrow keys and WASD", () => {

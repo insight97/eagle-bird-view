@@ -16,6 +16,7 @@ const {
   getViewportWorldCenter,
   insertExplorationRow,
   isPlayingVideo,
+  normalizeTagColor,
   selectDiverseExplorationRow,
   zoomCameraAtPoint,
 } = BirdViewCore;
@@ -49,6 +50,8 @@ const state = {
   lastViewportWork: -Infinity,
   explorationSource: null,
   explorationLoading: false,
+  tagColors: new Map(),
+  tagColorGeneration: 0,
   started: false,
   eagleReady: false,
 };
@@ -103,12 +106,14 @@ function startEagleIntegration() {
 
   state.explorationSource = new RelatedItemSource(eagle.item);
   updateExploreButton();
+  loadTagColors();
   loadSelectedItems();
 
   if (typeof eagle.onLibraryChanged === "function") {
     eagle.onLibraryChanged(() => {
       clearBoard();
       state.explorationSource.clear();
+      loadTagColors();
       showToast("Eagle 資料庫已切換，請重新選取素材。", false);
     });
   }
@@ -365,9 +370,9 @@ function createMediaLabel(node) {
   rating.textContent = "★".repeat(ratingValue);
   rating.hidden = ratingValue === 0;
   rating.setAttribute("aria-label", `評分 ${ratingValue} 顆星`);
-  tags.textContent = tagValues.map((tag) => `#${tag}`).join("  ");
   tags.title = tagValues.join(", ");
   tags.hidden = tagValues.length === 0;
+  for (const tag of tagValues) tags.append(createTagChip(tag));
   metadata.hidden = ratingValue === 0 && tagValues.length === 0;
   name.className = "media-name";
   name.textContent = item.name || "未命名";
@@ -391,6 +396,38 @@ function createMediaLabel(node) {
   main.append(name, actions);
   label.append(main, metadata);
   return label;
+}
+
+function createTagChip(tag) {
+  const chip = document.createElement("span");
+  chip.className = "media-tag";
+  chip.textContent = tag;
+  chip.style.setProperty("--tag-color", normalizeTagColor(state.tagColors.get(tag)));
+  return chip;
+}
+
+async function loadTagColors() {
+  const generation = ++state.tagColorGeneration;
+  if (typeof eagle === "undefined" || typeof eagle.tag?.get !== "function") {
+    state.tagColors = new Map();
+    return;
+  }
+
+  try {
+    const tags = await eagle.tag.get();
+    if (generation !== state.tagColorGeneration) return;
+    state.tagColors = new Map(
+      tags
+        .filter(({ name }) => name)
+        .map(({ name, color }) => [name, normalizeTagColor(color)]),
+    );
+    releaseAllMediaLabels();
+    updateLabels();
+  } catch (error) {
+    if (generation !== state.tagColorGeneration) return;
+    state.tagColors = new Map();
+    console.warn("Failed to load Eagle tag colors", error);
+  }
 }
 
 function mountMediaLabel(node) {
