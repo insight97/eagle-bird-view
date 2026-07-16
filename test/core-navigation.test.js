@@ -12,6 +12,7 @@ const {
   getLabelRect,
   getPanLayerTranslation,
   getWrappedGridTranslation,
+  getViewportWorkInterval,
   getTagColorStyle,
   getViewportPanDelta,
   getViewportWorldCenter,
@@ -101,6 +102,11 @@ test("getWrappedGridTranslation keeps an oversized grid layer covering the viewp
     x: 16,
     y: 8,
   });
+});
+
+test("viewport maintenance slows down during active panning", () => {
+  assert.equal(getViewportWorkInterval(false), 100);
+  assert.equal(getViewportWorkInterval(true), 250);
 });
 
 test("findNearestNodeToPoint prefers the item beneath the viewport center", () => {

@@ -14,6 +14,7 @@ const {
   getLabelRect,
   getPanLayerTranslation,
   getWrappedGridTranslation,
+  getViewportWorkInterval,
   getTagColorStyle,
   getViewportPanDelta,
   getViewportWorldCenter,
@@ -37,7 +38,6 @@ const PAN_START_THRESHOLD = 4;
 const ORIGINAL_IMAGE_ZOOM = 1;
 const MAX_CONCURRENT_IMAGE_LOADS = 4;
 const RESOURCE_RELEASE_VIEWPORTS = 3;
-const VIEWPORT_WORK_INTERVAL = 100;
 const GRID_LAYER_OVERFLOW = 768;
 
 const state = {
@@ -57,6 +57,7 @@ const state = {
   cameraFrame: null,
   viewportWorkTimer: null,
   lastViewportWork: -Infinity,
+  isPanning: false,
   explorationSource: null,
   explorationLoading: false,
   tagColors: new Map(),
@@ -528,19 +529,19 @@ function beginPan(event) {
 
   const startPointer = { x: event.clientX, y: event.clientY };
   const startCamera = { ...state.camera };
-  let isPanning = event.button === 1;
-  if (isPanning) {
+  let hasStartedPanning = event.button === 1;
+  if (hasStartedPanning) {
     event.preventDefault();
-    elements.viewport.classList.add("is-panning");
+    startViewportPan();
   }
 
   const move = (moveEvent) => {
     const deltaX = moveEvent.clientX - startPointer.x;
     const deltaY = moveEvent.clientY - startPointer.y;
-    if (!isPanning && Math.hypot(deltaX, deltaY) < PAN_START_THRESHOLD) return;
-    if (!isPanning) {
-      isPanning = true;
-      elements.viewport.classList.add("is-panning");
+    if (!hasStartedPanning && Math.hypot(deltaX, deltaY) < PAN_START_THRESHOLD) return;
+    if (!hasStartedPanning) {
+      hasStartedPanning = true;
+      startViewportPan();
     }
     moveEvent.preventDefault();
     state.camera.x = startCamera.x + moveEvent.clientX - startPointer.x;
@@ -549,7 +550,7 @@ function beginPan(event) {
   };
 
   const end = () => {
-    elements.viewport.classList.remove("is-panning");
+    if (hasStartedPanning) finishViewportPan();
     window.removeEventListener("pointermove", move);
     window.removeEventListener("pointerup", end);
     window.removeEventListener("pointercancel", end);
@@ -558,6 +559,19 @@ function beginPan(event) {
   window.addEventListener("pointermove", move, { passive: false });
   window.addEventListener("pointerup", end);
   window.addEventListener("pointercancel", end);
+}
+
+function startViewportPan() {
+  state.isPanning = true;
+  state.lastViewportWork = performance.now();
+  elements.viewport.classList.add("is-panning");
+  rescheduleViewportWork();
+}
+
+function finishViewportPan() {
+  state.isPanning = false;
+  elements.viewport.classList.remove("is-panning");
+  flushViewportWork();
 }
 
 function handleWheel(event) {
@@ -852,19 +866,31 @@ function renderCamera() {
 function scheduleViewportWork() {
   if (state.viewportWorkTimer !== null) return;
   const elapsed = performance.now() - state.lastViewportWork;
-  const delay = Math.max(0, VIEWPORT_WORK_INTERVAL - elapsed);
+  const delay = Math.max(0, getViewportWorkInterval(state.isPanning) - elapsed);
   state.viewportWorkTimer = window.setTimeout(runViewportWork, delay);
+}
+
+function rescheduleViewportWork() {
+  if (state.viewportWorkTimer !== null) window.clearTimeout(state.viewportWorkTimer);
+  state.viewportWorkTimer = null;
+  scheduleViewportWork();
+}
+
+function flushViewportWork() {
+  if (state.viewportWorkTimer !== null) window.clearTimeout(state.viewportWorkTimer);
+  state.viewportWorkTimer = null;
+  runViewportWork();
 }
 
 function runViewportWork() {
   state.viewportWorkTimer = null;
   state.lastViewportWork = performance.now();
-  updateMediaVisibility();
+  updateMediaVisibility({ deferCleanup: state.isPanning });
   updateLabels();
   selectNodeAtViewportCenter();
 }
 
-function updateMediaVisibility() {
+function updateMediaVisibility({ deferCleanup = false } = {}) {
   const preloadMargin = 120;
   const viewportWidth = elements.viewport.clientWidth;
   const viewportHeight = elements.viewport.clientHeight;
@@ -881,19 +907,21 @@ function updateMediaVisibility() {
     for (const node of state.materializedNodes) mediaLoadQueue.cancel(node, "original");
   }
 
-  for (const node of state.mountedNodes) {
-    if (!nextMountedNodes.has(node) && node !== state.selectedNode) {
-      unmountMediaCard(node);
+  if (!deferCleanup) {
+    for (const node of state.mountedNodes) {
+      if (!nextMountedNodes.has(node) && node !== state.selectedNode) {
+        unmountMediaCard(node);
+      }
+    }
+
+    for (const node of [...state.materializedNodes]) {
+      if (!retainedNodes.has(node) && node !== state.selectedNode) {
+        releaseMediaCard(node);
+      }
     }
   }
 
   for (const node of visibleNodes) mountMediaCard(node);
-
-  for (const node of [...state.materializedNodes]) {
-    if (!retainedNodes.has(node) && node !== state.selectedNode) {
-      releaseMediaCard(node);
-    }
-  }
 
   for (const node of visibleNodes) {
     const left = state.camera.x + node.x * scale;
@@ -949,8 +977,14 @@ function updateLabels() {
   }
 
   const nextLabelNodes = new Set(visibleLabels.map(({ node }) => node));
-  for (const node of [...state.mountedLabelNodes]) {
-    if (!nextLabelNodes.has(node)) releaseMediaLabel(node);
+  if (!state.isPanning) {
+    for (const node of [...state.mountedLabelNodes]) {
+      if (!nextLabelNodes.has(node)) releaseMediaLabel(node);
+    }
+  } else {
+    for (const node of state.mountedLabelNodes) {
+      if (!nextLabelNodes.has(node)) positionMediaLabel(node);
+    }
   }
 
   for (const { node, rect } of visibleLabels) {

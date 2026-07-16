@@ -74,6 +74,10 @@
     };
   }
 
+  function getViewportWorkInterval(isPanning) {
+    return isPanning ? 250 : 100;
+  }
+
   function findNearestNodeToPoint(nodes, point) {
     let nearest = null;
     for (const node of nodes) {
@@ -445,6 +449,7 @@
     getLabelDetailLevel,
     getPanLayerTranslation,
     getWrappedGridTranslation,
+    getViewportWorkInterval,
     getTagColorStyle,
     normalizeTagColor,
     getViewportPanDelta,
