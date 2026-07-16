@@ -135,6 +135,7 @@ button {
   width: 1px;
   height: 1px;
   transform-origin: 0 0;
+  will-change: transform;
 }
 
 .labels-layer {
