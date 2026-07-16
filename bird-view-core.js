@@ -66,6 +66,14 @@
     return { x: camera.x - anchorCamera.x, y: camera.y - anchorCamera.y };
   }
 
+  function getWrappedGridTranslation(camera, gridSize, overflow) {
+    const wrap = (value) => ((value % gridSize) + gridSize) % gridSize;
+    return {
+      x: wrap(camera.x + overflow),
+      y: wrap(camera.y + overflow),
+    };
+  }
+
   function findNearestNodeToPoint(nodes, point) {
     let nearest = null;
     for (const node of nodes) {
@@ -436,6 +444,7 @@
     getLabelRect,
     getLabelDetailLevel,
     getPanLayerTranslation,
+    getWrappedGridTranslation,
     getTagColorStyle,
     normalizeTagColor,
     getViewportPanDelta,

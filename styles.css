@@ -112,13 +112,20 @@ button {
   touch-action: none;
   user-select: none;
   background-color: #17191c;
-  background-image: radial-gradient(circle, #3b3f45 1px, transparent 1px);
-  background-position: 0 0;
-  background-size: 24px 24px;
 }
 
 .viewport.is-panning {
   cursor: grabbing;
+}
+
+.grid-layer {
+  position: absolute;
+  inset: -768px;
+  background-image: radial-gradient(circle, #3b3f45 1px, transparent 1px);
+  background-position: 0 0;
+  background-size: 24px 24px;
+  pointer-events: none;
+  will-change: transform;
 }
 
 .world {

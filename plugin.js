@@ -13,6 +13,7 @@ const {
   getLabelDetailLevel,
   getLabelRect,
   getPanLayerTranslation,
+  getWrappedGridTranslation,
   getTagColorStyle,
   getViewportPanDelta,
   getViewportWorldCenter,
@@ -37,12 +38,14 @@ const ORIGINAL_IMAGE_ZOOM = 1;
 const MAX_CONCURRENT_IMAGE_LOADS = 4;
 const RESOURCE_RELEASE_VIEWPORTS = 3;
 const VIEWPORT_WORK_INTERVAL = 100;
+const GRID_LAYER_OVERFLOW = 768;
 
 const state = {
   camera: { x: 0, y: 0, scale: 1 },
   baseScale: 1,
   renderedScale: null,
   renderedBaseScale: null,
+  gridSize: 24,
   nodes: [],
   rows: [],
   mountedNodes: new Set(),
@@ -77,6 +80,7 @@ document.addEventListener("DOMContentLoaded", setup);
 function setup() {
   elements.viewport = document.querySelector("#viewport");
   elements.world = document.querySelector("#world");
+  elements.grid = document.querySelector("#grid");
   elements.labels = document.querySelector("#labels");
   elements.emptyState = document.querySelector("#empty-state");
   elements.itemCount = document.querySelector("#item-count");
@@ -825,8 +829,8 @@ function renderCamera() {
   if (scaleChanged) {
     const inverseScale = 1 / state.camera.scale;
     elements.world.style.setProperty("--media-border-width", `${inverseScale}px`);
-    const gridSize = Math.max(8, 24 * state.camera.scale);
-    elements.viewport.style.backgroundSize = `${gridSize}px ${gridSize}px`;
+    state.gridSize = Math.max(8, 24 * state.camera.scale);
+    elements.grid.style.backgroundSize = `${state.gridSize}px ${state.gridSize}px`;
     state.renderedScale = state.camera.scale;
   }
   elements.world.style.transform = `translate(${state.camera.x}px, ${state.camera.y}px) scale(${state.camera.scale})`;
@@ -834,7 +838,12 @@ function renderCamera() {
     elements.zoomLabel.textContent = `${Math.round((state.camera.scale / getBaseScale()) * 100)}%`;
     state.renderedBaseScale = state.baseScale;
   }
-  elements.viewport.style.backgroundPosition = `${state.camera.x}px ${state.camera.y}px`;
+  const gridTranslation = getWrappedGridTranslation(
+    state.camera,
+    state.gridSize,
+    GRID_LAYER_OVERFLOW,
+  );
+  elements.grid.style.transform = `translate3d(${gridTranslation.x}px, ${gridTranslation.y}px, 0)`;
   if (scaleChanged) updateMountedLabelPositions();
   else updateLabelLayerTransform();
   scheduleViewportWork();

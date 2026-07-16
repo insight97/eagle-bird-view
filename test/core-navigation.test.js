@@ -11,6 +11,7 @@ const {
   getLabelDetailLevel,
   getLabelRect,
   getPanLayerTranslation,
+  getWrappedGridTranslation,
   getTagColorStyle,
   getViewportPanDelta,
   getViewportWorldCenter,
@@ -89,6 +90,17 @@ test("getPanLayerTranslation reuses label positions only while scale is unchange
   });
   assert.equal(getPanLayerTranslation({ x: 35, y: 5, scale: 3 }, anchor), null);
   assert.equal(getPanLayerTranslation({ x: 35, y: 5, scale: 2 }, null), null);
+});
+
+test("getWrappedGridTranslation keeps an oversized grid layer covering the viewport", () => {
+  assert.deepEqual(getWrappedGridTranslation({ x: 25, y: -30 }, 24, 768), {
+    x: 1,
+    y: 18,
+  });
+  assert.deepEqual(getWrappedGridTranslation({ x: -800, y: 800 }, 24, 768), {
+    x: 16,
+    y: 8,
+  });
 });
 
 test("findNearestNodeToPoint prefers the item beneath the viewport center", () => {
