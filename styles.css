@@ -156,9 +156,22 @@ button {
 
 .media-card.is-selected {
   border-color: #c8c4ff;
-  outline: var(--selection-outline-width, 1px) solid #7168ee;
-  outline-offset: var(--selection-outline-offset, 2px);
+  outline: none;
   box-shadow: none;
+}
+
+.selection-frame {
+  position: absolute;
+  z-index: 9;
+  box-sizing: border-box;
+  border: 1px solid #7168ee;
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px #c8c4ff;
+  pointer-events: none;
+}
+
+.selection-frame[hidden] {
+  display: none;
 }
 
 .media-frame {

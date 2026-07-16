@@ -8,6 +8,7 @@ const {
   findNearestNodeInRows,
   findNearestNodeToPoint,
   getLabelRect,
+  getSelectionRect,
   getViewportPanDelta,
   getViewportWorldCenter,
   isPlayingVideo,
@@ -22,6 +23,23 @@ test("getLabelRect projects a node into rounded screen coordinates", () => {
     ),
     { left: 20, top: 1, width: 150, height: 22 },
   );
+});
+
+test("getSelectionRect keeps a fixed screen-space gap at every zoom", () => {
+  const node = { x: 10, y: 20, width: 100, height: 80 };
+
+  assert.deepEqual(getSelectionRect(node, { x: 5, y: -3, scale: 1 }, 2), {
+    left: 13,
+    top: 15,
+    width: 104,
+    height: 84,
+  });
+  assert.deepEqual(getSelectionRect(node, { x: 5, y: -3, scale: 8 }, 2), {
+    left: 83,
+    top: 155,
+    width: 804,
+    height: 644,
+  });
 });
 
 test("directionFor normalizes arrow keys and WASD", () => {
