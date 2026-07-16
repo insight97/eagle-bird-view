@@ -91,3 +91,45 @@ test("disposing an active node frees its slot and ignores stale completion", () 
   assert.equal(starts[1].node, second);
   assert.equal(queue.complete(first, "thumbnail", true), false);
 });
+
+test("canceling a pending original keeps the thumbnail without starting the follow-up", () => {
+  const starts = [];
+  const queue = new MediaLoadQueue({ maxConcurrent: 1 });
+  const node = register(queue, starts);
+
+  queue.request(node, "original");
+  assert.equal(queue.cancel(node, "original"), true);
+  queue.complete(node, "thumbnail", true);
+
+  assert.deepEqual(starts.map(({ quality }) => quality), ["thumbnail"]);
+  assert.equal(queue.snapshot(node).readyQuality, "thumbnail");
+});
+
+test("canceling an active original frees its slot and allows a later retry", () => {
+  const starts = [];
+  const canceled = [];
+  const queue = new MediaLoadQueue({ maxConcurrent: 1 });
+  const original = register(queue, starts, {
+    hasThumbnail: false,
+    preferThumbnailFirst: false,
+    cancel: (quality) => canceled.push(quality),
+  });
+  const thumbnail = register(queue, starts, {
+    hasOriginal: false,
+    preferThumbnailFirst: false,
+  });
+
+  queue.request(original, "original");
+  queue.request(thumbnail, "thumbnail");
+  assert.equal(queue.cancel(original, "original"), true);
+
+  assert.deepEqual(canceled, ["original"]);
+  assert.equal(starts[1].node, thumbnail);
+  assert.equal(queue.snapshot(original).originalFailed, false);
+  assert.equal(queue.complete(original, "original", true), false);
+
+  queue.complete(thumbnail, "thumbnail", true);
+  queue.request(original, "original");
+  assert.equal(starts.at(-1).node, original);
+  assert.equal(starts.at(-1).quality, "original");
+});

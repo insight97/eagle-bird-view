@@ -20,6 +20,7 @@
       this.#states.set(node, {
         node,
         start: options.start,
+        cancel: options.cancel,
         hasOriginal: Boolean(options.hasOriginal),
         hasThumbnail: Boolean(options.hasThumbnail),
         preferThumbnailFirst: Boolean(options.preferThumbnailFirst),
@@ -101,6 +102,36 @@
       if (pendingQuality) this.request(node, pendingQuality);
       this.#pump();
       return true;
+    }
+
+    cancel(node, quality) {
+      const state = this.#states.get(node);
+      if (!state || state.disposed) return false;
+      let canceled = false;
+
+      if (state.pendingQuality === quality) {
+        state.pendingQuality = null;
+        canceled = true;
+      }
+      if (state.queued && state.queuedQuality === quality) {
+        state.queued = false;
+        state.queuedQuality = null;
+        canceled = true;
+      }
+      if (state.loading && state.loadingQuality === quality) {
+        state.loading = false;
+        state.loadingQuality = null;
+        this.#active = Math.max(0, this.#active - 1);
+        canceled = true;
+        try {
+          state.cancel?.(quality);
+        } catch {
+          // Cancellation is best-effort; the stale completion will be ignored.
+        }
+      }
+
+      if (canceled) this.#pump();
+      return canceled;
     }
 
     dispose(node) {

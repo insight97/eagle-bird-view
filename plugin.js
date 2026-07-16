@@ -228,6 +228,12 @@ function createMediaCard(node) {
     preferThumbnailFirst: Boolean(
       originalImageURL && fallbackURL && originalImageURL !== fallbackURL,
     ),
+    cancel: (quality) => {
+      if (quality !== "original" || !node.preloadImage) return;
+      const originalImage = node.preloadImage;
+      node.preloadImage = null;
+      originalImage.removeAttribute("src");
+    },
     start: (quality) => {
       const mediaURL = quality === "original" ? originalImageURL : fallbackURL;
       if (!mediaURL) {
@@ -764,6 +770,10 @@ function updateMediaVisibility() {
     getNodesNearViewport(mountMargin * RESOURCE_RELEASE_VIEWPORTS),
   );
   const zoom = scale / getBaseScale();
+
+  if (zoom < ORIGINAL_IMAGE_ZOOM) {
+    for (const node of state.materializedNodes) mediaLoadQueue.cancel(node, "original");
+  }
 
   for (const node of state.mountedNodes) {
     if (!nextMountedNodes.has(node) && node !== state.selectedNode) {
