@@ -9,6 +9,7 @@ const {
   createJustifiedLayout,
   findNodesNearViewport,
   getAspectRatio,
+  insertExplorationRow,
 } = require("../bird-view-core.js");
 
 test("getAspectRatio accepts numeric strings and falls back for invalid dimensions", () => {
@@ -62,5 +63,43 @@ test("findNodesNearViewport observes camera scale, boundaries, and margin", () =
   assert.deepEqual(
     findNodesNearViewport(rows, { x: -180, y: 0, scale: 2 }, { width: 100, height: 100 }, 0),
     [a, b],
+  );
+});
+
+test("insertExplorationRow inserts below its anchor and shifts later rows", () => {
+  const initialItems = Array.from({ length: 14 }, (_, index) => ({
+    id: `initial-${index}`,
+    width: 100,
+    height: 100,
+    ext: "jpg",
+  }));
+  const layout = createJustifiedLayout(initialItems);
+  const anchorRow = layout.rows[0];
+  const originalNextRow = layout.rows[1];
+  const originalNextTop = originalNextRow.top;
+  const originalNextNodeY = originalNextRow.nodes[0].y;
+  const anchorNodeY = anchorRow.nodes[0].y;
+  const explorationItems = Array.from({ length: 4 }, (_, index) => ({
+    id: `explore-${index}`,
+    width: 200,
+    height: 100,
+    ext: index === 0 ? "mp4" : "jpg",
+  }));
+
+  const result = insertExplorationRow(layout, anchorRow, explorationItems);
+
+  assert.equal(result.rows[1], result.insertedRow);
+  assert.equal(result.rows[2], originalNextRow);
+  assert.equal(result.insertedRow.top, anchorRow.bottom + LAYOUT_GAP);
+  assert.equal(originalNextRow.top, originalNextTop + result.shift);
+  assert.equal(originalNextRow.nodes[0].y, originalNextNodeY + result.shift);
+  assert.equal(anchorRow.nodes[0].y, anchorNodeY);
+  assert.equal(
+    result.shift,
+    result.insertedRow.bottom - result.insertedRow.top + VIDEO_CONTROLS_HEIGHT + LAYOUT_GAP,
+  );
+  assert.deepEqual(
+    result.nodes.slice(anchorRow.nodes.length, anchorRow.nodes.length + 4),
+    result.insertedRow.nodes,
   );
 });

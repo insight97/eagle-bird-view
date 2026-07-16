@@ -190,39 +190,10 @@
 
     const commitRow = (justify) => {
       if (!row.length) return;
-      const gapWidth = LAYOUT_GAP * Math.max(0, row.length - 1);
-      const fittedHeight = (LAYOUT_WIDTH - gapWidth) / aspectRatioSum;
-      let rowHeight = justify ? fittedHeight : TARGET_ROW_HEIGHT;
-      rowHeight = Math.min(MAX_ROW_HEIGHT, rowHeight);
-
-      if (rowHeight < MIN_ROW_HEIGHT) {
-        const widthAtMinimumHeight = aspectRatioSum * MIN_ROW_HEIGHT + gapWidth;
-        if (widthAtMinimumHeight <= LAYOUT_WIDTH) rowHeight = MIN_ROW_HEIGHT;
-      }
-
-      let x = 0;
-      let rowHasVideo = false;
-      const layoutRow = { top: y, bottom: y + rowHeight, nodes: [] };
-      for (const entry of row) {
-        const width = entry.aspectRatio * rowHeight;
-        const node = {
-          item: entry.item,
-          x,
-          y,
-          width,
-          height: rowHeight,
-          mediaHeight: rowHeight,
-          isVideo: entry.isVideo,
-          rotation: 0,
-        };
-        nodes.push(node);
-        layoutRow.nodes.push(node);
-        x += width + LAYOUT_GAP;
-        rowHasVideo ||= entry.isVideo;
-      }
-
+      const layoutRow = createLayoutRow(row.map(({ item }) => item), y, justify);
+      nodes.push(...layoutRow.nodes);
       rows.push(layoutRow);
-      y += rowHeight + (rowHasVideo ? VIDEO_CONTROLS_HEIGHT : 0) + LAYOUT_GAP;
+      y += getRowAdvance(layoutRow);
       row = [];
       aspectRatioSum = 0;
     };
@@ -243,6 +214,75 @@
 
     commitRow(false);
     return { nodes, rows };
+  }
+
+  function insertExplorationRow(layout, afterRow, items) {
+    const rowIndex = layout.rows.indexOf(afterRow);
+    if (rowIndex < 0) throw new Error("Exploration anchor row is not part of the layout");
+    if (!items.length) return { ...layout, insertedRow: null, shift: 0 };
+
+    const top = afterRow.bottom + getRowControlsHeight(afterRow) + LAYOUT_GAP;
+    const insertedRow = createLayoutRow(items, top, isFilledRow(items));
+    const shift = getRowAdvance(insertedRow);
+    for (let index = rowIndex + 1; index < layout.rows.length; index += 1) {
+      const row = layout.rows[index];
+      row.top += shift;
+      row.bottom += shift;
+      for (const node of row.nodes) node.y += shift;
+    }
+    layout.rows.splice(rowIndex + 1, 0, insertedRow);
+    layout.nodes = layout.rows.flatMap((row) => row.nodes);
+    return { ...layout, insertedRow, shift };
+  }
+
+  function createLayoutRow(items, y, justify) {
+    const entries = items.map((item) => ({
+      item,
+      aspectRatio: getAspectRatio(item),
+      isVideo: VIDEO_EXTENSIONS.has(String(item.ext || "").toLowerCase()),
+    }));
+    const aspectRatioSum = entries.reduce((sum, entry) => sum + entry.aspectRatio, 0);
+    const gapWidth = LAYOUT_GAP * Math.max(0, entries.length - 1);
+    const fittedHeight = (LAYOUT_WIDTH - gapWidth) / aspectRatioSum;
+    let rowHeight = justify ? fittedHeight : TARGET_ROW_HEIGHT;
+    rowHeight = Math.min(MAX_ROW_HEIGHT, rowHeight);
+
+    if (rowHeight < MIN_ROW_HEIGHT) {
+      const widthAtMinimumHeight = aspectRatioSum * MIN_ROW_HEIGHT + gapWidth;
+      if (widthAtMinimumHeight <= LAYOUT_WIDTH) rowHeight = MIN_ROW_HEIGHT;
+    }
+
+    let x = 0;
+    const layoutRow = { top: y, bottom: y + rowHeight, nodes: [] };
+    for (const entry of entries) {
+      const width = entry.aspectRatio * rowHeight;
+      layoutRow.nodes.push({
+        item: entry.item,
+        x,
+        y,
+        width,
+        height: rowHeight,
+        mediaHeight: rowHeight,
+        isVideo: entry.isVideo,
+        rotation: 0,
+      });
+      x += width + LAYOUT_GAP;
+    }
+    return layoutRow;
+  }
+
+  function isFilledRow(items) {
+    const aspectRatioSum = items.reduce((sum, item) => sum + getAspectRatio(item), 0);
+    const gapWidth = LAYOUT_GAP * Math.max(0, items.length - 1);
+    return (LAYOUT_WIDTH - gapWidth) / aspectRatioSum <= TARGET_ROW_HEIGHT;
+  }
+
+  function getRowAdvance(row) {
+    return row.bottom - row.top + getRowControlsHeight(row) + LAYOUT_GAP;
+  }
+
+  function getRowControlsHeight(row) {
+    return row.nodes.some(({ isVideo }) => isVideo) ? VIDEO_CONTROLS_HEIGHT : 0;
   }
 
   function findNodesNearViewport(rows, camera, viewport, screenMargin) {
@@ -288,6 +328,7 @@
     getLabelRect,
     getViewportPanDelta,
     getViewportWorldCenter,
+    insertExplorationRow,
     isPlayingVideo,
     selectDiverseExplorationRow,
     zoomCameraAtPoint,
