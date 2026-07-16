@@ -17,6 +17,7 @@
   const LABEL_MIN_SCALE = 1;
   const LABEL_DETAILS_MIN_ZOOM = 0.5;
   const LABEL_DETAILS_MIN_SCALE = 1.5;
+  const EXPLORATION_RANK_WEIGHTS = Object.freeze([40, 25, 17, 11, 7]);
   const TAG_COLOR_PALETTE = Object.freeze({
     red: "#e56b6f",
     orange: "#e99045",
@@ -264,15 +265,10 @@
           score: getExplorationScore(candidate, representedNovelKeys, connectionCounts),
         }))
         .sort((a, b) => compareExplorationScores(a.score, b.score));
-      let tieCount = 1;
-      while (
-        tieCount < scored.length &&
-        compareExplorationScores(scored[tieCount].score, scored[0].score) === 0
-      ) {
-        tieCount += 1;
-      }
-      const shortlist = scored.slice(0, tieCount).map(({ candidate }) => candidate);
-      const choice = shortlist[getRandomIndex(shortlist.length, random)];
+      const shortlist = scored
+        .slice(0, EXPLORATION_RANK_WEIGHTS.length)
+        .map(({ candidate }) => candidate);
+      const choice = shortlist[getWeightedRandomIndex(shortlist.length, random)];
       eligible.splice(eligible.indexOf(choice), 1);
       selected.push(choice.item);
       aspectRatioSum += getAspectRatio(choice.item);
@@ -304,8 +300,15 @@
     return b.gain - a.gain || a.repeated - b.repeated || a.overlap - b.overlap;
   }
 
-  function getRandomIndex(length, random) {
-    return Math.floor(clamp(random(), 0, 1 - Number.EPSILON) * length);
+  function getWeightedRandomIndex(length, random) {
+    const weights = EXPLORATION_RANK_WEIGHTS.slice(0, length);
+    const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+    let threshold = clamp(random(), 0, 1 - Number.EPSILON) * totalWeight;
+    for (let index = 0; index < weights.length; index += 1) {
+      threshold -= weights[index];
+      if (threshold < 0) return index;
+    }
+    return weights.length - 1;
   }
 
   function describeExplorationCandidate(item, pivotFolders, pivotTags) {

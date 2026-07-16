@@ -57,7 +57,7 @@ test("exploration stops as soon as candidates fill one justified row", () => {
   assert.equal(selected.length, 4);
 });
 
-test("exploration randomizes only among equally suitable candidates", () => {
+test("exploration randomizes among the highest-ranked candidates", () => {
   const pivot = item("pivot", ["ui"], []);
   const candidates = ["a", "b", "c", "d"].map((id) =>
     item(id, ["ui", `folder-${id}`], [`tag-${id}`], 400, 100),
@@ -70,11 +70,33 @@ test("exploration randomizes only among equally suitable candidates", () => {
   assert.deepEqual(fromEnd.map(({ id }) => id), ["d", "c"]);
 });
 
-test("exploration does not randomize a weaker candidate into the shortlist", () => {
+test("exploration can select a lower-ranked candidate from the weighted shortlist", () => {
   const pivot = item("pivot", ["ui"], []);
   const stronger = item("stronger", ["ui", "web"], ["bold", "dark"], 400, 100);
   const weaker = item("weaker", ["ui", "web"], [], 400, 100);
 
   const selected = selectDiverseExplorationRow([stronger, weaker], pivot, () => 0.999999);
-  assert.equal(selected[0], stronger);
+  assert.equal(selected[0], weaker);
+});
+
+test("exploration weights the top five ranks and excludes the sixth", () => {
+  const pivot = item("pivot", ["ui"], []);
+  const candidates = Array.from({ length: 6 }, (_, index) =>
+    item(
+      `rank-${index + 1}`,
+      ["ui", ...Array.from({ length: 6 - index }, (__, extra) => `folder-${index}-${extra}`)],
+      [],
+      1200,
+      100,
+    ),
+  );
+
+  const first = selectDiverseExplorationRow(candidates, pivot, () => 0.399999);
+  const second = selectDiverseExplorationRow(candidates, pivot, () => 0.4);
+  const fifth = selectDiverseExplorationRow(candidates, pivot, () => 0.999999);
+
+  assert.equal(first[0].id, "rank-1");
+  assert.equal(second[0].id, "rank-2");
+  assert.equal(fifth[0].id, "rank-5");
+  assert.notEqual(fifth[0].id, "rank-6");
 });
