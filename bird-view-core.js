@@ -332,8 +332,13 @@
   }
 
   function getExplorationScore(candidate, representedNovelKeys, connectionCounts) {
+    const unrepresentedKeys = candidate.novelKeys.filter(
+      (key) => !representedNovelKeys.has(key),
+    );
     return {
-      gain: candidate.novelKeys.filter((key) => !representedNovelKeys.has(key)).length,
+      gain:
+        Number(unrepresentedKeys.some((key) => key.startsWith("folder:"))) +
+        Number(unrepresentedKeys.some((key) => key.startsWith("tag:"))),
       repeated: Math.max(
         0,
         ...candidate.sharedKeys.map((key) => connectionCounts.get(key) || 0),

@@ -47,6 +47,28 @@ test("exploration balances different shared connections within one row", () => {
   assert.equal(selected.filter(({ tags }) => tags.includes("dark")).length, 2);
 });
 
+test("exploration caps novelty gain by folder and tag category", () => {
+  const pivot = item("pivot", ["ui"], []);
+  const manyTags = item(
+    "many-tags",
+    ["ui"],
+    ["one", "two", "three", "four", "five"],
+    1200,
+    100,
+  );
+  const folderAndTag = item(
+    "folder-and-tag",
+    ["ui", "branding"],
+    ["one"],
+    1200,
+    100,
+  );
+
+  const selected = selectDiverseExplorationRow([manyTags, folderAndTag], pivot, () => 0);
+
+  assert.equal(selected[0], folderAndTag);
+});
+
 test("exploration stops as soon as candidates fill one justified row", () => {
   const pivot = item("pivot", ["ui"], []);
   const candidates = Array.from({ length: 10 }, (_, index) =>
