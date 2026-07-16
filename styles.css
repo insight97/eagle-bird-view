@@ -142,7 +142,7 @@ button {
   position: absolute;
   box-sizing: content-box;
   overflow: hidden;
-  border: 1px solid #3c4047;
+  border: var(--media-border-width, 1px) solid #3c4047;
   border-radius: 4px;
   background: #22252a;
   box-shadow: none;
@@ -156,8 +156,8 @@ button {
 
 .media-card.is-selected {
   border-color: #c8c4ff;
-  outline: 1px solid #7168ee;
-  outline-offset: 2px;
+  outline: var(--selection-outline-width, 1px) solid #7168ee;
+  outline-offset: var(--selection-outline-offset, 2px);
   box-shadow: none;
 }
 

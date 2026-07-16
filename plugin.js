@@ -734,6 +734,10 @@ function updateCamera() {
 
 function renderCamera() {
   state.cameraFrame = null;
+  const inverseScale = 1 / state.camera.scale;
+  elements.world.style.setProperty("--media-border-width", `${inverseScale}px`);
+  elements.world.style.setProperty("--selection-outline-width", `${inverseScale}px`);
+  elements.world.style.setProperty("--selection-outline-offset", `${inverseScale * 2}px`);
   elements.world.style.transform = `translate(${state.camera.x}px, ${state.camera.y}px) scale(${state.camera.scale})`;
   elements.zoomLabel.textContent = `${Math.round((state.camera.scale / getBaseScale()) * 100)}%`;
   elements.viewport.style.backgroundPosition = `${state.camera.x}px ${state.camera.y}px`;
