@@ -396,9 +396,14 @@ button {
 }
 
 .media-rating {
+  display: flex;
   flex: none;
-  color: #e7b94e;
+  color: #555b64;
   letter-spacing: 1px;
+}
+
+.media-rating-star.is-filled {
+  color: #e7b94e;
 }
 
 .media-tags {

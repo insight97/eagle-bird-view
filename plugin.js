@@ -368,13 +368,18 @@ function createMediaLabel(node) {
   const tagValues = [
     ...new Set((item.tags || []).map(String).map((tag) => tag.trim()).filter(Boolean)),
   ];
-  rating.textContent = "★".repeat(ratingValue);
-  rating.hidden = ratingValue === 0;
   rating.setAttribute("aria-label", `評分 ${ratingValue} 顆星`);
+  for (let index = 1; index <= 5; index += 1) {
+    const star = document.createElement("span");
+    star.className = "media-rating-star";
+    star.classList.toggle("is-filled", index <= ratingValue);
+    star.textContent = "★";
+    star.setAttribute("aria-hidden", "true");
+    rating.append(star);
+  }
   tags.title = tagValues.join(", ");
   tags.hidden = tagValues.length === 0;
   for (const tag of tagValues) tags.append(createTagChip(tag));
-  metadata.hidden = ratingValue === 0 && tagValues.length === 0;
   name.className = "media-name";
   name.textContent = item.name || "未命名";
   type.className = "media-extension";
