@@ -22,7 +22,7 @@ test("getLabelRect projects a node into rounded screen coordinates", () => {
       { x: 10.2, y: 20.4, width: 100.2 },
       { x: 5, y: -3, scale: 1.5 },
     ),
-    { left: 20, top: 1, width: 150, height: 22 },
+    { left: 20, top: -17, width: 150, height: 40 },
   );
 });
 
@@ -36,7 +36,8 @@ test("getItemRating accepts Eagle stars and clamps invalid values", () => {
 });
 
 test("label details progressively hide as media gets smaller", () => {
-  assert.equal(getLabelDetailLevel(1, 3), "details");
+  assert.equal(getLabelDetailLevel(1, 4), "details");
+  assert.equal(getLabelDetailLevel(1, 3), "name");
   assert.equal(getLabelDetailLevel(0.75, 3), "name");
   assert.equal(getLabelDetailLevel(0.4, 3), "hidden");
   assert.equal(getLabelDetailLevel(1, 1.5), "hidden");

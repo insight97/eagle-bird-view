@@ -892,10 +892,6 @@ function positionMediaLabel(node, rect = getLabelRect(node, state.camera)) {
   node.label.style.left = `${rect.left}px`;
   node.label.style.top = `${rect.top}px`;
   node.label.style.width = `${Math.max(1, rect.width)}px`;
-  node.label.style.setProperty(
-    "--media-screen-height",
-    `${Math.round(node.height * state.camera.scale)}px`,
-  );
 }
 
 function positionNode(node) {

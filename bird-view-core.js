@@ -15,6 +15,7 @@
   const LABEL_MIN_ZOOM = 0.45;
   const LABEL_MIN_SCALE = 2;
   const LABEL_DETAILS_MIN_ZOOM = 1;
+  const LABEL_DETAILS_MIN_SCALE = 3.25;
   const ARROW_DIRECTIONS = {
     arrowup: [0, -1],
     arrowdown: [0, 1],
@@ -139,9 +140,9 @@
   function getLabelRect(node, camera) {
     return {
       left: Math.round(camera.x + node.x * camera.scale),
-      top: Math.round(camera.y + node.y * camera.scale - 27),
+      top: Math.round(camera.y + node.y * camera.scale - 45),
       width: Math.round(node.width * camera.scale),
-      height: 22,
+      height: 40,
     };
   }
 
@@ -152,7 +153,9 @@
 
   function getLabelDetailLevel(zoom, scale) {
     if (zoom < LABEL_MIN_ZOOM || scale < LABEL_MIN_SCALE) return "hidden";
-    return zoom >= LABEL_DETAILS_MIN_ZOOM ? "details" : "name";
+    return zoom >= LABEL_DETAILS_MIN_ZOOM && scale >= LABEL_DETAILS_MIN_SCALE
+      ? "details"
+      : "name";
   }
 
   function getAspectRatio(item) {
