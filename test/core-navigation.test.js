@@ -23,6 +23,7 @@ const {
   normalizeTags,
   normalizeTagColor,
   rankTagMatches,
+  resizeCamera,
   zoomCameraAtPoint,
 } = require("../bird-view-core.js");
 
@@ -204,4 +205,15 @@ test("zoomCameraAtPoint preserves the world coordinate beneath the pointer", () 
 test("zoomCameraAtPoint clamps zoom to the configured range", () => {
   assert.equal(zoomCameraAtPoint({ x: 0, y: 0, scale: 1 }, { x: 0, y: 0 }, 100, 1, 0.08, 8).scale, 8);
   assert.equal(zoomCameraAtPoint({ x: 0, y: 0, scale: 1 }, { x: 0, y: 0 }, 0.001, 1, 0.08, 8).scale, 0.08);
+});
+
+test("resizeCamera preserves relative zoom and the world point at viewport center", () => {
+  const camera = { x: -100, y: 20, scale: 2 };
+  const previousViewport = { width: 800, height: 600 };
+  const nextViewport = { width: 500, height: 400 };
+  const center = getViewportWorldCenter(camera, previousViewport);
+  const resized = resizeCamera(camera, previousViewport, nextViewport, 1, 0.5);
+
+  assert.equal(resized.scale, 1);
+  assert.deepEqual(getViewportWorldCenter(resized, nextViewport), center);
 });

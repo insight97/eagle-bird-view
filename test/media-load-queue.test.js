@@ -79,8 +79,13 @@ test("an original failure preserves the ready thumbnail and is not retried", () 
 
 test("disposing an active node frees its slot and ignores stale completion", () => {
   const starts = [];
+  const canceled = [];
   const queue = new MediaLoadQueue({ maxConcurrent: 1 });
-  const first = register(queue, starts, { hasOriginal: false, preferThumbnailFirst: false });
+  const first = register(queue, starts, {
+    hasOriginal: false,
+    preferThumbnailFirst: false,
+    cancel: (quality) => canceled.push(quality),
+  });
   const second = register(queue, starts, { hasOriginal: false, preferThumbnailFirst: false });
 
   queue.request(first, "thumbnail");
@@ -88,6 +93,7 @@ test("disposing an active node frees its slot and ignores stale completion", () 
   queue.dispose(first);
 
   assert.equal(queue.activeCount, 1);
+  assert.deepEqual(canceled, ["thumbnail"]);
   assert.equal(starts[1].node, second);
   assert.equal(queue.complete(first, "thumbnail", true), false);
 });

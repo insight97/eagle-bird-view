@@ -25,13 +25,14 @@ const {
   isPlayingVideo,
   normalizeTags,
   normalizeTagColor,
-  rankTagMatches,
+  resizeCamera,
   selectDiverseExplorationRow,
   zoomCameraAtPoint,
 } = BirdViewCore;
 const { MediaLoadQueue, waitForImageDecode } = BirdViewMedia;
 const { RelatedItemSource } = BirdViewExploration;
 const { startVideoPlayer } = BirdViewVideo;
+const { TagEditor } = BirdViewTagEditor;
 const MIN_ZOOM = 0.08;
 const MAX_ZOOM = 8;
 const KEYBOARD_PAN_STEP = 240;
@@ -68,13 +69,21 @@ const state = {
   explorationLoading: false,
   tagColors: new Map(),
   tagColorGeneration: 0,
-  tagEditor: null,
+  selectedItemsGeneration: 0,
+  viewportSize: null,
   started: false,
   eagleReady: false,
 };
 
 const elements = {};
 const mediaLoadQueue = new MediaLoadQueue({ maxConcurrent: MAX_CONCURRENT_IMAGE_LOADS });
+const tagEditor = new TagEditor({
+  getViewport: () => elements.viewport,
+  getAvailableTags: () => state.tagColors.keys(),
+  createTagChip,
+  onSelectNode: setSelectedNode,
+  onCommit: commitNodeTags,
+});
 
 if (typeof eagle !== "undefined" && typeof eagle.onPluginCreate === "function") {
   eagle.onPluginCreate(() => {
@@ -104,6 +113,7 @@ function setup() {
 
   refreshBaseScale();
   state.camera.scale = getBaseScale();
+  state.viewportSize = getViewportSize();
   updateCamera();
   if (
     typeof eagle === "undefined" ||
@@ -144,8 +154,10 @@ async function loadSelectedItems() {
     return;
   }
 
+  const generation = ++state.selectedItemsGeneration;
   try {
     const items = await eagle.item.getSelected();
+    if (generation !== state.selectedItemsGeneration) return;
 
     if (!items.length) {
       clearBoard();
@@ -157,12 +169,14 @@ async function loadSelectedItems() {
     requestAnimationFrame(focusFirstItem);
     showToast(`已載入 ${items.length} 個素材。`);
   } catch (error) {
+    if (generation !== state.selectedItemsGeneration) return;
     console.error("Failed to load selected Eagle items", error);
     showToast(`無法讀取 Eagle 素材：${error.message || error}`, true);
   }
 }
 
 function renderItems(items) {
+  tagEditor.close();
   clearSelection();
   releaseAllMediaCards();
   releaseAllMediaLabels();
@@ -404,7 +418,7 @@ function createMediaLabel(node) {
   editTags.addEventListener("pointerdown", (event) => event.stopPropagation());
   editTags.addEventListener("click", (event) => {
     event.stopPropagation();
-    if (!node.isSaving) openTagEditor(node, editTags);
+    if (!node.isSaving) tagEditor.open(node, editTags);
   });
   name.className = "media-name";
   name.textContent = item.name || "未命名";
@@ -550,229 +564,19 @@ function setLabelSaving(node, isSaving) {
   }
 }
 
-function openTagEditor(node, anchor) {
-  closeTagEditor();
-  setSelectedNode(node);
-  const editor = document.createElement("div");
-  const heading = document.createElement("div");
-  const input = document.createElement("input");
-  const options = document.createElement("div");
-  const footer = document.createElement("div");
-  const cancel = document.createElement("button");
-  const save = document.createElement("button");
-  const session = {
-    node,
-    anchor,
-    editor,
-    input,
-    options,
-    selected: new Set(normalizeTags(node.item.tags)),
-    actions: [],
-    activeIndex: 0,
-    outsideHandler: null,
-  };
-
-  editor.className = "tag-editor";
-  editor.setAttribute("role", "dialog");
-  editor.setAttribute("aria-label", `編輯 ${node.item.name || "素材"} 的標籤`);
-  heading.className = "tag-editor-heading";
-  heading.textContent = "編輯標籤";
-  input.className = "tag-editor-search";
-  input.type = "search";
-  input.placeholder = "搜尋或輸入新標籤";
-  input.setAttribute("aria-label", "搜尋或輸入新標籤");
-  options.className = "tag-editor-options";
-  footer.className = "tag-editor-footer";
-  cancel.className = "tag-editor-button";
-  cancel.type = "button";
-  cancel.textContent = "取消";
-  save.className = "tag-editor-button is-primary";
-  save.type = "button";
-  save.textContent = "完成";
-
-  input.addEventListener("input", () => {
-    session.activeIndex = 0;
-    renderTagEditorOptions(session);
-  });
-  input.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeTagEditor();
-      return;
-    }
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      moveTagEditorSelection(session, event.key === "ArrowDown" ? 1 : -1);
-      return;
-    }
-    if (event.key !== "Enter") return;
-    event.preventDefault();
-    if (!input.value.trim()) {
-      void commitTagEditor(session);
-      return;
-    }
-    session.actions[session.activeIndex]?.activate();
-  });
-  cancel.addEventListener("click", closeTagEditor);
-  save.addEventListener("click", () => commitTagEditor(session));
-  editor.addEventListener("pointerdown", (event) => event.stopPropagation());
-  footer.append(cancel, save);
-  editor.append(heading, input, options, footer);
-  elements.viewport.append(editor);
-  state.tagEditor = session;
-  renderTagEditorOptions(session);
-
-  session.outsideHandler = (event) => {
-    if (!editor.contains(event.target) && event.target !== anchor) closeTagEditor();
-  };
-  document.addEventListener("pointerdown", session.outsideHandler, true);
-  requestAnimationFrame(() => {
-    if (state.tagEditor !== session) return;
-    positionTagEditor(session);
-    input.focus();
-  });
-}
-
-function renderTagEditorOptions(session) {
-  const query = session.input.value.trim().toLocaleLowerCase();
-  let candidates = rankTagMatches(
-    [
-      ...session.selected,
-      ...normalizeTags(session.node.item.tags),
-      ...state.tagColors.keys(),
-    ],
-    query,
-  );
-  if (!query) {
-    candidates = candidates.sort((first, second) => {
-      const selectedDifference =
-        Number(session.selected.has(second)) - Number(session.selected.has(first));
-      return selectedDifference || first.localeCompare(second);
-    });
-  }
-  candidates = candidates.slice(0, 80);
-
-  session.options.replaceChildren();
-  session.actions = [];
-
-  for (const tag of candidates) {
-    const option = document.createElement("button");
-    const marker = document.createElement("span");
-    const chip = createTagChip(tag);
-    const isSelected = session.selected.has(tag);
-    option.className = "tag-editor-option";
-    option.type = "button";
-    option.setAttribute("aria-pressed", String(isSelected));
-    marker.className = "tag-editor-check";
-    marker.textContent = isSelected ? "✓" : "";
-    option.append(marker, chip);
-    const activate = () => {
-      if (session.selected.has(tag)) session.selected.delete(tag);
-      else session.selected.add(tag);
-      session.input.value = "";
-      session.activeIndex = 0;
-      renderTagEditorOptions(session);
-    };
-    option.addEventListener("click", activate);
-    session.options.append(option);
-    session.actions.push({ element: option, activate });
-  }
-
-  if (query && !candidates.some((tag) => tag.toLocaleLowerCase() === query)) {
-    const tag = session.input.value.trim();
-    const create = document.createElement("button");
-    const activate = () => {
-      session.selected.add(tag);
-      session.input.value = "";
-      session.activeIndex = 0;
-      renderTagEditorOptions(session);
-    };
-    create.className = "tag-editor-create";
-    create.type = "button";
-    create.textContent = `建立「${tag}」`;
-    create.addEventListener("click", activate);
-    session.options.append(create);
-    session.actions.push({ element: create, activate });
-  }
-
-  if (!session.options.childElementCount) {
-    const empty = document.createElement("div");
-    empty.className = "tag-editor-empty";
-    empty.textContent = "沒有符合的標籤";
-    session.options.append(empty);
-  }
-  session.activeIndex = clamp(session.activeIndex, 0, Math.max(0, session.actions.length - 1));
-  updateTagEditorSelection(session);
-}
-
-function moveTagEditorSelection(session, direction) {
-  if (!session.actions.length) return;
-  session.activeIndex =
-    (session.activeIndex + direction + session.actions.length) % session.actions.length;
-  updateTagEditorSelection(session, true);
-}
-
-function updateTagEditorSelection(session, scroll = false) {
-  for (const [index, action] of session.actions.entries()) {
-    action.element.classList.toggle("is-active", index === session.activeIndex);
-  }
-  if (scroll) {
-    session.actions[session.activeIndex]?.element.scrollIntoView({ block: "nearest" });
-  }
-}
-
-function positionTagEditor(session) {
-  const viewportRect = elements.viewport.getBoundingClientRect();
-  const anchorRect = session.anchor?.getBoundingClientRect() || {
-    left: viewportRect.left + viewportRect.width / 2,
-    top: viewportRect.top + viewportRect.height / 2,
-    height: 0,
-  };
-  const width = session.editor.offsetWidth;
-  const height = session.editor.offsetHeight;
-  const anchorLeft = anchorRect.left - viewportRect.left;
-  const anchorTop = anchorRect.top - viewportRect.top;
-  const left = clamp(anchorLeft, 8, Math.max(8, viewportRect.width - width - 8));
-  const below = anchorTop + anchorRect.height + 6;
-  const top = below + height <= viewportRect.height - 8
-    ? below
-    : Math.max(8, anchorTop - height - 6);
-  session.editor.style.left = `${Math.round(left)}px`;
-  session.editor.style.top = `${Math.round(top)}px`;
-}
-
-async function commitTagEditor(session) {
-  if (state.tagEditor !== session || session.node.isSaving) return;
-  const previousTags = normalizeTags(session.node.item.tags);
-  const nextTags = [...session.selected];
-  closeTagEditor();
-  if (
-    previousTags.length === nextTags.length &&
-    previousTags.every((tag, index) => tag === nextTags[index])
-  ) {
-    return;
-  }
-
-  session.node.item.tags = nextTags;
-  const tags = session.node.label?.querySelector(".media-tags");
+async function commitNodeTags(node, nextTags, previousTags) {
+  node.item.tags = nextTags;
+  const tags = node.label?.querySelector(".media-tags");
   if (tags) renderTagChips(tags, nextTags);
-  const saved = await saveItemMetadata(session.node, {
-    successMessage: `已更新「${session.node.item.name || "素材"}」的標籤。`,
+  const saved = await saveItemMetadata(node, {
+    successMessage: `已更新「${node.item.name || "素材"}」的標籤。`,
     rollback: () => {
-      session.node.item.tags = previousTags;
-      const tags = session.node.label?.querySelector(".media-tags");
-      if (tags) renderTagChips(tags, previousTags);
+      node.item.tags = previousTags;
+      const currentTags = node.label?.querySelector(".media-tags");
+      if (currentTags) renderTagChips(currentTags, previousTags);
     },
   });
-  if (saved) loadTagColors();
-}
-
-function closeTagEditor() {
-  const session = state.tagEditor;
-  if (!session) return;
-  document.removeEventListener("pointerdown", session.outsideHandler, true);
-  session.editor.remove();
-  state.tagEditor = null;
+  if (saved) void loadTagColors();
 }
 
 async function loadTagColors() {
@@ -790,8 +594,11 @@ async function loadTagColors() {
         .filter(({ name }) => name)
         .map(({ name, color }) => [name, normalizeTagColor(color)]),
     );
-    releaseAllMediaLabels();
-    updateLabels();
+    for (const node of state.mountedLabelNodes) {
+      const tags = node.label?.querySelector(".media-tags");
+      if (tags) renderTagChips(tags, node.item.tags);
+    }
+    tagEditor.refresh();
   } catch (error) {
     if (generation !== state.tagColorGeneration) return;
     state.tagColors = new Map();
@@ -807,7 +614,7 @@ function mountMediaLabel(node) {
 }
 
 function releaseMediaLabel(node) {
-  if (state.tagEditor?.node === node) closeTagEditor();
+  tagEditor.closeForNode(node);
   node.label?.remove();
   node.label = null;
   state.mountedLabelNodes.delete(node);
@@ -910,7 +717,7 @@ function beginPan(event) {
 }
 
 function startViewportPan() {
-  closeTagEditor();
+  tagEditor.close();
   state.isPanning = true;
   state.lastViewportWork = performance.now();
   elements.viewport.classList.add("is-panning");
@@ -925,7 +732,7 @@ function finishViewportPan() {
 
 function handleWheel(event) {
   event.preventDefault();
-  closeTagEditor();
+  tagEditor.close();
   const rect = elements.viewport.getBoundingClientRect();
   const pointerX = event.clientX - rect.left;
   const pointerY = event.clientY - rect.top;
@@ -1003,7 +810,7 @@ function openSelectedTagEditor() {
   const node = state.selectedNode;
   if (!node || node.isSaving) return;
   const anchor = node.label?.querySelector(".media-tag-edit") || node.element;
-  openTagEditor(node, anchor);
+  tagEditor.open(node, anchor);
 }
 
 function panBy(dx, dy) {
@@ -1181,6 +988,8 @@ function focusFirstItem() {
 }
 
 function clearBoard() {
+  state.selectedItemsGeneration += 1;
+  tagEditor.close();
   clearSelection();
   releaseAllMediaCards();
   releaseAllMediaLabels();
@@ -1210,9 +1019,27 @@ function updateCamera() {
 }
 
 function handleResize() {
-  closeTagEditor();
+  tagEditor.close();
+  const previousViewport = state.viewportSize || getViewportSize();
+  const previousBaseScale = getBaseScale();
+  const nextViewport = getViewportSize();
   refreshBaseScale();
+  state.camera = resizeCamera(
+    state.camera,
+    previousViewport,
+    nextViewport,
+    previousBaseScale,
+    getBaseScale(),
+  );
+  state.viewportSize = nextViewport;
   updateCamera();
+}
+
+function getViewportSize() {
+  return {
+    width: Math.max(elements.viewport?.clientWidth || 0, 1),
+    height: Math.max(elements.viewport?.clientHeight || 0, 1),
+  };
 }
 
 function renderCamera() {

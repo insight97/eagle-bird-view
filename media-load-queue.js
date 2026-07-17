@@ -137,6 +137,7 @@
     dispose(node) {
       const state = this.#states.get(node);
       if (!state || state.disposed) return;
+      const loadingQuality = state.loadingQuality;
       state.disposed = true;
       state.queued = false;
       state.pendingQuality = null;
@@ -144,6 +145,13 @@
       state.loading = false;
       state.loadingQuality = null;
       this.#states.delete(node);
+      if (loadingQuality) {
+        try {
+          state.cancel?.(loadingQuality);
+        } catch {
+          // Disposal must still release the queue slot if adapter cleanup fails.
+        }
+      }
       this.#pump();
     }
 

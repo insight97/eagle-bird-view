@@ -62,6 +62,17 @@
     };
   }
 
+  function resizeCamera(camera, previousViewport, nextViewport, previousBaseScale, nextBaseScale) {
+    const center = getViewportWorldCenter(camera, previousViewport);
+    const zoom = camera.scale / previousBaseScale;
+    const scale = nextBaseScale * zoom;
+    return {
+      scale,
+      x: nextViewport.width / 2 - center.x * scale,
+      y: nextViewport.height / 2 - center.y * scale,
+    };
+  }
+
   function getPanLayerTranslation(camera, anchorCamera) {
     if (!anchorCamera || camera.scale !== anchorCamera.scale) return null;
     return { x: camera.x - anchorCamera.x, y: camera.y - anchorCamera.y };
@@ -540,6 +551,7 @@
     normalizeTags,
     normalizeTagColor,
     rankTagMatches,
+    resizeCamera,
     getViewportPanDelta,
     getViewportWorldCenter,
     insertExplorationRow,
