@@ -2,9 +2,11 @@
   "name": "eagle-bird-view",
   "private": true,
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "test:unit": "node --test test/*.test.js",
+    "test:integration": "node --test test/integration/*.test.js"
   },
   "devDependencies": {
-    "linkedom": "^0.18.13"
+    "happy-dom": "^20.10.6"
   }
 }

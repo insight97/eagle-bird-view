@@ -19,7 +19,7 @@ Eagle 的白板式媒體瀏覽器概念驗證。它會載入 Eagle 目前選取�
 
 ## 開發驗證
 
-執行 `npm test` 會使用 Node.js 內建測試工具驗證排版、可視範圍、相機導航、媒體載入與探索候選，不需安裝額外套件。
+執行 `npm run test:unit` 可快速驗證排版、可視範圍、相機導航、媒體載入與探索候選；`npm run test:integration` 會使用 Happy DOM 驗證瀏覽器互動，`npm test` 則會執行全部測試。
 
 ## 操作
 
