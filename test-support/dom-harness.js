@@ -1,5 +1,7 @@
 "use strict";
 
+const { parseHTML } = require("linkedom");
+
 const DOM_GLOBALS = [
   "window",
   "document",
@@ -14,8 +16,15 @@ const DOM_GLOBALS = [
 ];
 
 async function withDom(run) {
-  const { Window } = await import("happy-dom");
-  const window = new Window({ url: "https://bird-view.test/" });
+  const { window } = parseHTML("<!doctype html><html><body></body></html>");
+  if (!window.KeyboardEvent) {
+    window.KeyboardEvent = class KeyboardEvent extends window.Event {
+      constructor(type, init = {}) {
+        super(type, init);
+        this.key = init.key || "";
+      }
+    };
+  }
   const originals = new Map(
     DOM_GLOBALS.map((name) => [name, Object.getOwnPropertyDescriptor(global, name)]),
   );
@@ -28,7 +37,7 @@ async function withDom(run) {
     Event: window.Event,
     KeyboardEvent: window.KeyboardEvent,
     MouseEvent: window.MouseEvent,
-    PointerEvent: window.PointerEvent,
+    PointerEvent: window.PointerEvent || window.Event,
     requestAnimationFrame: (callback) => {
       callback(0);
       return 1;
@@ -39,8 +48,6 @@ async function withDom(run) {
   try {
     return await run(window);
   } finally {
-    await window.happyDOM.abort();
-    window.close();
     for (const [name, descriptor] of originals) {
       if (descriptor) Object.defineProperty(global, name, descriptor);
       else delete global[name];
