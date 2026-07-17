@@ -1,5 +1,11 @@
 "use strict";
 
+const fs = require("node:fs");
+const path = require("node:path");
+
+const WINDOW_BUNDLE = path.resolve(__dirname, "../.test-cache/happy-dom-window.cjs");
+let windowClassPromise;
+
 const DOM_GLOBALS = [
   "window",
   "document",
@@ -14,7 +20,7 @@ const DOM_GLOBALS = [
 ];
 
 async function withDom(run) {
-  const { Window } = await import("happy-dom");
+  const Window = await loadWindowClass();
   const window = new Window({ url: "https://bird-view.test/" });
   const originals = new Map(
     DOM_GLOBALS.map((name) => [name, Object.getOwnPropertyDescriptor(global, name)]),
@@ -46,6 +52,15 @@ async function withDom(run) {
       else delete global[name];
     }
   }
+}
+
+function loadWindowClass() {
+  if (!windowClassPromise) {
+    windowClassPromise = fs.existsSync(WINDOW_BUNDLE)
+      ? Promise.resolve(require(WINDOW_BUNDLE).default)
+      : import("happy-dom").then((module) => module.Window);
+  }
+  return windowClassPromise;
 }
 
 module.exports = { withDom };

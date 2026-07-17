@@ -2,11 +2,17 @@
   "name": "eagle-bird-view",
   "private": true,
   "scripts": {
+    "prepare:test-dom": "node tools/prepare-test-dom.js",
+    "pretest": "npm run prepare:test-dom",
+    "pretest:coverage": "npm run prepare:test-dom",
+    "pretest:integration": "npm run prepare:test-dom",
     "test": "node --test",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-exclude='.test-cache/**'",
     "test:unit": "node --test test/*.test.js",
     "test:integration": "node --test test/integration/*.test.js"
   },
   "devDependencies": {
+    "esbuild": "^0.28.1",
     "happy-dom": "^20.10.6"
   }
 }
