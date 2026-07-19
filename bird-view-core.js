@@ -342,6 +342,32 @@
     return selected;
   }
 
+  function selectRandomExplorationRow(candidates, random = Math.random) {
+    const remaining = [...candidates];
+    const selected = [];
+    let aspectRatioSum = 0;
+
+    while (remaining.length) {
+      const index = Math.floor(clamp(random(), 0, 1 - Number.EPSILON) * remaining.length);
+      const [item] = remaining.splice(index, 1);
+      selected.push(item);
+      aspectRatioSum += getAspectRatio(item);
+
+      const gapWidth = LAYOUT_GAP * Math.max(0, selected.length - 1);
+      const fittedHeight = (LAYOUT_WIDTH - gapWidth) / aspectRatioSum;
+      if (fittedHeight <= TARGET_ROW_HEIGHT) break;
+    }
+
+    return selected;
+  }
+
+  function shouldLoadUnratedRow(rows, camera, viewport, baseScale) {
+    if (!rows.length || camera.scale <= baseScale) return false;
+    const lastRow = rows.at(-1);
+    const screenCenter = camera.y + ((lastRow.top + lastRow.bottom) / 2) * camera.scale;
+    return screenCenter >= 0 && screenCenter <= viewport.height;
+  }
+
   function getExplorationScore(candidate, representedNovelKeys, connectionCounts) {
     const unrepresentedKeys = candidate.novelKeys.filter(
       (key) => !representedNovelKeys.has(key),
@@ -557,6 +583,8 @@
     insertExplorationRow,
     isPlayingVideo,
     selectDiverseExplorationRow,
+    selectRandomExplorationRow,
+    shouldLoadUnratedRow,
     zoomCameraAtPoint,
   });
 });

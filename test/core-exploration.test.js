@@ -2,7 +2,11 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { selectDiverseExplorationRow } = require("../bird-view-core.js");
+const {
+  selectDiverseExplorationRow,
+  selectRandomExplorationRow,
+  shouldLoadUnratedRow,
+} = require("../bird-view-core.js");
 
 function item(id, folders, tags, width = 200, height = 100) {
   return { id, folders, tags, width, height, ext: "jpg" };
@@ -121,4 +125,27 @@ test("exploration weights the top five ranks and excludes the sixth", () => {
   assert.equal(second[0].id, "rank-2");
   assert.equal(fifth[0].id, "rank-5");
   assert.notEqual(fifth[0].id, "rank-6");
+});
+
+test("random exploration selects enough items to fill one row", () => {
+  const candidates = Array.from({ length: 10 }, (_, index) =>
+    item(`item-${index}`, [], [], 200, 100),
+  );
+
+  const selected = selectRandomExplorationRow(candidates, () => 0);
+
+  assert.equal(selected.length, 4);
+  assert.deepEqual(selected.map(({ id }) => id), ["item-0", "item-1", "item-2", "item-3"]);
+});
+
+test("unrated exploration only triggers while zoomed in on the last row", () => {
+  const rows = [
+    { top: 0, bottom: 180 },
+    { top: 212, bottom: 392 },
+  ];
+  const viewport = { width: 1200, height: 800 };
+
+  assert.equal(shouldLoadUnratedRow(rows, { x: 0, y: 0, scale: 1 }, viewport, 1), false);
+  assert.equal(shouldLoadUnratedRow(rows, { x: 0, y: 0, scale: 1.5 }, viewport, 1), true);
+  assert.equal(shouldLoadUnratedRow(rows, { x: 0, y: -1000, scale: 1.5 }, viewport, 1), false);
 });

@@ -2,7 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { RelatedItemSource } = require("../exploration-source.js");
+const { RelatedItemSource, UnratedItemSource } = require("../exploration-source.js");
 
 test("findCandidates unions folder and tag results while excluding existing items", async () => {
   const calls = [];
@@ -99,4 +99,43 @@ test("hydrate preserves the selected exploration order", async () => {
 
   const result = await source.hydrate([{ id: "first" }, { id: "second" }]);
   assert.deepEqual(result.map(({ id }) => id), ["first", "second"]);
+});
+
+test("unrated source queries rating zero and does not repeat selected items", async () => {
+  const calls = [];
+  const items = Array.from({ length: 8 }, (_, index) => ({
+    id: `item-${index}`,
+    width: 200,
+    height: 100,
+  }));
+  const source = new UnratedItemSource({
+    get: async (options) => {
+      calls.push(options);
+      return items;
+    },
+    getByIds: async () => [],
+  }, () => 0);
+
+  const first = await source.findNextRow(new Set(["item-0"]));
+  const second = await source.findNextRow();
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].rating, 0);
+  assert.equal(first.length, 4);
+  assert.equal(first.some(({ id }) => id === "item-0"), false);
+  assert.equal(second.some(({ id }) => first.some((item) => item.id === id)), false);
+});
+
+test("clearing an unrated source invalidates an in-flight query", async () => {
+  let resolveItems;
+  const source = new UnratedItemSource({
+    get: () => new Promise((resolve) => { resolveItems = resolve; }),
+    getByIds: async () => [],
+  });
+
+  const pending = source.findNextRow();
+  source.clear();
+  resolveItems([{ id: "old-library", width: 200, height: 100 }]);
+
+  assert.deepEqual(await pending, []);
 });

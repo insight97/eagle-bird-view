@@ -24,6 +24,20 @@
         </div>
 
         <div class="toolbar-meta">
+          <button
+            id="auto-explore-toggle"
+            class="auto-explore-toggle"
+            type="button"
+            role="switch"
+            aria-checked="false"
+            disabled
+          >
+            <span>自動探索</span>
+            <span class="auto-explore-track" aria-hidden="true">
+              <span class="auto-explore-knob"></span>
+            </span>
+            <span id="auto-explore-status" class="auto-explore-status">關</span>
+          </button>
           <button id="explore-button" class="explore-button" type="button" disabled>探索下一列</button>
           <span class="divider" aria-hidden="true"></span>
           <span id="item-count">0 個素材</span>

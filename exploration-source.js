@@ -1,10 +1,15 @@
 "use strict";
 
 (function exposeExplorationSource(root, factory) {
-  const exploration = factory();
+  const hasCommonJS = typeof module === "object" && module.exports;
+  const core =
+    root.BirdViewCore ||
+    (hasCommonJS && typeof require === "function" ? require("./bird-view-core.js") : null);
+  const exploration = factory(core);
   if (typeof module === "object" && module.exports) module.exports = exploration;
   root.BirdViewExploration = exploration;
-})(typeof globalThis === "object" ? globalThis : this, () => {
+})(typeof globalThis === "object" ? globalThis : this, (core) => {
+  const { selectRandomExplorationRow } = core;
   const MAX_FOLDER_QUERIES = 6;
   const MAX_TAG_QUERIES = 12;
   const MAX_CACHED_ITEMS_PER_QUERY = 240;
@@ -77,6 +82,53 @@
     }
   }
 
+  class UnratedItemSource {
+    #items = null;
+    #itemApi;
+    #random;
+    #generation = 0;
+
+    constructor(itemApi, random = Math.random) {
+      this.#itemApi = itemApi;
+      this.#random = random;
+    }
+
+    async findNextRow(excludedIds = new Set()) {
+      const generation = this.#generation;
+      if (!this.#items) {
+        this.#items = this.#itemApi
+          .get({ rating: 0, fields: INDEX_FIELDS })
+          .catch((error) => {
+            if (generation === this.#generation) this.#items = null;
+            throw error;
+          });
+      }
+      const items = await this.#items;
+      if (generation !== this.#generation) return [];
+      const available = items.filter(
+        (item) => item?.id && !item.isDeleted && !excludedIds.has(item.id),
+      );
+      const selected = selectRandomExplorationRow(available, this.#random);
+      if (selected.length) {
+        const selectedIds = new Set(selected.map(({ id }) => id));
+        this.#items = Promise.resolve(items.filter(({ id }) => !selectedIds.has(id)));
+      }
+      return selected;
+    }
+
+    async hydrate(items) {
+      if (!items.length) return [];
+      const hydrated = await this.#itemApi.getByIds(items.map(({ id }) => id));
+      const hydratedById = new Map(hydrated.map((item) => [item.id, item]));
+      return items.map(({ id }) => hydratedById.get(id)).filter(Boolean);
+    }
+
+    clear() {
+      this.#generation += 1;
+      this.#items = null;
+    }
+  }
+
   function uniqueValues(values = []) {
     return [...new Set(values.filter(Boolean))];
   }
@@ -101,5 +153,5 @@
     return sampled;
   }
 
-  return Object.freeze({ RelatedItemSource });
+  return Object.freeze({ RelatedItemSource, UnratedItemSource });
 });

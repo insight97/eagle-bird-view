@@ -7,20 +7,27 @@ const path = require("node:path");
 const vm = require("node:vm");
 const BirdViewCore = require("../bird-view-core.js");
 
-test("a library change invalidates and restarts selected item loading", () => {
+test("auto exploration defaults off and a library change restarts selected item loading", async () => {
   let domReady;
   let pluginCreate;
   let libraryChanged;
   let selectedRequests = 0;
+  let unratedRequests = 0;
+  const selectedResolvers = [];
   const elements = new Map();
-  const createElementStub = () => ({
-    addEventListener() {},
-    classList: { add() {}, remove() {}, toggle() {} },
-    replaceChildren() {},
-    style: { setProperty() {} },
-    clientWidth: 1200,
-    clientHeight: 800,
-  });
+  const createElementStub = () => {
+    const handlers = new Map();
+    return {
+      addEventListener(type, callback) { handlers.set(type, callback); },
+      classList: { add() {}, remove() {}, toggle() {} },
+      replaceChildren() {},
+      setAttribute() {},
+      style: { setProperty() {} },
+      clientWidth: 1200,
+      clientHeight: 800,
+      click() { handlers.get("click")?.(); },
+    };
+  };
   for (const id of [
     "#viewport",
     "#world",
@@ -29,6 +36,8 @@ test("a library change invalidates and restarts selected item loading", () => {
     "#empty-state",
     "#item-count",
     "#zoom-label",
+    "#auto-explore-toggle",
+    "#auto-explore-status",
     "#explore-button",
     "#toast",
   ]) {
@@ -39,13 +48,20 @@ test("a library change invalidates and restarts selected item loading", () => {
   class RelatedItemSource {
     clear() {}
   }
+  class UnratedItemSource {
+    clear() {}
+    async findNextRow() {
+      unratedRequests += 1;
+      return [];
+    }
+  }
   class TagEditor {
     close() {}
   }
   const context = {
     BirdViewCore,
     BirdViewMedia: { MediaLoadQueue, waitForImageDecode() {} },
-    BirdViewExploration: { RelatedItemSource },
+    BirdViewExploration: { RelatedItemSource, UnratedItemSource },
     BirdViewVideo: { startVideoPlayer() {} },
     BirdViewTagEditor: { TagEditor },
     document: {
@@ -60,7 +76,7 @@ test("a library change invalidates and restarts selected item loading", () => {
       item: {
         getSelected() {
           selectedRequests += 1;
-          return new Promise(() => {});
+          return new Promise((resolve) => selectedResolvers.push(resolve));
         },
       },
       onPluginCreate(callback) {
@@ -87,6 +103,16 @@ test("a library change invalidates and restarts selected item loading", () => {
   domReady();
   pluginCreate();
   assert.equal(selectedRequests, 1);
+  selectedResolvers[0]([]);
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(unratedRequests, 0);
+  assert.equal(elements.get("#auto-explore-status").textContent, "關");
+
+  elements.get("#auto-explore-toggle").click();
+  await Promise.resolve();
+  assert.equal(unratedRequests, 1);
+  assert.equal(elements.get("#auto-explore-status").textContent, "開");
 
   libraryChanged();
   assert.equal(selectedRequests, 2);

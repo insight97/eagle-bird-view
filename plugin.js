@@ -27,10 +27,11 @@ const {
   normalizeTagColor,
   resizeCamera,
   selectDiverseExplorationRow,
+  shouldLoadUnratedRow,
   zoomCameraAtPoint,
 } = BirdViewCore;
 const { MediaLoadQueue, waitForImageDecode } = BirdViewMedia;
-const { RelatedItemSource } = BirdViewExploration;
+const { RelatedItemSource, UnratedItemSource } = BirdViewExploration;
 const { startVideoPlayer } = BirdViewVideo;
 const { TagEditor } = BirdViewTagEditor;
 const MIN_ZOOM = 0.08;
@@ -67,6 +68,12 @@ const state = {
   isPanning: false,
   explorationSource: null,
   explorationLoading: false,
+  unratedSource: null,
+  unratedEnabled: false,
+  unratedLoading: false,
+  unratedExhausted: false,
+  unratedGeneration: 0,
+  lastUnratedTriggerRow: null,
   tagColors: new Map(),
   tagColorGeneration: 0,
   selectedItemsGeneration: 0,
@@ -102,6 +109,8 @@ function setup() {
   elements.emptyState = document.querySelector("#empty-state");
   elements.itemCount = document.querySelector("#item-count");
   elements.zoomLabel = document.querySelector("#zoom-label");
+  elements.autoExploreToggle = document.querySelector("#auto-explore-toggle");
+  elements.autoExploreStatus = document.querySelector("#auto-explore-status");
   elements.exploreButton = document.querySelector("#explore-button");
   elements.toast = document.querySelector("#toast");
 
@@ -109,7 +118,9 @@ function setup() {
   elements.viewport.addEventListener("wheel", handleWheel, { passive: false });
   window.addEventListener("keydown", handleKeyDown);
   window.addEventListener("resize", handleResize);
+  elements.autoExploreToggle.addEventListener("click", toggleUnratedExploration);
   elements.exploreButton.addEventListener("click", exploreNextRow);
+  updateAutoExploreToggle();
 
   refreshBaseScale();
   state.camera.scale = getBaseScale();
@@ -134,10 +145,12 @@ function startEagleIntegration() {
   }
 
   state.explorationSource = new RelatedItemSource(eagle.item);
+  state.unratedSource = new UnratedItemSource(eagle.item);
   if (typeof eagle.onLibraryChanged === "function") {
     eagle.onLibraryChanged(handleLibraryChanged);
   }
   updateExploreButton();
+  updateAutoExploreToggle();
   void loadTagColors();
   void loadSelectedItems();
 }
@@ -145,6 +158,12 @@ function startEagleIntegration() {
 function handleLibraryChanged() {
   clearBoard();
   state.explorationSource.clear();
+  state.unratedSource.clear();
+  state.unratedGeneration += 1;
+  state.unratedLoading = false;
+  state.unratedExhausted = false;
+  state.lastUnratedTriggerRow = null;
+  updateAutoExploreToggle();
   void loadTagColors();
   showToast("Eagle 資料庫已切換，正在重新載入選取素材。", false);
   void loadSelectedItems();
@@ -163,7 +182,12 @@ async function loadSelectedItems() {
 
     if (!items.length) {
       clearBoard();
-      showToast("Eagle 目前沒有選取素材。", true);
+      if (state.unratedEnabled) {
+        showToast("Eagle 目前沒有選取素材，正在探索未評分素材。", false);
+        await loadNextUnratedRow({ focus: true });
+      } else {
+        showToast("Eagle 目前沒有選取素材，可開啟自動探索。", false);
+      }
       return;
     }
 
@@ -190,6 +214,7 @@ function renderItems(items) {
   const layout = createJustifiedLayout(items);
   state.nodes = layout.nodes;
   state.rows = layout.rows;
+  state.lastUnratedTriggerRow = null;
   refreshBaseScale();
 
   updateBoardMeta();
@@ -901,6 +926,115 @@ async function exploreNextRow() {
   }
 }
 
+async function loadNextUnratedRow({ focus = false } = {}) {
+  const source = state.unratedSource;
+  if (!state.unratedEnabled || !source || state.unratedLoading || state.unratedExhausted) return;
+
+  const boardNodes = state.nodes;
+  const generation = state.unratedGeneration;
+  state.unratedLoading = true;
+  updateAutoExploreToggle();
+  try {
+    const excludedIds = new Set(boardNodes.map(({ item }) => item.id));
+    const candidates = await source.findNextRow(excludedIds);
+    if (generation !== state.unratedGeneration || state.nodes !== boardNodes) return;
+    if (!candidates.length) {
+      state.unratedExhausted = true;
+      showToast("沒有更多未評分素材。", false);
+      return;
+    }
+
+    const items = await source.hydrate(candidates);
+    if (generation !== state.unratedGeneration || state.nodes !== boardNodes) return;
+    if (!items.length) {
+      showToast("未評分素材目前無法載入。", true);
+      return;
+    }
+
+    if (!state.rows.length) {
+      const layout = createJustifiedLayout(items);
+      state.nodes = layout.nodes;
+      state.rows = layout.rows;
+    } else {
+      const layout = insertExplorationRow(
+        { nodes: state.nodes, rows: state.rows },
+        state.rows.at(-1),
+        items,
+      );
+      state.nodes = layout.nodes;
+      state.rows = layout.rows;
+    }
+    for (const node of state.materializedNodes) positionNode(node);
+    updateBoardMeta();
+    updateMediaVisibility();
+    updateLabels();
+    if (focus) requestAnimationFrame(focusFirstItem);
+    showToast(`已加入 ${items.length} 個未評分素材。`);
+  } catch (error) {
+    if (generation !== state.unratedGeneration) return;
+    state.lastUnratedTriggerRow = null;
+    console.error("Failed to load unrated Eagle items", error);
+    showToast(`無法載入未評分素材：${error.message || error}`, true);
+  } finally {
+    if (generation === state.unratedGeneration) {
+      state.unratedLoading = false;
+      updateAutoExploreToggle();
+    }
+  }
+}
+
+function maybeLoadNextUnratedRow() {
+  const lastRow = state.rows.at(-1);
+  if (
+    !state.unratedEnabled ||
+    !lastRow ||
+    lastRow === state.lastUnratedTriggerRow ||
+    state.unratedLoading ||
+    state.unratedExhausted ||
+    !shouldLoadUnratedRow(
+      state.rows,
+      state.camera,
+      { width: elements.viewport.clientWidth, height: elements.viewport.clientHeight },
+      getBaseScale(),
+    )
+  ) {
+    return;
+  }
+  state.lastUnratedTriggerRow = lastRow;
+  void loadNextUnratedRow();
+}
+
+function toggleUnratedExploration() {
+  state.unratedEnabled = !state.unratedEnabled;
+  state.lastUnratedTriggerRow = null;
+  if (!state.unratedEnabled) {
+    state.unratedGeneration += 1;
+    state.unratedLoading = false;
+    state.unratedExhausted = false;
+    state.unratedSource?.clear();
+  }
+  updateAutoExploreToggle();
+  if (!state.unratedEnabled) {
+    showToast("已關閉自動探索。", false);
+    return;
+  }
+  showToast("已開啟自動探索。", false);
+  if (!state.rows.length) void loadNextUnratedRow({ focus: true });
+  else maybeLoadNextUnratedRow();
+}
+
+function updateAutoExploreToggle() {
+  if (!elements.autoExploreToggle) return;
+  elements.autoExploreToggle.disabled = !state.unratedSource;
+  elements.autoExploreToggle.classList.toggle("is-active", state.unratedEnabled);
+  elements.autoExploreToggle.classList.toggle("is-loading", state.unratedLoading);
+  elements.autoExploreToggle.setAttribute("aria-checked", String(state.unratedEnabled));
+  elements.autoExploreToggle.title = state.unratedLoading
+    ? "正在載入未評分素材"
+    : `自動探索目前為${state.unratedEnabled ? "開啟" : "關閉"}`;
+  elements.autoExploreStatus.textContent = state.unratedEnabled ? "開" : "關";
+}
+
 function updateExploreButton() {
   if (!elements.exploreButton) return;
   elements.exploreButton.disabled =
@@ -997,6 +1131,7 @@ function clearBoard() {
   releaseAllMediaLabels();
   state.nodes = [];
   state.rows = [];
+  state.lastUnratedTriggerRow = null;
   state.mountedNodes.clear();
   elements.world.replaceChildren();
   elements.labels.replaceChildren();
@@ -1096,6 +1231,7 @@ function runViewportWork() {
   updateMediaVisibility({ deferCleanup: state.isPanning });
   updateLabels();
   selectNodeAtViewportCenter();
+  maybeLoadNextUnratedRow();
 }
 
 function updateMediaVisibility({ deferCleanup = false } = {}) {

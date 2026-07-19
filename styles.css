@@ -93,6 +93,83 @@ button {
   background: #34333f;
 }
 
+.explore-button.is-active {
+  border-color: #7971ed;
+  background: #403b67;
+  color: #f3f1ff;
+}
+
+.auto-explore-toggle {
+  display: flex;
+  height: 26px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px;
+  border: 1px solid #454950;
+  border-radius: 6px;
+  background: #24272b;
+  color: #a8abb1;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.auto-explore-toggle:hover:not(:disabled) {
+  border-color: #686d75;
+  color: #e5e7eb;
+}
+
+.auto-explore-toggle:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.auto-explore-track {
+  position: relative;
+  width: 30px;
+  height: 16px;
+  flex: none;
+  border: 1px solid #5b6068;
+  border-radius: 999px;
+  background: #383c42;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+
+.auto-explore-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #a8abb1;
+  transition: transform 140ms ease, background 140ms ease;
+}
+
+.auto-explore-toggle.is-active {
+  border-color: #7971ed;
+  color: #f3f1ff;
+}
+
+.auto-explore-toggle.is-active .auto-explore-track {
+  border-color: #8d85f2;
+  background: #665dde;
+}
+
+.auto-explore-toggle.is-active .auto-explore-knob {
+  transform: translateX(14px);
+  background: #fff;
+}
+
+.auto-explore-status {
+  width: 12px;
+  color: #8f949c;
+  text-align: center;
+}
+
+.auto-explore-toggle.is-active .auto-explore-status {
+  color: #c8c4ff;
+}
+
 .explore-button:disabled {
   color: #777b82;
   cursor: default;
