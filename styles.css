@@ -317,12 +317,12 @@ button {
 }
 
 .media-card:hover {
-  border-color: #7971ed;
+  border-color: #c8c4ff;
   box-shadow: none;
 }
 
 .media-card.is-selected {
-  border-color: #c8c4ff;
+  border-color: #7971ed;
   outline: none;
   box-shadow: none;
 }
