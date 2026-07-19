@@ -9,12 +9,18 @@
   if (typeof module === "object" && module.exports) module.exports = exploration;
   root.BirdViewExploration = exploration;
 })(typeof globalThis === "object" ? globalThis : this, (core) => {
-  const { getItemRating, normalizeTags, selectRandomExplorationRow } = core;
+  const {
+    VIDEO_EXTENSIONS,
+    getItemRating,
+    normalizeTags,
+    selectRandomExplorationRow,
+  } = core;
   const MAX_FOLDER_QUERIES = 6;
   const MAX_TAG_QUERIES = 12;
   const MAX_CACHED_ITEMS_PER_QUERY = 240;
   const MAX_CANDIDATES = 600;
   const DEFAULT_UNRATED_FILTER = Object.freeze({
+    fileType: "any",
     rating: "unrated",
     tags: Object.freeze([]),
     tagMatch: "any",
@@ -145,6 +151,9 @@
   }
 
   function normalizeUnratedFilter(filter = DEFAULT_UNRATED_FILTER) {
+    const fileType = ["any", "image", "video"].includes(filter.fileType)
+      ? filter.fileType
+      : DEFAULT_UNRATED_FILTER.fileType;
     const rating =
       filter.rating === "any" || filter.rating === "unrated" || [1, 2, 3, 4, 5].includes(Number(filter.rating))
         ? filter.rating === "any" || filter.rating === "unrated"
@@ -153,6 +162,7 @@
         : DEFAULT_UNRATED_FILTER.rating;
     const maxTagCount = Number(filter.maxTagCount);
     return {
+      fileType,
       rating,
       tags: normalizeTags(filter.tags),
       tagMatch: filter.tagMatch === "all" ? "all" : "any",
@@ -162,11 +172,20 @@
 
   async function loadFilteredItems(itemApi, filter) {
     const rating = filter.rating === "any" ? {} : { rating: filter.rating === "unrated" ? 0 : filter.rating };
-    if (!filter.tags.length) return itemApi.get({ ...rating, fields: INDEX_FIELDS });
+    const fields = { fields: INDEX_FIELDS };
+    if (!filter.tags.length) {
+      if (filter.fileType !== "video") {
+        return itemApi.get({ ...rating, ...fields });
+      }
+      const results = await Promise.all(
+        [...VIDEO_EXTENSIONS].map((ext) => itemApi.get({ ...rating, ext, ...fields })),
+      );
+      return results.flatMap((items) => items || []);
+    }
 
     const queryTags = filter.tagMatch === "all" ? filter.tags.slice(0, 1) : filter.tags;
     const results = await Promise.all(
-      queryTags.map((tag) => itemApi.get({ ...rating, tags: [tag], fields: INDEX_FIELDS })),
+      queryTags.map((tag) => itemApi.get({ ...rating, tags: [tag], ...fields })),
     );
     const itemsById = new Map();
     for (const items of results) {
@@ -179,6 +198,7 @@
 
   function isEligibleItem(item, excludedIds, filter) {
     if (!item?.id || item.isDeleted || excludedIds.has(item.id)) return false;
+    if (filter.fileType !== "any" && getItemFileType(item) !== filter.fileType) return false;
     if (filter.rating !== "any") {
       const rating = getItemRating(item);
       if (filter.rating === "unrated" ? rating !== 0 : rating !== filter.rating) return false;
@@ -193,6 +213,10 @@
       return false;
     }
     return filter.maxTagCount === null || tags.length < filter.maxTagCount;
+  }
+
+  function getItemFileType(item) {
+    return VIDEO_EXTENSIONS.has(String(item?.ext || "").toLowerCase()) ? "video" : "image";
   }
 
   function uniqueValues(values = []) {

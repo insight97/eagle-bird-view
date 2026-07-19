@@ -151,6 +151,40 @@ test("unrated source allows exploration without a tag filter", async () => {
   assert.equal(calls[0].tags, undefined);
 });
 
+test("unrated source filters images and videos by file type", async () => {
+  const calls = [];
+  const items = [
+    { id: "image", ext: "jpg", width: 200, height: 100 },
+    { id: "video", ext: "mp4", width: 200, height: 100 },
+  ];
+  const source = new UnratedItemSource({
+    get: async (options) => {
+      calls.push(options);
+      return options.ext ? items.filter(({ ext }) => ext === options.ext) : items;
+    },
+    getByIds: async () => [],
+  }, () => 0);
+
+  const imageResult = await source.findNextRow(new Set(), {
+    fileType: "image",
+    rating: "any",
+  });
+  assert.deepEqual(imageResult.map(({ id }) => id), ["image"]);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].ext, undefined);
+
+  source.clear();
+  const videoResult = await source.findNextRow(new Set(), {
+    fileType: "video",
+    rating: "any",
+  });
+  assert.deepEqual(videoResult.map(({ id }) => id), ["video"]);
+  assert.deepEqual(
+    calls.slice(1).map(({ ext }) => ext),
+    ["mp4", "m4v", "mov", "webm", "mkv"],
+  );
+});
+
 test("unrated source applies rating, tag matching, and strict tag count filters", async () => {
   const calls = [];
   const items = [

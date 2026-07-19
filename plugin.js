@@ -51,6 +51,7 @@ const GRID_LAYER_OVERFLOW = 768;
 const METADATA_SUCCESS_TOAST_MS = 1200;
 const CAMERA_FOCUS_DURATION = 180;
 const DEFAULT_AUTO_EXPLORE_FILTER = Object.freeze({
+  fileType: "any",
   rating: "unrated",
   tags: Object.freeze([]),
   tagMatch: "any",
@@ -140,6 +141,7 @@ function setup() {
   elements.autoExploreSettingsButton = document.querySelector("#auto-explore-settings-button");
   elements.autoExploreFilterSummary = document.querySelector("#auto-explore-filter-summary");
   elements.autoExploreSettingsPanel = document.querySelector("#auto-explore-settings-panel");
+  elements.autoExploreFileType = document.querySelector("#auto-explore-file-type");
   elements.autoExploreRating = document.querySelector("#auto-explore-rating");
   elements.autoExploreTagMatch = document.querySelector("#auto-explore-tag-match");
   elements.autoExploreMaxTagCount = document.querySelector("#auto-explore-max-tag-count");
@@ -166,6 +168,7 @@ function setup() {
   elements.freeModeToggle.addEventListener("click", toggleFreeMode);
   elements.autoExploreToggle.addEventListener("click", toggleUnratedExploration);
   elements.autoExploreSettingsButton?.addEventListener("click", toggleAutoExploreSettings);
+  elements.autoExploreFileType?.addEventListener("change", updateDraftAutoExploreFileType);
   elements.autoExploreRating?.addEventListener("change", updateDraftAutoExploreRating);
   elements.autoExploreTagMatch?.addEventListener("change", updateDraftAutoExploreTagMatch);
   elements.autoExploreMaxTagCount?.addEventListener("input", updateDraftAutoExploreMaxTagCount);
@@ -1223,6 +1226,9 @@ function updateFreeModeToggle() {
 function cloneAutoExploreFilter(filter = DEFAULT_AUTO_EXPLORE_FILTER) {
   const maxTagCount = Number(filter.maxTagCount);
   return {
+    fileType: ["any", "image", "video"].includes(filter.fileType)
+      ? filter.fileType
+      : DEFAULT_AUTO_EXPLORE_FILTER.fileType,
     rating:
       filter.rating === "any" || filter.rating === "unrated"
         ? filter.rating
@@ -1241,6 +1247,8 @@ function autoExploreFiltersEqual(first, second) {
 
 function getAutoExploreFilterSummary(filter) {
   const normalized = cloneAutoExploreFilter(filter);
+  const fileType =
+    normalized.fileType === "video" ? "影片" : normalized.fileType === "image" ? "圖片" : "";
   const rating =
     normalized.rating === "unrated"
       ? "未評分"
@@ -1251,7 +1259,7 @@ function getAutoExploreFilterSummary(filter) {
     ? `${normalized.tagMatch === "all" ? "全部" : "任一"} ${normalized.tags.length} 個 Tag`
     : "不限 Tag";
   const count = normalized.maxTagCount === null ? "" : `Tag < ${normalized.maxTagCount}`;
-  return [rating, tags, count].filter(Boolean).join(" · ");
+  return [fileType, rating, tags, count].filter(Boolean).join(" · ");
 }
 
 function toggleAutoExploreSettings() {
@@ -1272,6 +1280,11 @@ function closeAutoExploreSettings() {
   state.unratedDraftFilter = null;
   elements.autoExploreSettingsPanel?.setAttribute("hidden", "");
   elements.autoExploreSettingsButton?.setAttribute("aria-expanded", "false");
+}
+
+function updateDraftAutoExploreFileType(event) {
+  if (!state.unratedDraftFilter) return;
+  state.unratedDraftFilter.fileType = event.target.value;
 }
 
 function updateDraftAutoExploreRating(event) {
@@ -1425,6 +1438,7 @@ function updateAutoExploreSettingsUI() {
   const panel = elements.autoExploreSettingsPanel;
   if (!panel) return;
   const filter = state.unratedDraftFilter || state.unratedFilter;
+  if (elements.autoExploreFileType) elements.autoExploreFileType.value = filter.fileType;
   if (elements.autoExploreRating) elements.autoExploreRating.value = String(filter.rating);
   if (elements.autoExploreTagMatch) elements.autoExploreTagMatch.value = filter.tagMatch;
   if (elements.autoExploreMaxTagCount) {
@@ -1469,7 +1483,7 @@ function updateAutoExploreToggle() {
   elements.autoExploreToggle.classList.toggle("is-loading", state.unratedLoading);
   elements.autoExploreToggle.setAttribute("aria-checked", String(state.unratedEnabled));
   elements.autoExploreToggle.title = state.unratedLoading
-    ? "正在載入未評分素材"
+    ? "正在載入符合條件的素材"
     : `自動探索目前為${state.unratedEnabled ? "開啟" : "關閉"}`;
   elements.autoExploreStatus.textContent = state.unratedEnabled ? "開" : "關";
   updateAutoExploreFilterSummary();
