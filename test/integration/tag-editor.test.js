@@ -48,6 +48,42 @@ test("tag editor opens, filters tags, selects a result, and commits with Enter",
     assert.equal(viewport.querySelector("[role='dialog']"), null);
   }));
 
+test("tag editor commits changed tags when closing with Escape", () =>
+  withDom(async (window) => {
+    const viewport = document.createElement("div");
+    const anchor = document.createElement("button");
+    const node = { item: { name: "Cover", tags: ["UI"] } };
+    const commits = [];
+    viewport.append(anchor);
+    document.body.append(viewport);
+
+    const editor = new TagEditor({
+      getViewport: () => viewport,
+      getAvailableTags: () => ["Photo"],
+      createTagChip: (tag) => {
+        const chip = document.createElement("span");
+        chip.textContent = tag;
+        return chip;
+      },
+      onSelectNode() {},
+      onCommit: async (...args) => commits.push(args),
+    });
+    editor.open(node, anchor);
+
+    const photoAction = editor.session.actions.find(({ element }) =>
+      element.textContent.includes("Photo"),
+    );
+    photoAction.element.click();
+    editor.session.input.dispatchEvent(
+      new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+    await Promise.resolve();
+
+    assert.deepEqual(commits, [[node, ["UI", "Photo"], ["UI"]]]);
+    assert.equal(editor.session, null);
+    assert.equal(viewport.querySelector("[role='dialog']"), null);
+  }));
+
 test("tag editor closes when a pointer starts outside the dialog", () =>
   withDom((window) => {
     const viewport = document.createElement("div");

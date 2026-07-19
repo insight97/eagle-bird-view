@@ -85,7 +85,7 @@
     handleKeyDown(event, session) {
       if (event.key === "Escape") {
         event.preventDefault();
-        this.close();
+        void this.commit(session);
         return;
       }
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
