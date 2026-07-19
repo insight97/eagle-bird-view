@@ -64,6 +64,7 @@ const state = {
   mountedLabelNodes: new Set(),
   labelCamera: null,
   selectedNode: null,
+  verticalNavigation: null,
   freeMode: true,
   toastTimer: null,
   cameraFrame: null,
@@ -927,12 +928,17 @@ function clearSelection() {
   state.selectedNode?.element?.classList.remove("is-selected");
   state.selectedNode?.label?.classList.remove("is-selected");
   state.selectedNode = null;
+  state.verticalNavigation = null;
   updateSelectionStatus();
   updateExploreButton();
 }
 
-function setSelectedNode(node, { center = !state.freeMode } = {}) {
+function setSelectedNode(
+  node,
+  { center = !state.freeMode, preserveVerticalNavigation = false } = {},
+) {
   if (!node) return;
+  if (!preserveVerticalNavigation) state.verticalNavigation = null;
   if (node !== state.selectedNode) {
     state.selectedNode?.element?.classList.remove("is-selected");
     state.selectedNode?.label?.classList.remove("is-selected");
@@ -947,6 +953,31 @@ function setSelectedNode(node, { center = !state.freeMode } = {}) {
 }
 
 function moveSelection(direction) {
+  if (!direction || !state.selectedNode) return;
+  const [dx, dy] = direction;
+  if (dy) {
+    if (!state.verticalNavigation) {
+      const currentRow = state.rows.find((row) => row.nodes.includes(state.selectedNode));
+      const nodeIndex = currentRow?.nodes.indexOf(state.selectedNode) ?? -1;
+      state.verticalNavigation = {
+        preferredX: state.selectedNode.x + state.selectedNode.width / 2,
+        edgeTarget:
+          nodeIndex === 0
+            ? "first"
+            : nodeIndex === (currentRow?.nodes.length || 0) - 1
+              ? "last"
+              : null,
+      };
+    }
+    const node = findDirectionalNeighbor(state.rows, state.selectedNode, direction, {
+      preferredX: state.verticalNavigation.preferredX,
+      edgeTarget: state.verticalNavigation.edgeTarget,
+    });
+    if (node) setSelectedNode(node, { preserveVerticalNavigation: true });
+    return;
+  }
+
+  state.verticalNavigation = null;
   const node = findDirectionalNeighbor(state.rows, state.selectedNode, direction);
   if (node) setSelectedNode(node);
 }
@@ -1124,6 +1155,7 @@ function maybeLoadNextUnratedRow() {
 
 function toggleFreeMode() {
   state.freeMode = !state.freeMode;
+  state.verticalNavigation = null;
   elements.viewport.classList.toggle("is-locked", !state.freeMode);
   updateFreeModeToggle();
   if (state.freeMode) {

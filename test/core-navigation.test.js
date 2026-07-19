@@ -199,21 +199,52 @@ test("row-indexed nearest selection matches a full node scan", () => {
 });
 
 test("directional navigation stays in rows and stops at their edges", () => {
-  const topLeft = { x: 0, y: 0, width: 300, height: 100 };
-  const topRight = { x: 314, y: 0, width: 400, height: 100 };
+  const topLeft = { x: 0, y: 0, width: 100, height: 100 };
+  const topMiddle = { x: 114, y: 0, width: 100, height: 100 };
+  const topRight = { x: 428, y: 0, width: 400, height: 100 };
   const bottomLeft = { x: 0, y: 132, width: 100, height: 100 };
   const bottomMiddle = { x: 114, y: 132, width: 220, height: 100 };
   const bottomRight = { x: 348, y: 132, width: 300, height: 100 };
   const rows = [
-    { top: 0, bottom: 100, nodes: [topLeft, topRight] },
+    { top: 0, bottom: 100, nodes: [topLeft, topMiddle, topRight] },
     { top: 132, bottom: 232, nodes: [bottomLeft, bottomMiddle, bottomRight] },
   ];
 
-  assert.equal(findDirectionalNeighbor(rows, topLeft, [1, 0]), topRight);
+  assert.equal(findDirectionalNeighbor(rows, topLeft, [1, 0]), topMiddle);
   assert.equal(findDirectionalNeighbor(rows, topLeft, [-1, 0]), null);
-  assert.equal(findDirectionalNeighbor(rows, topLeft, [0, 1]), bottomMiddle);
+  assert.equal(findDirectionalNeighbor(rows, topLeft, [0, 1]), bottomLeft);
+  assert.equal(findDirectionalNeighbor(rows, topMiddle, [0, 1]), bottomMiddle);
+  assert.equal(findDirectionalNeighbor(rows, topRight, [0, 1]), bottomRight);
   assert.equal(findDirectionalNeighbor(rows, bottomRight, [0, -1]), topRight);
   assert.equal(findDirectionalNeighbor(rows, bottomRight, [0, 1]), null);
+});
+
+test("vertical navigation can preserve a horizontal anchor across rows", () => {
+  const topMiddle = { x: 114, y: 0, width: 100, height: 100 };
+  const bottomMiddle = { x: 114, y: 132, width: 220, height: 100 };
+  const rows = [
+    { top: 0, bottom: 100, nodes: [{ x: 0, y: 0, width: 100, height: 100 }, topMiddle] },
+    {
+      top: 132,
+      bottom: 232,
+      nodes: [{ x: 0, y: 132, width: 100, height: 100 }, bottomMiddle, { x: 348, y: 132, width: 300, height: 100 }],
+    },
+  ];
+
+  assert.equal(
+    findDirectionalNeighbor(rows, topMiddle, [0, 1], {
+      preferredX: topMiddle.x + topMiddle.width / 2,
+      edgeTarget: null,
+    }),
+    bottomMiddle,
+  );
+  assert.equal(
+    findDirectionalNeighbor(rows, bottomMiddle, [0, -1], {
+      preferredX: topMiddle.x + topMiddle.width / 2,
+      edgeTarget: null,
+    }),
+    topMiddle,
+  );
 });
 
 test("video controls take over ctrl arrows only during playback", () => {

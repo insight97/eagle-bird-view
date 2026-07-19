@@ -134,7 +134,7 @@
     return nearest?.node || null;
   }
 
-  function findDirectionalNeighbor(rows, node, direction) {
+  function findDirectionalNeighbor(rows, node, direction, options = {}) {
     if (!node || !direction) return null;
     const rowIndex = rows.findIndex((row) => row.nodes.includes(node));
     if (rowIndex < 0) return null;
@@ -144,10 +144,24 @@
       return rows[rowIndex].nodes[nodeIndex + dx] || null;
     }
     if (!dy) return null;
+    const currentRow = rows[rowIndex];
     const targetRow = rows[rowIndex + dy];
     if (!targetRow) return null;
+    const nodeIndex = currentRow.nodes.indexOf(node);
+    if (options.edgeTarget === "first") {
+      return targetRow.nodes[0] || null;
+    }
+    if (options.edgeTarget === "last") {
+      return targetRow.nodes.at(-1) || null;
+    }
+    if (options.edgeTarget !== null && nodeIndex === 0) {
+      return targetRow.nodes[0] || null;
+    }
+    if (options.edgeTarget !== null && nodeIndex === currentRow.nodes.length - 1) {
+      return targetRow.nodes.at(-1) || null;
+    }
     return findNearestNodeToPoint(targetRow.nodes, {
-      x: node.x + node.width / 2,
+      x: Number.isFinite(options.preferredX) ? options.preferredX : node.x + node.width / 2,
       y: (targetRow.top + targetRow.bottom) / 2,
     });
   }
