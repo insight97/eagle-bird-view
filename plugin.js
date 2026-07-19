@@ -134,18 +134,20 @@ function startEagleIntegration() {
   }
 
   state.explorationSource = new RelatedItemSource(eagle.item);
-  updateExploreButton();
-  loadTagColors();
-  loadSelectedItems();
-
   if (typeof eagle.onLibraryChanged === "function") {
-    eagle.onLibraryChanged(() => {
-      clearBoard();
-      state.explorationSource.clear();
-      loadTagColors();
-      showToast("Eagle 資料庫已切換，請重新選取素材。", false);
-    });
+    eagle.onLibraryChanged(handleLibraryChanged);
   }
+  updateExploreButton();
+  void loadTagColors();
+  void loadSelectedItems();
+}
+
+function handleLibraryChanged() {
+  clearBoard();
+  state.explorationSource.clear();
+  void loadTagColors();
+  showToast("Eagle 資料庫已切換，正在重新載入選取素材。", false);
+  void loadSelectedItems();
 }
 
 async function loadSelectedItems() {

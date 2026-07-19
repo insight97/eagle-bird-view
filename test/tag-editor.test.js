@@ -2,6 +2,10 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
+const core = require("../bird-view-core.js");
 const { TagEditor } = require("../tag-editor.js");
 
 function withDocumentStub(run) {
@@ -13,6 +17,26 @@ function withDocumentStub(run) {
       global.document = originalDocument;
     });
 }
+
+test("browser globals take priority over CommonJS shims in Eagle", () => {
+  let requireCalls = 0;
+  const module = { exports: {} };
+  const source = fs.readFileSync(path.resolve(__dirname, "../tag-editor.js"), "utf8");
+  const context = {
+    BirdViewCore: core,
+    module,
+    require() {
+      requireCalls += 1;
+      throw new Error("browser script should not call require");
+    },
+  };
+
+  vm.runInNewContext(source, context);
+
+  assert.equal(requireCalls, 0);
+  assert.equal(typeof context.BirdViewTagEditor.TagEditor, "function");
+  assert.equal(module.exports, context.BirdViewTagEditor);
+});
 
 test("closing a tag editor removes its session and element", () =>
   withDocumentStub(() => {

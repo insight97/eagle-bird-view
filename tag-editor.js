@@ -1,12 +1,12 @@
 "use strict";
 
 (function exposeTagEditor(root, factory) {
-  const tagEditor = factory(
-    typeof module === "object" && module.exports
-      ? require("./bird-view-core.js")
-      : root.BirdViewCore,
-  );
-  if (typeof module === "object" && module.exports) module.exports = tagEditor;
+  const hasCommonJS = typeof module === "object" && module.exports;
+  const core =
+    root.BirdViewCore ||
+    (hasCommonJS && typeof require === "function" ? require("./bird-view-core.js") : null);
+  const tagEditor = factory(core);
+  if (hasCommonJS) module.exports = tagEditor;
   root.BirdViewTagEditor = tagEditor;
 })(typeof globalThis === "object" ? globalThis : this, (core) => {
   const { clamp, normalizeTags, rankTagMatches } = core;
