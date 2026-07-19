@@ -99,7 +99,7 @@ button {
   color: #f3f1ff;
 }
 
-.auto-explore-toggle {
+.mode-toggle {
   display: flex;
   height: 26px;
   align-items: center;
@@ -113,17 +113,22 @@ button {
   cursor: pointer;
 }
 
-.auto-explore-toggle:hover:not(:disabled) {
+.mode-toggle:hover:not(:disabled) {
   border-color: #686d75;
   color: #e5e7eb;
 }
 
-.auto-explore-toggle:disabled {
+.mode-toggle:focus-visible {
+  outline: 1px solid #9d96ff;
+  outline-offset: 1px;
+}
+
+.mode-toggle:disabled {
   cursor: default;
   opacity: 0.55;
 }
 
-.auto-explore-track {
+.mode-toggle-track {
   position: relative;
   width: 30px;
   height: 16px;
@@ -134,7 +139,7 @@ button {
   transition: border-color 140ms ease, background 140ms ease;
 }
 
-.auto-explore-knob {
+.mode-toggle-knob {
   position: absolute;
   top: 2px;
   left: 2px;
@@ -145,28 +150,28 @@ button {
   transition: transform 140ms ease, background 140ms ease;
 }
 
-.auto-explore-toggle.is-active {
+.mode-toggle.is-active {
   border-color: #7971ed;
   color: #f3f1ff;
 }
 
-.auto-explore-toggle.is-active .auto-explore-track {
+.mode-toggle.is-active .mode-toggle-track {
   border-color: #8d85f2;
   background: #665dde;
 }
 
-.auto-explore-toggle.is-active .auto-explore-knob {
+.mode-toggle.is-active .mode-toggle-knob {
   transform: translateX(14px);
   background: #fff;
 }
 
-.auto-explore-status {
+.mode-toggle-status {
   width: 12px;
   color: #8f949c;
   text-align: center;
 }
 
-.auto-explore-toggle.is-active .auto-explore-status {
+.mode-toggle.is-active .mode-toggle-status {
   color: #c8c4ff;
 }
 
@@ -193,6 +198,15 @@ button {
 
 .viewport.is-panning {
   cursor: grabbing;
+}
+
+.viewport.is-locked {
+  cursor: default;
+}
+
+.viewport.is-locked .media-card,
+.viewport.is-locked .media-identity {
+  cursor: pointer;
 }
 
 .grid-layer {
@@ -710,6 +724,7 @@ button {
   align-items: baseline;
   gap: 7px;
   overflow: hidden;
+  pointer-events: auto;
 }
 
 .media-name {

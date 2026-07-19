@@ -62,6 +62,14 @@
     };
   }
 
+  function centerCameraAtPoint(camera, point, viewport) {
+    return {
+      ...camera,
+      x: viewport.width / 2 - point.x * camera.scale,
+      y: viewport.height / 2 - point.y * camera.scale,
+    };
+  }
+
   function resizeCamera(camera, previousViewport, nextViewport, previousBaseScale, nextBaseScale) {
     const center = getViewportWorldCenter(camera, previousViewport);
     const zoom = camera.scale / previousBaseScale;
@@ -124,6 +132,24 @@
       }
     }
     return nearest?.node || null;
+  }
+
+  function findDirectionalNeighbor(rows, node, direction) {
+    if (!node || !direction) return null;
+    const rowIndex = rows.findIndex((row) => row.nodes.includes(node));
+    if (rowIndex < 0) return null;
+    const [dx, dy] = direction;
+    if (dx) {
+      const nodeIndex = rows[rowIndex].nodes.indexOf(node);
+      return rows[rowIndex].nodes[nodeIndex + dx] || null;
+    }
+    if (!dy) return null;
+    const targetRow = rows[rowIndex + dy];
+    if (!targetRow) return null;
+    return findNearestNodeToPoint(targetRow.nodes, {
+      x: node.x + node.width / 2,
+      y: (targetRow.top + targetRow.bottom) / 2,
+    });
   }
 
   function describeNodeDistance(node, point) {
@@ -558,10 +584,12 @@
     VIDEO_CONTROLS_HEIGHT,
     VIDEO_EXTENSIONS,
     clamp,
+    centerCameraAtPoint,
     createJustifiedLayout,
     directionFor,
     findNearestNodeToPoint,
     findNearestNodeInRows,
+    findDirectionalNeighbor,
     findNodesNearViewport,
     formatFileSize,
     formatItemDimensions,

@@ -36,6 +36,8 @@ test("auto exploration defaults off and a library change restarts selected item 
     "#empty-state",
     "#item-count",
     "#zoom-label",
+    "#free-mode-toggle",
+    "#free-mode-status",
     "#auto-explore-toggle",
     "#auto-explore-status",
     "#explore-button",
@@ -107,7 +109,11 @@ test("auto exploration defaults off and a library change restarts selected item 
   await Promise.resolve();
   await Promise.resolve();
   assert.equal(unratedRequests, 0);
+  assert.equal(elements.get("#free-mode-status").textContent, "開");
   assert.equal(elements.get("#auto-explore-status").textContent, "關");
+
+  elements.get("#free-mode-toggle").click();
+  assert.equal(elements.get("#free-mode-status").textContent, "關");
 
   elements.get("#auto-explore-toggle").click();
   await Promise.resolve();

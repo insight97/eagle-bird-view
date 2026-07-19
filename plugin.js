@@ -5,8 +5,10 @@ const {
   VIDEO_CONTROLS_HEIGHT,
   VIDEO_EXTENSIONS,
   clamp,
+  centerCameraAtPoint,
   createJustifiedLayout,
   directionFor,
+  findDirectionalNeighbor,
   findNearestNodeInRows,
   findNodesNearViewport,
   formatFileSize,
@@ -47,6 +49,7 @@ const MAX_CONCURRENT_IMAGE_LOADS = 4;
 const RESOURCE_RELEASE_VIEWPORTS = 3;
 const GRID_LAYER_OVERFLOW = 768;
 const METADATA_SUCCESS_TOAST_MS = 1200;
+const CAMERA_FOCUS_DURATION = 180;
 
 const state = {
   camera: { x: 0, y: 0, scale: 1 },
@@ -61,8 +64,10 @@ const state = {
   mountedLabelNodes: new Set(),
   labelCamera: null,
   selectedNode: null,
+  freeMode: true,
   toastTimer: null,
   cameraFrame: null,
+  cameraFocusFrame: null,
   viewportWorkTimer: null,
   lastViewportWork: -Infinity,
   isPanning: false,
@@ -109,6 +114,8 @@ function setup() {
   elements.emptyState = document.querySelector("#empty-state");
   elements.itemCount = document.querySelector("#item-count");
   elements.zoomLabel = document.querySelector("#zoom-label");
+  elements.freeModeToggle = document.querySelector("#free-mode-toggle");
+  elements.freeModeStatus = document.querySelector("#free-mode-status");
   elements.autoExploreToggle = document.querySelector("#auto-explore-toggle");
   elements.autoExploreStatus = document.querySelector("#auto-explore-status");
   elements.exploreButton = document.querySelector("#explore-button");
@@ -118,9 +125,11 @@ function setup() {
   elements.viewport.addEventListener("wheel", handleWheel, { passive: false });
   window.addEventListener("keydown", handleKeyDown);
   window.addEventListener("resize", handleResize);
+  elements.freeModeToggle.addEventListener("click", toggleFreeMode);
   elements.autoExploreToggle.addEventListener("click", toggleUnratedExploration);
   elements.exploreButton.addEventListener("click", exploreNextRow);
   updateAutoExploreToggle();
+  updateFreeModeToggle();
 
   refreshBaseScale();
   state.camera.scale = getBaseScale();
@@ -409,6 +418,10 @@ function createMediaCard(node) {
       node.startPlayback?.();
     }
   });
+  card.addEventListener("click", (event) => {
+    if (state.freeMode || event.target.closest("button, input")) return;
+    setSelectedNode(node);
+  });
 
   return card;
 }
@@ -455,6 +468,11 @@ function createMediaLabel(node) {
   dimensions.className = "media-dimensions";
   dimensions.textContent = formatItemDimensions(item);
   dimensions.hidden = !dimensions.textContent;
+  identity.addEventListener("click", (event) => {
+    if (state.freeMode) return;
+    event.stopPropagation();
+    setSelectedNode(node);
+  });
   fileInfo.className = "media-file-info";
   basicInfo.className = "media-basic-info";
   basicInfo.textContent = formatFileSize(item.size);
@@ -711,6 +729,7 @@ function startVideo(frame, image, playButton, item, node) {
 }
 
 function beginPan(event) {
+  if (!state.freeMode) return;
   if (event.button !== 0 && event.button !== 1) return;
   if (event.target.closest("button, input")) return;
 
@@ -749,6 +768,7 @@ function beginPan(event) {
 }
 
 function startViewportPan() {
+  cancelCameraFocus();
   tagEditor.close();
   state.isPanning = true;
   state.lastViewportWork = performance.now();
@@ -766,8 +786,12 @@ function handleWheel(event) {
   event.preventDefault();
   tagEditor.close();
   const rect = elements.viewport.getBoundingClientRect();
-  const pointerX = event.clientX - rect.left;
-  const pointerY = event.clientY - rect.top;
+  const pointerX = state.freeMode
+    ? event.clientX - rect.left
+    : elements.viewport.clientWidth / 2;
+  const pointerY = state.freeMode
+    ? event.clientY - rect.top
+    : elements.viewport.clientHeight / 2;
   const zoomFactor = Math.exp(-event.deltaY * 0.0015);
   zoomAtPoint(pointerX, pointerY, zoomFactor);
 }
@@ -796,6 +820,8 @@ function handleKeyDown(event) {
     event.preventDefault();
     if (isPlayingVideo(state.selectedNode?.videoElement)) {
       controlSelectedVideo(event.key);
+    } else if (!state.freeMode) {
+      moveSelection(directionFor(event.key));
     } else {
       panOneViewport(event.key);
       selectNodeAtViewportCenter();
@@ -834,6 +860,10 @@ function handleKeyDown(event) {
 
   if (!direction) return;
   event.preventDefault();
+  if (!state.freeMode) {
+    moveSelection(direction);
+    return;
+  }
   panBy(direction[0] * -KEYBOARD_PAN_STEP, direction[1] * -KEYBOARD_PAN_STEP);
   selectNodeAtViewportCenter();
 }
@@ -868,14 +898,62 @@ function clearSelection() {
 }
 
 function setSelectedNode(node) {
-  if (!node || node === state.selectedNode) return;
-  state.selectedNode?.element?.classList.remove("is-selected");
-  state.selectedNode?.label?.classList.remove("is-selected");
-  state.selectedNode = node;
-  mountMediaCard(node);
-  node.element.classList.add("is-selected");
-  node.label?.classList.add("is-selected");
+  if (!node) return;
+  if (node !== state.selectedNode) {
+    state.selectedNode?.element?.classList.remove("is-selected");
+    state.selectedNode?.label?.classList.remove("is-selected");
+    state.selectedNode = node;
+    mountMediaCard(node);
+    node.element.classList.add("is-selected");
+    node.label?.classList.add("is-selected");
+  }
+  if (!state.freeMode) centerCameraOnNode(node);
   updateExploreButton();
+}
+
+function moveSelection(direction) {
+  const node = findDirectionalNeighbor(state.rows, state.selectedNode, direction);
+  if (node) setSelectedNode(node);
+}
+
+function centerCameraOnNode(node, { animate = true } = {}) {
+  if (!node) return;
+  const displayHeight = node.mediaHeight + (node.isVideo ? VIDEO_CONTROLS_HEIGHT : 0);
+  const target = centerCameraAtPoint(
+    state.camera,
+    { x: node.x + node.width / 2, y: node.y + displayHeight / 2 },
+    { width: elements.viewport.clientWidth, height: elements.viewport.clientHeight },
+  );
+  cancelCameraFocus();
+  if (Math.abs(state.camera.x - target.x) < 0.1 && Math.abs(state.camera.y - target.y) < 0.1) {
+    updateCamera();
+    return;
+  }
+  if (!animate) {
+    state.camera.x = target.x;
+    state.camera.y = target.y;
+    updateCamera();
+    return;
+  }
+
+  const start = { x: state.camera.x, y: state.camera.y };
+  const startedAt = performance.now();
+  const step = (timestamp) => {
+    const progress = clamp((timestamp - startedAt) / CAMERA_FOCUS_DURATION, 0, 1);
+    const eased = 1 - (1 - progress) ** 3;
+    state.camera.x = start.x + (target.x - start.x) * eased;
+    state.camera.y = start.y + (target.y - start.y) * eased;
+    updateCamera();
+    if (progress < 1) state.cameraFocusFrame = requestAnimationFrame(step);
+    else state.cameraFocusFrame = null;
+  };
+  state.cameraFocusFrame = requestAnimationFrame(step);
+}
+
+function cancelCameraFocus() {
+  if (state.cameraFocusFrame === null) return;
+  cancelAnimationFrame(state.cameraFocusFrame);
+  state.cameraFocusFrame = null;
 }
 
 async function exploreNextRow() {
@@ -1009,6 +1087,27 @@ function maybeLoadNextUnratedRow() {
   void loadNextUnratedRow();
 }
 
+function toggleFreeMode() {
+  state.freeMode = !state.freeMode;
+  elements.viewport.classList.toggle("is-locked", !state.freeMode);
+  updateFreeModeToggle();
+  if (state.freeMode) {
+    cancelCameraFocus();
+    showToast("已開啟自由模式。", false);
+    return;
+  }
+  selectNodeAtViewportCenter();
+  showToast("已關閉自由模式，方向鍵可切換素材。", false);
+}
+
+function updateFreeModeToggle() {
+  if (!elements.freeModeToggle) return;
+  elements.freeModeToggle.classList.toggle("is-active", state.freeMode);
+  elements.freeModeToggle.setAttribute("aria-checked", String(state.freeMode));
+  elements.freeModeToggle.title = `自由模式目前為${state.freeMode ? "開啟" : "關閉"}`;
+  elements.freeModeStatus.textContent = state.freeMode ? "開" : "關";
+}
+
 function toggleUnratedExploration() {
   state.unratedEnabled = !state.unratedEnabled;
   state.lastUnratedTriggerRow = null;
@@ -1093,6 +1192,7 @@ function controlSelectedVideo(key) {
 }
 
 function zoomAtPoint(pointerX, pointerY, factor) {
+  cancelCameraFocus();
   const baseScale = getBaseScale();
   state.camera = zoomCameraAtPoint(
     state.camera,
@@ -1102,6 +1202,10 @@ function zoomAtPoint(pointerX, pointerY, factor) {
     MIN_ZOOM,
     MAX_ZOOM,
   );
+  if (!state.freeMode && state.selectedNode) {
+    centerCameraOnNode(state.selectedNode, { animate: false });
+    return;
+  }
   updateCamera();
 }
 
@@ -1130,6 +1234,7 @@ function focusFirstItem() {
 
 function clearBoard() {
   state.selectedItemsGeneration += 1;
+  cancelCameraFocus();
   tagEditor.close();
   clearSelection();
   releaseAllMediaCards();
@@ -1174,6 +1279,10 @@ function handleResize() {
     getBaseScale(),
   );
   state.viewportSize = nextViewport;
+  if (!state.freeMode && state.selectedNode) {
+    centerCameraOnNode(state.selectedNode, { animate: false });
+    return;
+  }
   updateCamera();
 }
 
@@ -1235,7 +1344,7 @@ function runViewportWork() {
   state.lastViewportWork = performance.now();
   updateMediaVisibility({ deferCleanup: state.isPanning });
   updateLabels();
-  selectNodeAtViewportCenter();
+  if (state.freeMode) selectNodeAtViewportCenter();
   maybeLoadNextUnratedRow();
 }
 
