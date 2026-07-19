@@ -114,6 +114,15 @@ function setup() {
   elements.emptyState = document.querySelector("#empty-state");
   elements.itemCount = document.querySelector("#item-count");
   elements.zoomLabel = document.querySelector("#zoom-label");
+  elements.selectionStatus = document.querySelector("#selection-status");
+  elements.selectionEmpty = document.querySelector("#selection-empty");
+  elements.selectionDetails = document.querySelector("#selection-details");
+  elements.selectionName = document.querySelector("#selection-name");
+  elements.selectionDimensionsDivider = document.querySelector("#selection-dimensions-divider");
+  elements.selectionDimensions = document.querySelector("#selection-dimensions");
+  elements.selectionRating = document.querySelector("#selection-rating");
+  elements.selectionTagsDivider = document.querySelector("#selection-tags-divider");
+  elements.selectionTags = document.querySelector("#selection-tags");
   elements.freeModeToggle = document.querySelector("#free-mode-toggle");
   elements.freeModeStatus = document.querySelector("#free-mode-status");
   elements.autoExploreToggle = document.querySelector("#auto-explore-toggle");
@@ -130,6 +139,7 @@ function setup() {
   elements.exploreButton.addEventListener("click", exploreNextRow);
   updateAutoExploreToggle();
   updateFreeModeToggle();
+  updateSelectionStatus();
 
   refreshBaseScale();
   state.camera.scale = getBaseScale();
@@ -550,6 +560,7 @@ async function setItemRating(node, value, { toggle = false } = {}) {
 function refreshNodeRating(node) {
   const rating = node.label?.querySelector(".media-rating");
   if (rating) updateRatingControl(rating, node);
+  updateSelectionStatus();
 }
 
 function paintRating(rating, value) {
@@ -648,6 +659,7 @@ async function loadTagColors() {
       const tags = node.label?.querySelector(".media-tags");
       if (tags) renderTagChips(tags, node.item.tags);
     }
+    updateSelectionStatus();
     tagEditor.refresh();
   } catch (error) {
     if (generation !== state.tagColorGeneration) return;
@@ -894,6 +906,7 @@ function clearSelection() {
   state.selectedNode?.element?.classList.remove("is-selected");
   state.selectedNode?.label?.classList.remove("is-selected");
   state.selectedNode = null;
+  updateSelectionStatus();
   updateExploreButton();
 }
 
@@ -907,6 +920,7 @@ function setSelectedNode(node) {
     node.element.classList.add("is-selected");
     node.label?.classList.add("is-selected");
   }
+  updateSelectionStatus();
   if (!state.freeMode) centerCameraOnNode(node);
   updateExploreButton();
 }
@@ -1258,6 +1272,41 @@ function updateBoardMeta() {
   const count = state.nodes.length;
   elements.itemCount.textContent = `${count} 個素材`;
   elements.emptyState.hidden = count > 0;
+}
+
+function updateSelectionStatus() {
+  if (!elements.selectionStatus) return;
+  const item = state.selectedNode?.item;
+  const hasSelection = Boolean(item);
+  elements.selectionEmpty.hidden = hasSelection;
+  elements.selectionDetails.hidden = !hasSelection;
+  if (!item) return;
+
+  const name = item.name || "未命名";
+  const dimensions = formatItemDimensions(item);
+  const rating = getItemRating(item);
+  const tags = normalizeTags(item.tags);
+
+  elements.selectionName.textContent = name;
+  elements.selectionName.title = name;
+  elements.selectionDimensions.hidden = !dimensions;
+  elements.selectionDimensionsDivider.hidden = !dimensions;
+  elements.selectionDimensions.textContent = dimensions;
+  elements.selectionRating.replaceChildren(
+    ...Array.from({ length: 5 }, (_, index) => {
+      const star = document.createElement("span");
+      star.className = "media-rating-star";
+      star.textContent = "★";
+      star.classList.toggle("is-filled", index < rating);
+      return star;
+    }),
+  );
+  elements.selectionRating.title = `評分 ${rating} / 5`;
+  elements.selectionRating.setAttribute("aria-label", `評分 ${rating} 顆星`);
+  elements.selectionTags.hidden = tags.length === 0;
+  elements.selectionTagsDivider.hidden = tags.length === 0;
+  elements.selectionTags.replaceChildren(...tags.map(createTagChip));
+  elements.selectionTags.title = tags.join(", ");
 }
 
 function updateCamera() {

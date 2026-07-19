@@ -34,7 +34,7 @@ button {
 .toolbar {
   z-index: 20;
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 20px;
   padding: 0 12px;
@@ -75,6 +75,68 @@ button {
   color: #a8abb1;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+}
+
+.selection-status {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  overflow: hidden;
+  color: #a8abb1;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.selection-empty {
+  overflow: hidden;
+  color: #777c84;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selection-details {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.selection-details[hidden] {
+  display: none;
+}
+
+.selection-name {
+  min-width: 0;
+  overflow: hidden;
+  color: #e2e4e7;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selection-dimensions,
+.selection-rating,
+.selection-tags {
+  flex: none;
+  white-space: nowrap;
+}
+
+.selection-tags {
+  min-width: 0;
+  max-width: min(260px, 28vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.selection-rating .media-rating-star {
+  cursor: default;
+}
+
+.selection-divider {
+  width: 1px;
+  height: 13px;
+  flex: none;
+  background: #41444a;
 }
 
 .explore-button {

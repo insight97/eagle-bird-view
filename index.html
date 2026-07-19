@@ -23,6 +23,19 @@
           <span>Bird View</span>
         </div>
 
+        <div id="selection-status" class="selection-status" role="status" aria-live="polite">
+          <span id="selection-empty" class="selection-empty">未選取素材</span>
+          <div id="selection-details" class="selection-details" hidden>
+            <span id="selection-name" class="selection-name"></span>
+            <span id="selection-dimensions-divider" class="selection-divider" aria-hidden="true"></span>
+            <span id="selection-dimensions" class="media-dimensions selection-dimensions"></span>
+            <span class="selection-divider" aria-hidden="true"></span>
+            <span id="selection-rating" class="media-rating selection-rating" aria-label="評分 0 顆星"></span>
+            <span id="selection-tags-divider" class="selection-divider" aria-hidden="true"></span>
+            <span id="selection-tags" class="media-tags selection-tags"></span>
+          </div>
+        </div>
+
         <div class="toolbar-meta">
           <button
             id="free-mode-toggle"
