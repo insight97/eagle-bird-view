@@ -477,6 +477,7 @@ button {
 .media-rating[hidden],
 .media-tags[hidden],
 .media-label.is-compact .media-metadata,
+.media-label.is-compact .media-dimensions,
 .media-label.is-compact .media-basic-info,
 .media-label.is-compact .media-label-actions {
   display: none;
@@ -702,10 +703,28 @@ button {
   color: #fff;
 }
 
-.media-name {
+.media-identity {
+  display: flex;
   min-width: 0;
   flex: 1;
+  align-items: baseline;
+  gap: 7px;
   overflow: hidden;
+}
+
+.media-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.media-dimensions {
+  flex: none;
+  overflow: hidden;
+  color: #858a93;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

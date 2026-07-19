@@ -421,7 +421,9 @@ function createMediaLabel(node) {
   const rating = document.createElement("span");
   const tags = document.createElement("span");
   const editTags = document.createElement("button");
+  const identity = document.createElement("span");
   const name = document.createElement("span");
+  const dimensions = document.createElement("span");
   const fileInfo = document.createElement("span");
   const basicInfo = document.createElement("span");
   const type = document.createElement("span");
@@ -447,13 +449,15 @@ function createMediaLabel(node) {
     event.stopPropagation();
     if (!node.isSaving) tagEditor.open(node, editTags);
   });
+  identity.className = "media-identity";
   name.className = "media-name";
   name.textContent = item.name || "未命名";
+  dimensions.className = "media-dimensions";
+  dimensions.textContent = formatItemDimensions(item);
+  dimensions.hidden = !dimensions.textContent;
   fileInfo.className = "media-file-info";
   basicInfo.className = "media-basic-info";
-  basicInfo.textContent = [formatItemDimensions(item), formatFileSize(item.size)]
-    .filter(Boolean)
-    .join(" · ");
+  basicInfo.textContent = formatFileSize(item.size);
   basicInfo.hidden = !basicInfo.textContent;
   type.className = "media-extension";
   type.textContent = `${basicInfo.textContent ? "· " : ""}${String(
@@ -472,10 +476,11 @@ function createMediaLabel(node) {
   rotateRight.setAttribute("aria-label", `將 ${item.name || "媒體"} 向右旋轉`);
   bindRotationButton(rotateLeft, node, -1);
   bindRotationButton(rotateRight, node, 1);
+  identity.append(name, dimensions);
   fileInfo.append(basicInfo, type);
   actions.append(fileInfo, rotateLeft, rotateRight);
   metadata.append(rating, tags, editTags);
-  main.append(name, actions);
+  main.append(identity, actions);
   label.append(main, metadata);
   return label;
 }
