@@ -263,12 +263,17 @@ button {
 }
 
 .viewport.is-locked {
-  cursor: default;
+  cursor: grab;
 }
 
 .viewport.is-locked .media-card,
 .viewport.is-locked .media-identity {
   cursor: pointer;
+}
+
+.viewport.is-locked.is-panning .media-card,
+.viewport.is-locked.is-panning .media-identity {
+  cursor: grabbing;
 }
 
 .grid-layer {

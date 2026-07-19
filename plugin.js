@@ -71,6 +71,7 @@ const state = {
   viewportWorkTimer: null,
   lastViewportWork: -Infinity,
   isPanning: false,
+  suppressNextSelectionClick: false,
   explorationSource: null,
   explorationLoading: false,
   unratedSource: null,
@@ -132,6 +133,13 @@ function setup() {
 
   elements.viewport.addEventListener("pointerdown", beginPan);
   elements.viewport.addEventListener("wheel", handleWheel, { passive: false });
+  window.addEventListener(
+    "pointerdown",
+    () => {
+      if (!state.isPanning) state.suppressNextSelectionClick = false;
+    },
+    true,
+  );
   window.addEventListener("keydown", handleKeyDown);
   window.addEventListener("resize", handleResize);
   elements.freeModeToggle.addEventListener("click", toggleFreeMode);
@@ -430,6 +438,7 @@ function createMediaCard(node) {
   });
   card.addEventListener("click", (event) => {
     if (state.freeMode || event.target.closest("button, input")) return;
+    if (consumeSuppressedSelectionClick()) return;
     setSelectedNode(node);
   });
 
@@ -481,6 +490,7 @@ function createMediaLabel(node) {
   identity.addEventListener("click", (event) => {
     if (state.freeMode) return;
     event.stopPropagation();
+    if (consumeSuppressedSelectionClick()) return;
     setSelectedNode(node);
   });
   fileInfo.className = "media-file-info";
@@ -741,7 +751,6 @@ function startVideo(frame, image, playButton, item, node) {
 }
 
 function beginPan(event) {
-  if (!state.freeMode) return;
   if (event.button !== 0 && event.button !== 1) return;
   if (event.target.closest("button, input")) return;
 
@@ -768,7 +777,13 @@ function beginPan(event) {
   };
 
   const end = () => {
-    if (hasStartedPanning) finishViewportPan();
+    if (hasStartedPanning) {
+      finishViewportPan();
+      if (!state.freeMode) {
+        state.suppressNextSelectionClick = true;
+        selectNodeAtViewportCenter({ center: false });
+      }
+    }
     window.removeEventListener("pointermove", move);
     window.removeEventListener("pointerup", end);
     window.removeEventListener("pointercancel", end);
@@ -792,6 +807,12 @@ function finishViewportPan() {
   state.isPanning = false;
   elements.viewport.classList.remove("is-panning");
   flushViewportWork();
+}
+
+function consumeSuppressedSelectionClick() {
+  if (!state.suppressNextSelectionClick) return false;
+  state.suppressNextSelectionClick = false;
+  return true;
 }
 
 function handleWheel(event) {
@@ -910,7 +931,7 @@ function clearSelection() {
   updateExploreButton();
 }
 
-function setSelectedNode(node) {
+function setSelectedNode(node, { center = !state.freeMode } = {}) {
   if (!node) return;
   if (node !== state.selectedNode) {
     state.selectedNode?.element?.classList.remove("is-selected");
@@ -921,7 +942,7 @@ function setSelectedNode(node) {
     node.label?.classList.add("is-selected");
   }
   updateSelectionStatus();
-  if (!state.freeMode) centerCameraOnNode(node);
+  if (center && !state.freeMode) centerCameraOnNode(node);
   updateExploreButton();
 }
 
@@ -1162,13 +1183,13 @@ function updateExploreButton() {
     : "探索下一列";
 }
 
-function selectNodeAtViewportCenter() {
-  const center = getViewportWorldCenter(state.camera, {
+function selectNodeAtViewportCenter({ center = true } = {}) {
+  const viewportCenter = getViewportWorldCenter(state.camera, {
     width: elements.viewport.clientWidth,
     height: elements.viewport.clientHeight,
   });
-  const node = findNearestNodeInRows(state.rows, center);
-  if (node && node !== state.selectedNode) setSelectedNode(node);
+  const node = findNearestNodeInRows(state.rows, viewportCenter);
+  if (node && node !== state.selectedNode) setSelectedNode(node, { center });
 }
 
 function activateSelectedNode() {
