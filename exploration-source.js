@@ -9,17 +9,24 @@
   if (typeof module === "object" && module.exports) module.exports = exploration;
   root.BirdViewExploration = exploration;
 })(typeof globalThis === "object" ? globalThis : this, (core) => {
-  const { selectRandomExplorationRow } = core;
+  const { getItemRating, normalizeTags, selectRandomExplorationRow } = core;
   const MAX_FOLDER_QUERIES = 6;
   const MAX_TAG_QUERIES = 12;
   const MAX_CACHED_ITEMS_PER_QUERY = 240;
   const MAX_CANDIDATES = 600;
+  const DEFAULT_UNRATED_FILTER = Object.freeze({
+    rating: "unrated",
+    tags: Object.freeze([]),
+    tagMatch: "any",
+    maxTagCount: null,
+  });
   const INDEX_FIELDS = [
     "id",
     "name",
     "ext",
     "width",
     "height",
+    "star",
     "folders",
     "tags",
     "importedAt",
@@ -87,17 +94,24 @@
     #itemApi;
     #random;
     #generation = 0;
+    #filterKey = null;
 
     constructor(itemApi, random = Math.random) {
       this.#itemApi = itemApi;
       this.#random = random;
     }
 
-    async findNextRow(excludedIds = new Set()) {
+    async findNextRow(excludedIds = new Set(), filter = DEFAULT_UNRATED_FILTER) {
+      const normalizedFilter = normalizeUnratedFilter(filter);
+      const filterKey = JSON.stringify(normalizedFilter);
+      if (this.#filterKey !== filterKey) {
+        this.#generation += 1;
+        this.#filterKey = filterKey;
+        this.#items = null;
+      }
       const generation = this.#generation;
       if (!this.#items) {
-        this.#items = this.#itemApi
-          .get({ rating: 0, fields: INDEX_FIELDS })
+        this.#items = loadFilteredItems(this.#itemApi, normalizedFilter)
           .catch((error) => {
             if (generation === this.#generation) this.#items = null;
             throw error;
@@ -106,7 +120,7 @@
       const items = await this.#items;
       if (generation !== this.#generation) return [];
       const available = items.filter(
-        (item) => item?.id && !item.isDeleted && !excludedIds.has(item.id),
+        (item) => isEligibleItem(item, excludedIds, normalizedFilter),
       );
       const selected = selectRandomExplorationRow(available, this.#random);
       if (selected.length) {
@@ -126,7 +140,59 @@
     clear() {
       this.#generation += 1;
       this.#items = null;
+      this.#filterKey = null;
     }
+  }
+
+  function normalizeUnratedFilter(filter = DEFAULT_UNRATED_FILTER) {
+    const rating =
+      filter.rating === "any" || filter.rating === "unrated" || [1, 2, 3, 4, 5].includes(Number(filter.rating))
+        ? filter.rating === "any" || filter.rating === "unrated"
+          ? filter.rating
+          : Number(filter.rating)
+        : DEFAULT_UNRATED_FILTER.rating;
+    const maxTagCount = Number(filter.maxTagCount);
+    return {
+      rating,
+      tags: normalizeTags(filter.tags),
+      tagMatch: filter.tagMatch === "all" ? "all" : "any",
+      maxTagCount: Number.isInteger(maxTagCount) && maxTagCount >= 1 ? maxTagCount : null,
+    };
+  }
+
+  async function loadFilteredItems(itemApi, filter) {
+    const rating = filter.rating === "any" ? {} : { rating: filter.rating === "unrated" ? 0 : filter.rating };
+    if (!filter.tags.length) return itemApi.get({ ...rating, fields: INDEX_FIELDS });
+
+    const queryTags = filter.tagMatch === "all" ? filter.tags.slice(0, 1) : filter.tags;
+    const results = await Promise.all(
+      queryTags.map((tag) => itemApi.get({ ...rating, tags: [tag], fields: INDEX_FIELDS })),
+    );
+    const itemsById = new Map();
+    for (const items of results) {
+      for (const item of items || []) {
+        if (item?.id) itemsById.set(item.id, item);
+      }
+    }
+    return [...itemsById.values()];
+  }
+
+  function isEligibleItem(item, excludedIds, filter) {
+    if (!item?.id || item.isDeleted || excludedIds.has(item.id)) return false;
+    if (filter.rating !== "any") {
+      const rating = getItemRating(item);
+      if (filter.rating === "unrated" ? rating !== 0 : rating !== filter.rating) return false;
+    }
+    const tags = normalizeTags(item.tags);
+    if (
+      filter.tags.length &&
+      (filter.tagMatch === "all"
+        ? !filter.tags.every((tag) => tags.includes(tag))
+        : !filter.tags.some((tag) => tags.includes(tag)))
+    ) {
+      return false;
+    }
+    return filter.maxTagCount === null || tags.length < filter.maxTagCount;
   }
 
   function uniqueValues(values = []) {

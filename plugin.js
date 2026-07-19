@@ -50,6 +50,12 @@ const RESOURCE_RELEASE_VIEWPORTS = 3;
 const GRID_LAYER_OVERFLOW = 768;
 const METADATA_SUCCESS_TOAST_MS = 1200;
 const CAMERA_FOCUS_DURATION = 180;
+const DEFAULT_AUTO_EXPLORE_FILTER = Object.freeze({
+  rating: "unrated",
+  tags: Object.freeze([]),
+  tagMatch: "any",
+  maxTagCount: null,
+});
 
 const state = {
   camera: { x: 0, y: 0, scale: 1 },
@@ -79,6 +85,8 @@ const state = {
   unratedEnabled: false,
   unratedLoading: false,
   unratedExhausted: false,
+  unratedFilter: cloneAutoExploreFilter(DEFAULT_AUTO_EXPLORE_FILTER),
+  unratedDraftFilter: null,
   unratedGeneration: 0,
   lastUnratedTriggerRow: null,
   tagColors: new Map(),
@@ -129,6 +137,18 @@ function setup() {
   elements.freeModeStatus = document.querySelector("#free-mode-status");
   elements.autoExploreToggle = document.querySelector("#auto-explore-toggle");
   elements.autoExploreStatus = document.querySelector("#auto-explore-status");
+  elements.autoExploreSettingsButton = document.querySelector("#auto-explore-settings-button");
+  elements.autoExploreFilterSummary = document.querySelector("#auto-explore-filter-summary");
+  elements.autoExploreSettingsPanel = document.querySelector("#auto-explore-settings-panel");
+  elements.autoExploreRating = document.querySelector("#auto-explore-rating");
+  elements.autoExploreTagMatch = document.querySelector("#auto-explore-tag-match");
+  elements.autoExploreMaxTagCount = document.querySelector("#auto-explore-max-tag-count");
+  elements.autoExploreTagSearch = document.querySelector("#auto-explore-tag-search");
+  elements.autoExploreTagOptions = document.querySelector("#auto-explore-tag-options");
+  elements.autoExploreSelectedTags = document.querySelector("#auto-explore-selected-tags");
+  elements.autoExploreSettingsCancel = document.querySelector("#auto-explore-settings-cancel");
+  elements.autoExploreSettingsReset = document.querySelector("#auto-explore-settings-reset");
+  elements.autoExploreSettingsApply = document.querySelector("#auto-explore-settings-apply");
   elements.exploreButton = document.querySelector("#explore-button");
   elements.toast = document.querySelector("#toast");
 
@@ -145,9 +165,19 @@ function setup() {
   window.addEventListener("resize", handleResize);
   elements.freeModeToggle.addEventListener("click", toggleFreeMode);
   elements.autoExploreToggle.addEventListener("click", toggleUnratedExploration);
+  elements.autoExploreSettingsButton?.addEventListener("click", toggleAutoExploreSettings);
+  elements.autoExploreRating?.addEventListener("change", updateDraftAutoExploreRating);
+  elements.autoExploreTagMatch?.addEventListener("change", updateDraftAutoExploreTagMatch);
+  elements.autoExploreMaxTagCount?.addEventListener("input", updateDraftAutoExploreMaxTagCount);
+  elements.autoExploreTagSearch?.addEventListener("input", renderAutoExploreTagOptions);
+  elements.autoExploreTagSearch?.addEventListener("keydown", handleAutoExploreTagSearchKeyDown);
+  elements.autoExploreSettingsCancel?.addEventListener("click", closeAutoExploreSettings);
+  elements.autoExploreSettingsReset?.addEventListener("click", resetAutoExploreSettings);
+  elements.autoExploreSettingsApply?.addEventListener("click", applyAutoExploreSettings);
   elements.exploreButton.addEventListener("click", exploreNextRow);
   updateAutoExploreToggle();
   updateFreeModeToggle();
+  updateAutoExploreSettingsUI();
   updateSelectionStatus();
 
   refreshBaseScale();
@@ -211,7 +241,7 @@ async function loadSelectedItems() {
     if (!items.length) {
       clearBoard();
       if (state.unratedEnabled) {
-        showToast("Eagle 目前沒有選取素材，正在探索未評分素材。", false);
+        showToast("Eagle 目前沒有選取素材，正在探索符合條件的素材。", false);
         await loadNextUnratedRow({ focus: true });
       } else {
         showToast("Eagle 目前沒有選取素材，可開啟自動探索。", false);
@@ -243,6 +273,7 @@ function renderItems(items) {
   state.nodes = layout.nodes;
   state.rows = layout.rows;
   state.lastUnratedTriggerRow = null;
+  renderAutoExploreTagOptions();
   refreshBaseScale();
 
   updateBoardMeta();
@@ -655,6 +686,7 @@ async function loadTagColors() {
   const generation = ++state.tagColorGeneration;
   if (typeof eagle === "undefined" || typeof eagle.tag?.get !== "function") {
     state.tagColors = new Map();
+    renderAutoExploreTagOptions();
     return;
   }
 
@@ -670,11 +702,13 @@ async function loadTagColors() {
       const tags = node.label?.querySelector(".media-tags");
       if (tags) renderTagChips(tags, node.item.tags);
     }
+    renderAutoExploreTagOptions();
     updateSelectionStatus();
     tagEditor.refresh();
   } catch (error) {
     if (generation !== state.tagColorGeneration) return;
     state.tagColors = new Map();
+    renderAutoExploreTagOptions();
     console.warn("Failed to load Eagle tag colors", error);
   }
 }
@@ -831,6 +865,15 @@ function handleWheel(event) {
 }
 
 function handleKeyDown(event) {
+  if (
+    event.key === "Escape" &&
+    elements.autoExploreSettingsPanel &&
+    !elements.autoExploreSettingsPanel.hidden
+  ) {
+    event.preventDefault();
+    closeAutoExploreSettings();
+    return;
+  }
   if (isInteractiveTarget(event.target)) return;
 
   if (!event.ctrlKey && !event.metaKey && !event.altKey && /^[1-5]$/.test(event.key)) {
@@ -1063,6 +1106,7 @@ async function exploreNextRow() {
     state.rows = layout.rows;
     for (const node of state.materializedNodes) positionNode(node);
     updateBoardMeta();
+    renderAutoExploreTagOptions();
     updateMediaVisibility();
     updateLabels();
     showToast(`已根據「${pivot.name || "目前素材"}」加入 ${items.length} 個相關素材。`);
@@ -1085,18 +1129,18 @@ async function loadNextUnratedRow({ focus = false } = {}) {
   updateAutoExploreToggle();
   try {
     const excludedIds = new Set(boardNodes.map(({ item }) => item.id));
-    const candidates = await source.findNextRow(excludedIds);
+    const candidates = await source.findNextRow(excludedIds, state.unratedFilter);
     if (generation !== state.unratedGeneration || state.nodes !== boardNodes) return;
     if (!candidates.length) {
       state.unratedExhausted = true;
-      showToast("沒有更多未評分素材。", false);
+      showToast("沒有更多符合目前條件的素材。", false);
       return;
     }
 
     const items = await source.hydrate(candidates);
     if (generation !== state.unratedGeneration || state.nodes !== boardNodes) return;
     if (!items.length) {
-      showToast("未評分素材目前無法載入。", true);
+      showToast("符合條件的素材目前無法載入。", true);
       return;
     }
 
@@ -1115,10 +1159,11 @@ async function loadNextUnratedRow({ focus = false } = {}) {
     }
     for (const node of state.materializedNodes) positionNode(node);
     updateBoardMeta();
+    renderAutoExploreTagOptions();
     updateMediaVisibility();
     updateLabels();
     if (focus) requestAnimationFrame(focusFirstItem);
-    showToast(`已加入 ${items.length} 個未評分素材。`);
+    showToast(`已加入 ${items.length} 個符合條件的素材。`);
   } catch (error) {
     if (generation !== state.unratedGeneration) return;
     state.lastUnratedTriggerRow = null;
@@ -1175,6 +1220,226 @@ function updateFreeModeToggle() {
   elements.freeModeStatus.textContent = state.freeMode ? "開" : "關";
 }
 
+function cloneAutoExploreFilter(filter = DEFAULT_AUTO_EXPLORE_FILTER) {
+  const maxTagCount = Number(filter.maxTagCount);
+  return {
+    rating:
+      filter.rating === "any" || filter.rating === "unrated"
+        ? filter.rating
+        : [1, 2, 3, 4, 5].includes(Number(filter.rating))
+          ? Number(filter.rating)
+          : DEFAULT_AUTO_EXPLORE_FILTER.rating,
+    tags: normalizeTags(filter.tags),
+    tagMatch: filter.tagMatch === "all" ? "all" : "any",
+    maxTagCount: Number.isInteger(maxTagCount) && maxTagCount >= 1 ? maxTagCount : null,
+  };
+}
+
+function autoExploreFiltersEqual(first, second) {
+  return JSON.stringify(cloneAutoExploreFilter(first)) === JSON.stringify(cloneAutoExploreFilter(second));
+}
+
+function getAutoExploreFilterSummary(filter) {
+  const normalized = cloneAutoExploreFilter(filter);
+  const rating =
+    normalized.rating === "unrated"
+      ? "未評分"
+      : normalized.rating === "any"
+        ? "不限星數"
+        : `${normalized.rating} 星`;
+  const tags = normalized.tags.length
+    ? `${normalized.tagMatch === "all" ? "全部" : "任一"} ${normalized.tags.length} 個 Tag`
+    : "不限 Tag";
+  const count = normalized.maxTagCount === null ? "" : `Tag < ${normalized.maxTagCount}`;
+  return [rating, tags, count].filter(Boolean).join(" · ");
+}
+
+function toggleAutoExploreSettings() {
+  const panel = elements.autoExploreSettingsPanel;
+  if (!panel || !state.unratedSource) return;
+  if (panel.hidden) {
+    state.unratedDraftFilter = cloneAutoExploreFilter(state.unratedFilter);
+    if (elements.autoExploreTagSearch) elements.autoExploreTagSearch.value = "";
+    updateAutoExploreSettingsUI();
+    panel.hidden = false;
+    elements.autoExploreSettingsButton?.setAttribute("aria-expanded", "true");
+    return;
+  }
+  closeAutoExploreSettings();
+}
+
+function closeAutoExploreSettings() {
+  state.unratedDraftFilter = null;
+  elements.autoExploreSettingsPanel?.setAttribute("hidden", "");
+  elements.autoExploreSettingsButton?.setAttribute("aria-expanded", "false");
+}
+
+function updateDraftAutoExploreRating(event) {
+  if (!state.unratedDraftFilter) return;
+  state.unratedDraftFilter.rating = event.target.value;
+}
+
+function updateDraftAutoExploreTagMatch(event) {
+  if (!state.unratedDraftFilter) return;
+  state.unratedDraftFilter.tagMatch = event.target.value;
+}
+
+function updateDraftAutoExploreMaxTagCount(event) {
+  if (!state.unratedDraftFilter) return;
+  const value = Number(event.target.value);
+  state.unratedDraftFilter.maxTagCount =
+    Number.isInteger(value) && value >= 1 ? value : null;
+}
+
+function handleAutoExploreTagSearchKeyDown(event) {
+  if (event.key !== "Enter") return;
+  const firstOption = elements.autoExploreTagOptions?.querySelector("button");
+  if (!firstOption) return;
+  event.preventDefault();
+  firstOption.click();
+}
+
+function resetAutoExploreSettings() {
+  state.unratedDraftFilter = cloneAutoExploreFilter(DEFAULT_AUTO_EXPLORE_FILTER);
+  if (elements.autoExploreTagSearch) elements.autoExploreTagSearch.value = "";
+  updateAutoExploreSettingsUI();
+}
+
+function applyAutoExploreSettings() {
+  if (!state.unratedDraftFilter) return;
+  const nextFilter = cloneAutoExploreFilter(state.unratedDraftFilter);
+  const changed = !autoExploreFiltersEqual(state.unratedFilter, nextFilter);
+  state.unratedFilter = nextFilter;
+  closeAutoExploreSettings();
+  updateAutoExploreSettingsUI();
+  if (!changed) return;
+
+  state.unratedGeneration += 1;
+  state.unratedLoading = false;
+  state.unratedExhausted = false;
+  state.lastUnratedTriggerRow = null;
+  state.unratedSource?.clear();
+  updateAutoExploreToggle();
+  showToast("已更新自動探索條件。", false);
+  if (!state.unratedEnabled) return;
+  if (!state.rows.length) void loadNextUnratedRow({ focus: true });
+  else maybeLoadNextUnratedRow();
+}
+
+function renderAutoExploreTagOptions() {
+  const container = elements.autoExploreTagOptions;
+  const filter = state.unratedDraftFilter || state.unratedFilter;
+  const selectedTags = normalizeTags(filter.tags);
+  renderAutoExploreSelectedTags(selectedTags);
+  if (!container) return;
+  const query = String(elements.autoExploreTagSearch?.value || "")
+    .trim()
+    .toLocaleLowerCase();
+  const selectedSet = new Set(selectedTags);
+  const knownTags = getAutoExploreKnownTags();
+  const tags = query
+    ? knownTags
+        .filter(
+          (tag) =>
+            !selectedSet.has(tag) && tag.toLocaleLowerCase().includes(query),
+        )
+        .sort((first, second) => first.localeCompare(second))
+    : [];
+
+  if (!tags.length) {
+    container.hidden = true;
+    container.replaceChildren();
+    if (!query) return;
+    const empty = document.createElement("div");
+    empty.className = "auto-explore-tag-empty";
+    empty.textContent = "找不到符合的 Tag";
+    container.replaceChildren(empty);
+    container.hidden = false;
+    return;
+  }
+
+  container.hidden = false;
+  container.replaceChildren(
+    ...tags.map((tag) => {
+      const option = document.createElement("button");
+      const marker = document.createElement("span");
+      option.className = "auto-explore-tag-option";
+      option.type = "button";
+      option.classList.toggle("is-selected", selectedSet.has(tag));
+      option.setAttribute("aria-pressed", String(selectedSet.has(tag)));
+      marker.className = "tag-editor-check";
+      marker.textContent = "+";
+      option.append(marker, createTagChip(tag));
+      option.addEventListener("click", () => {
+        const draft = state.unratedDraftFilter || cloneAutoExploreFilter(state.unratedFilter);
+        const nextTags = new Set(draft.tags);
+        nextTags.add(tag);
+        state.unratedDraftFilter = { ...draft, tags: [...nextTags] };
+        if (elements.autoExploreTagSearch) elements.autoExploreTagSearch.value = "";
+        renderAutoExploreTagOptions();
+      });
+      return option;
+    }),
+  );
+}
+
+function renderAutoExploreSelectedTags(tags) {
+  const container = elements.autoExploreSelectedTags;
+  if (!container) return;
+  container.hidden = tags.length === 0;
+  container.replaceChildren(
+    ...tags.map((tag) => {
+      const remove = document.createElement("button");
+      const chip = createTagChip(tag);
+      const marker = document.createElement("span");
+      remove.className = "auto-explore-selected-tag";
+      remove.type = "button";
+      remove.title = `移除 ${tag}`;
+      remove.setAttribute("aria-label", `移除 Tag ${tag}`);
+      marker.className = "auto-explore-selected-tag-remove";
+      marker.textContent = "×";
+      remove.append(chip, marker);
+      remove.addEventListener("click", () => {
+        const draft = state.unratedDraftFilter || cloneAutoExploreFilter(state.unratedFilter);
+        state.unratedDraftFilter = {
+          ...draft,
+          tags: draft.tags.filter((value) => value !== tag),
+        };
+        renderAutoExploreTagOptions();
+      });
+      return remove;
+    }),
+  );
+}
+
+function getAutoExploreKnownTags() {
+  const tags = new Set(state.tagColors.keys());
+  for (const node of state.nodes) {
+    for (const tag of normalizeTags(node.item.tags)) tags.add(tag);
+  }
+  return [...tags];
+}
+
+function updateAutoExploreSettingsUI() {
+  updateAutoExploreFilterSummary();
+  const panel = elements.autoExploreSettingsPanel;
+  if (!panel) return;
+  const filter = state.unratedDraftFilter || state.unratedFilter;
+  if (elements.autoExploreRating) elements.autoExploreRating.value = String(filter.rating);
+  if (elements.autoExploreTagMatch) elements.autoExploreTagMatch.value = filter.tagMatch;
+  if (elements.autoExploreMaxTagCount) {
+    elements.autoExploreMaxTagCount.value = filter.maxTagCount ?? "";
+  }
+  renderAutoExploreTagOptions();
+}
+
+function updateAutoExploreFilterSummary() {
+  if (elements.autoExploreFilterSummary) {
+    elements.autoExploreFilterSummary.textContent = getAutoExploreFilterSummary(state.unratedFilter);
+    elements.autoExploreFilterSummary.title = getAutoExploreFilterSummary(state.unratedFilter);
+  }
+}
+
 function toggleUnratedExploration() {
   state.unratedEnabled = !state.unratedEnabled;
   state.lastUnratedTriggerRow = null;
@@ -1197,6 +1462,9 @@ function toggleUnratedExploration() {
 function updateAutoExploreToggle() {
   if (!elements.autoExploreToggle) return;
   elements.autoExploreToggle.disabled = !state.unratedSource;
+  if (elements.autoExploreSettingsButton) {
+    elements.autoExploreSettingsButton.disabled = !state.unratedSource;
+  }
   elements.autoExploreToggle.classList.toggle("is-active", state.unratedEnabled);
   elements.autoExploreToggle.classList.toggle("is-loading", state.unratedLoading);
   elements.autoExploreToggle.setAttribute("aria-checked", String(state.unratedEnabled));
@@ -1204,6 +1472,7 @@ function updateAutoExploreToggle() {
     ? "正在載入未評分素材"
     : `自動探索目前為${state.unratedEnabled ? "開啟" : "關閉"}`;
   elements.autoExploreStatus.textContent = state.unratedEnabled ? "開" : "關";
+  updateAutoExploreFilterSummary();
 }
 
 function updateExploreButton() {

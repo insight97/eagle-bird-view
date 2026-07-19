@@ -50,20 +50,102 @@
             </span>
             <span id="free-mode-status" class="mode-toggle-status">開</span>
           </button>
-          <button
-            id="auto-explore-toggle"
-            class="mode-toggle"
-            type="button"
-            role="switch"
-            aria-checked="false"
-            disabled
-          >
-            <span>自動探索</span>
-            <span class="mode-toggle-track" aria-hidden="true">
-              <span class="mode-toggle-knob"></span>
-            </span>
-            <span id="auto-explore-status" class="mode-toggle-status">關</span>
-          </button>
+          <div class="auto-explore-controls">
+            <button
+              id="auto-explore-toggle"
+              class="mode-toggle"
+              type="button"
+              role="switch"
+              aria-checked="false"
+              disabled
+            >
+              <span>自動探索</span>
+              <span class="mode-toggle-track" aria-hidden="true">
+                <span class="mode-toggle-knob"></span>
+              </span>
+              <span id="auto-explore-status" class="mode-toggle-status">關</span>
+            </button>
+            <button
+              id="auto-explore-settings-button"
+              class="settings-button"
+              type="button"
+              aria-label="設定自動探索條件"
+              aria-expanded="false"
+              disabled
+            >
+              ⚙
+            </button>
+            <span id="auto-explore-filter-summary" class="auto-explore-filter-summary"></span>
+            <div
+              id="auto-explore-settings-panel"
+              class="auto-explore-settings"
+              role="dialog"
+              aria-label="自動探索條件"
+              hidden
+            >
+              <div class="auto-explore-settings-heading">自動探索條件</div>
+              <label class="auto-explore-setting-row">
+                <span>評分</span>
+                <select id="auto-explore-rating" class="auto-explore-select">
+                  <option value="unrated">未評分</option>
+                  <option value="any">不限</option>
+                  <option value="1">1 星</option>
+                  <option value="2">2 星</option>
+                  <option value="3">3 星</option>
+                  <option value="4">4 星</option>
+                  <option value="5">5 星</option>
+                </select>
+              </label>
+              <label class="auto-explore-setting-row">
+                <span>Tag 匹配</span>
+                <select id="auto-explore-tag-match" class="auto-explore-select">
+                  <option value="any">符合任一個</option>
+                  <option value="all">全部符合</option>
+                </select>
+              </label>
+              <label class="auto-explore-setting-row auto-explore-count-row">
+                <span>Tag 數量小於</span>
+                <input
+                  id="auto-explore-max-tag-count"
+                  class="auto-explore-number"
+                  type="number"
+                  min="1"
+                  step="1"
+                  inputmode="numeric"
+                  placeholder="不限"
+                />
+              </label>
+              <div class="auto-explore-tag-search-label">
+                <span>指定 Tag</span>
+                <div class="auto-explore-tag-picker">
+                  <input
+                    id="auto-explore-tag-search"
+                    class="auto-explore-tag-search"
+                    type="search"
+                    placeholder="搜尋 Tag"
+                  />
+                  <div id="auto-explore-tag-options" class="auto-explore-tag-options" hidden></div>
+                </div>
+              </div>
+              <div class="auto-explore-tag-hint">不選任何 Tag 代表不限 Tag</div>
+              <div id="auto-explore-selected-tags" class="auto-explore-selected-tags" hidden></div>
+              <div class="auto-explore-settings-footer">
+                <button id="auto-explore-settings-cancel" class="tag-editor-button" type="button">
+                  取消
+                </button>
+                <button id="auto-explore-settings-reset" class="tag-editor-button" type="button">
+                  預設
+                </button>
+                <button
+                  id="auto-explore-settings-apply"
+                  class="tag-editor-button is-primary"
+                  type="button"
+                >
+                  套用
+                </button>
+              </div>
+            </div>
+          </div>
           <button id="explore-button" class="explore-button" type="button" disabled>探索下一列</button>
           <span class="divider" aria-hidden="true"></span>
           <span id="item-count">0 個素材</span>
