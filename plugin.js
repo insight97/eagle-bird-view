@@ -50,8 +50,9 @@ const RESOURCE_RELEASE_VIEWPORTS = 3;
 const GRID_LAYER_OVERFLOW = 768;
 const METADATA_SUCCESS_TOAST_MS = 1200;
 const CAMERA_FOCUS_DURATION = 180;
+const AUTO_EXPLORE_FILE_TYPES = Object.freeze(["image", "video"]);
 const DEFAULT_AUTO_EXPLORE_FILTER = Object.freeze({
-  fileType: "any",
+  fileTypes: Object.freeze(["image", "video"]),
   rating: "unrated",
   tags: Object.freeze([]),
   excludedTags: Object.freeze([]),
@@ -141,7 +142,8 @@ function setup() {
   elements.autoExploreStatus = document.querySelector("#auto-explore-status");
   elements.autoExploreSettingsButton = document.querySelector("#auto-explore-settings-button");
   elements.autoExploreSettingsPanel = document.querySelector("#auto-explore-settings-panel");
-  elements.autoExploreFileType = document.querySelector("#auto-explore-file-type");
+  elements.autoExploreFileTypeImage = document.querySelector("#auto-explore-file-type-image");
+  elements.autoExploreFileTypeVideo = document.querySelector("#auto-explore-file-type-video");
   elements.autoExploreRating = document.querySelector("#auto-explore-rating");
   elements.autoExploreTagMatch = document.querySelector("#auto-explore-tag-match");
   elements.autoExploreMaxTagCount = document.querySelector("#auto-explore-max-tag-count");
@@ -171,7 +173,8 @@ function setup() {
   elements.freeModeToggle.addEventListener("click", toggleFreeMode);
   elements.autoExploreToggle.addEventListener("click", toggleUnratedExploration);
   elements.autoExploreSettingsButton?.addEventListener("click", toggleAutoExploreSettings);
-  elements.autoExploreFileType?.addEventListener("change", updateDraftAutoExploreFileType);
+  elements.autoExploreFileTypeImage?.addEventListener("change", updateDraftAutoExploreFileTypes);
+  elements.autoExploreFileTypeVideo?.addEventListener("change", updateDraftAutoExploreFileTypes);
   elements.autoExploreRating?.addEventListener("change", updateDraftAutoExploreRating);
   elements.autoExploreTagMatch?.addEventListener("change", updateDraftAutoExploreTagMatch);
   elements.autoExploreMaxTagCount?.addEventListener("input", updateDraftAutoExploreMaxTagCount);
@@ -1232,9 +1235,7 @@ function updateFreeModeToggle() {
 function cloneAutoExploreFilter(filter = DEFAULT_AUTO_EXPLORE_FILTER) {
   const maxTagCount = Number(filter.maxTagCount);
   return {
-    fileType: ["any", "image", "video"].includes(filter.fileType)
-      ? filter.fileType
-      : DEFAULT_AUTO_EXPLORE_FILTER.fileType,
+    fileTypes: normalizeAutoExploreFileTypes(filter),
     rating:
       filter.rating === "any" || filter.rating === "unrated"
         ? filter.rating
@@ -1282,9 +1283,19 @@ function handleAutoExploreOutsidePointerDown(event) {
   closeAutoExploreSettings();
 }
 
-function updateDraftAutoExploreFileType(event) {
+function updateDraftAutoExploreFileTypes(event) {
   if (!state.unratedDraftFilter) return;
-  state.unratedDraftFilter.fileType = event.target.value;
+  const fileTypes = [
+    ["image", elements.autoExploreFileTypeImage],
+    ["video", elements.autoExploreFileTypeVideo],
+  ]
+    .filter(([, input]) => input?.checked)
+    .map(([fileType]) => fileType);
+  if (!fileTypes.length) {
+    event.target.checked = true;
+    return;
+  }
+  state.unratedDraftFilter.fileTypes = fileTypes;
   applyAutoExploreSettings({ close: false });
 }
 
@@ -1314,6 +1325,16 @@ function handleAutoExploreTagSearchKeyDown(event) {
 
 function handleAutoExploreExcludedTagSearchKeyDown(event) {
   selectFirstAutoExploreTagOption(event, elements.autoExploreExcludedTagOptions);
+}
+
+function normalizeAutoExploreFileTypes(filter) {
+  const requested = Array.isArray(filter.fileTypes)
+    ? filter.fileTypes
+    : filter.fileType === "any"
+      ? AUTO_EXPLORE_FILE_TYPES
+      : [filter.fileType];
+  const fileTypes = AUTO_EXPLORE_FILE_TYPES.filter((fileType) => requested.includes(fileType));
+  return fileTypes.length ? fileTypes : [...DEFAULT_AUTO_EXPLORE_FILTER.fileTypes];
 }
 
 function selectFirstAutoExploreTagOption(event, optionsElement) {
@@ -1483,7 +1504,13 @@ function updateAutoExploreSettingsUI() {
   const panel = elements.autoExploreSettingsPanel;
   if (!panel) return;
   const filter = state.unratedDraftFilter || state.unratedFilter;
-  if (elements.autoExploreFileType) elements.autoExploreFileType.value = filter.fileType;
+  const fileTypes = new Set(filter.fileTypes);
+  if (elements.autoExploreFileTypeImage) {
+    elements.autoExploreFileTypeImage.checked = fileTypes.has("image");
+  }
+  if (elements.autoExploreFileTypeVideo) {
+    elements.autoExploreFileTypeVideo.checked = fileTypes.has("video");
+  }
   if (elements.autoExploreRating) elements.autoExploreRating.value = String(filter.rating);
   if (elements.autoExploreTagMatch) elements.autoExploreTagMatch.value = filter.tagMatch;
   if (elements.autoExploreMaxTagCount) {

@@ -166,7 +166,7 @@ test("unrated source filters images and videos by file type", async () => {
   }, () => 0);
 
   const imageResult = await source.findNextRow(new Set(), {
-    fileType: "image",
+    fileTypes: ["image"],
     rating: "any",
   });
   assert.deepEqual(imageResult.map(({ id }) => id), ["image"]);
@@ -175,7 +175,7 @@ test("unrated source filters images and videos by file type", async () => {
 
   source.clear();
   const videoResult = await source.findNextRow(new Set(), {
-    fileType: "video",
+    fileTypes: ["video"],
     rating: "any",
   });
   assert.deepEqual(videoResult.map(({ id }) => id), ["video"]);

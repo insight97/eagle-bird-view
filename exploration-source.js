@@ -19,8 +19,9 @@
   const MAX_TAG_QUERIES = 12;
   const MAX_CACHED_ITEMS_PER_QUERY = 240;
   const MAX_CANDIDATES = 600;
+  const FILE_TYPES = Object.freeze(["image", "video"]);
   const DEFAULT_UNRATED_FILTER = Object.freeze({
-    fileType: "any",
+    fileTypes: Object.freeze(["image", "video"]),
     rating: "unrated",
     tags: Object.freeze([]),
     excludedTags: Object.freeze([]),
@@ -152,9 +153,7 @@
   }
 
   function normalizeUnratedFilter(filter = DEFAULT_UNRATED_FILTER) {
-    const fileType = ["any", "image", "video"].includes(filter.fileType)
-      ? filter.fileType
-      : DEFAULT_UNRATED_FILTER.fileType;
+    const fileTypes = normalizeFileTypes(filter);
     const rating =
       filter.rating === "any" || filter.rating === "unrated" || [1, 2, 3, 4, 5].includes(Number(filter.rating))
         ? filter.rating === "any" || filter.rating === "unrated"
@@ -163,7 +162,7 @@
         : DEFAULT_UNRATED_FILTER.rating;
     const maxTagCount = Number(filter.maxTagCount);
     return {
-      fileType,
+      fileTypes,
       rating,
       tags: normalizeTags(filter.tags),
       excludedTags: normalizeTags(filter.excludedTags),
@@ -176,7 +175,7 @@
     const rating = filter.rating === "any" ? {} : { rating: filter.rating === "unrated" ? 0 : filter.rating };
     const fields = { fields: INDEX_FIELDS };
     if (!filter.tags.length) {
-      if (filter.fileType !== "video") {
+      if (!filter.fileTypes.includes("video") || filter.fileTypes.includes("image")) {
         return itemApi.get({ ...rating, ...fields });
       }
       const results = await Promise.all(
@@ -200,7 +199,7 @@
 
   function isEligibleItem(item, excludedIds, filter) {
     if (!item?.id || item.isDeleted || excludedIds.has(item.id)) return false;
-    if (filter.fileType !== "any" && getItemFileType(item) !== filter.fileType) return false;
+    if (!filter.fileTypes.includes(getItemFileType(item))) return false;
     if (filter.rating !== "any") {
       const rating = getItemRating(item);
       if (filter.rating === "unrated" ? rating !== 0 : rating !== filter.rating) return false;
@@ -220,6 +219,16 @@
 
   function getItemFileType(item) {
     return VIDEO_EXTENSIONS.has(String(item?.ext || "").toLowerCase()) ? "video" : "image";
+  }
+
+  function normalizeFileTypes(filter) {
+    const requested = Array.isArray(filter.fileTypes)
+      ? filter.fileTypes
+      : filter.fileType === "any"
+        ? FILE_TYPES
+        : [filter.fileType];
+    const fileTypes = FILE_TYPES.filter((fileType) => requested.includes(fileType));
+    return fileTypes.length ? fileTypes : [...DEFAULT_UNRATED_FILTER.fileTypes];
   }
 
   function uniqueValues(values = []) {

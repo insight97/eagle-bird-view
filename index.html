@@ -83,14 +83,19 @@
               hidden
             >
               <div class="auto-explore-settings-heading">自動探索條件</div>
-              <label class="auto-explore-setting-row">
+              <div class="auto-explore-setting-row">
                 <span>檔案類型</span>
-                <select id="auto-explore-file-type" class="auto-explore-select">
-                  <option value="any">不限</option>
-                  <option value="image">圖片</option>
-                  <option value="video">影片</option>
-                </select>
-              </label>
+                <div class="auto-explore-file-type-options" role="group" aria-label="檔案類型">
+                  <label class="auto-explore-file-type-option">
+                    <input id="auto-explore-file-type-image" type="checkbox" value="image" checked />
+                    <span>圖片</span>
+                  </label>
+                  <label class="auto-explore-file-type-option">
+                    <input id="auto-explore-file-type-video" type="checkbox" value="video" checked />
+                    <span>影片</span>
+                  </label>
+                </div>
+              </div>
               <label class="auto-explore-setting-row">
                 <span>評分</span>
                 <select id="auto-explore-rating" class="auto-explore-select">

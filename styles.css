@@ -180,6 +180,28 @@ button {
   width: 140px;
 }
 
+.auto-explore-file-type-options {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.auto-explore-file-type-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #dfe1e5;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.auto-explore-file-type-option input {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: #7971ed;
+}
+
 .auto-explore-number {
   width: 74px;
 }
