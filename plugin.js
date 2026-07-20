@@ -151,9 +151,8 @@ function setup() {
   elements.autoExploreExcludedTagSearch = document.querySelector("#auto-explore-excluded-tag-search");
   elements.autoExploreExcludedTagOptions = document.querySelector("#auto-explore-excluded-tag-options");
   elements.autoExploreSelectedExcludedTags = document.querySelector("#auto-explore-selected-excluded-tags");
-  elements.autoExploreSettingsCancel = document.querySelector("#auto-explore-settings-cancel");
+  elements.autoExploreControls = document.querySelector(".auto-explore-controls");
   elements.autoExploreSettingsReset = document.querySelector("#auto-explore-settings-reset");
-  elements.autoExploreSettingsApply = document.querySelector("#auto-explore-settings-apply");
   elements.exploreButton = document.querySelector("#explore-button");
   elements.toast = document.querySelector("#toast");
 
@@ -168,6 +167,7 @@ function setup() {
   );
   window.addEventListener("keydown", handleKeyDown);
   window.addEventListener("resize", handleResize);
+  document.addEventListener("pointerdown", handleAutoExploreOutsidePointerDown);
   elements.freeModeToggle.addEventListener("click", toggleFreeMode);
   elements.autoExploreToggle.addEventListener("click", toggleUnratedExploration);
   elements.autoExploreSettingsButton?.addEventListener("click", toggleAutoExploreSettings);
@@ -182,9 +182,7 @@ function setup() {
     "keydown",
     handleAutoExploreExcludedTagSearchKeyDown,
   );
-  elements.autoExploreSettingsCancel?.addEventListener("click", closeAutoExploreSettings);
   elements.autoExploreSettingsReset?.addEventListener("click", resetAutoExploreSettings);
-  elements.autoExploreSettingsApply?.addEventListener("click", applyAutoExploreSettings);
   elements.exploreButton.addEventListener("click", exploreNextRow);
   updateAutoExploreToggle();
   updateFreeModeToggle();
@@ -1277,19 +1275,29 @@ function closeAutoExploreSettings() {
   elements.autoExploreSettingsButton?.setAttribute("aria-expanded", "false");
 }
 
+function handleAutoExploreOutsidePointerDown(event) {
+  const panel = elements.autoExploreSettingsPanel;
+  if (!panel || panel.hidden) return;
+  if (elements.autoExploreControls?.contains(event.target)) return;
+  closeAutoExploreSettings();
+}
+
 function updateDraftAutoExploreFileType(event) {
   if (!state.unratedDraftFilter) return;
   state.unratedDraftFilter.fileType = event.target.value;
+  applyAutoExploreSettings({ close: false });
 }
 
 function updateDraftAutoExploreRating(event) {
   if (!state.unratedDraftFilter) return;
   state.unratedDraftFilter.rating = event.target.value;
+  applyAutoExploreSettings({ close: false });
 }
 
 function updateDraftAutoExploreTagMatch(event) {
   if (!state.unratedDraftFilter) return;
   state.unratedDraftFilter.tagMatch = event.target.value;
+  applyAutoExploreSettings({ close: false });
 }
 
 function updateDraftAutoExploreMaxTagCount(event) {
@@ -1297,6 +1305,7 @@ function updateDraftAutoExploreMaxTagCount(event) {
   const value = Number(event.target.value);
   state.unratedDraftFilter.maxTagCount =
     Number.isInteger(value) && value >= 1 ? value : null;
+  applyAutoExploreSettings({ close: false });
 }
 
 function handleAutoExploreTagSearchKeyDown(event) {
@@ -1319,15 +1328,16 @@ function resetAutoExploreSettings() {
   state.unratedDraftFilter = cloneAutoExploreFilter(DEFAULT_AUTO_EXPLORE_FILTER);
   if (elements.autoExploreTagSearch) elements.autoExploreTagSearch.value = "";
   if (elements.autoExploreExcludedTagSearch) elements.autoExploreExcludedTagSearch.value = "";
-  updateAutoExploreSettingsUI();
+  applyAutoExploreSettings({ close: false });
 }
 
-function applyAutoExploreSettings() {
+function applyAutoExploreSettings({ close = true } = {}) {
   if (!state.unratedDraftFilter) return;
   const nextFilter = cloneAutoExploreFilter(state.unratedDraftFilter);
   const changed = !autoExploreFiltersEqual(state.unratedFilter, nextFilter);
   state.unratedFilter = nextFilter;
-  closeAutoExploreSettings();
+  if (close) closeAutoExploreSettings();
+  else state.unratedDraftFilter = cloneAutoExploreFilter(nextFilter);
   updateAutoExploreSettingsUI();
   if (!changed) return;
 
@@ -1426,7 +1436,7 @@ function renderAutoExploreTagPicker({
           [oppositeKey]: normalizeTags(draft[oppositeKey]).filter((value) => value !== tag),
         };
         if (searchElement) searchElement.value = "";
-        renderAutoExploreTagOptions();
+        applyAutoExploreSettings({ close: false });
       });
       return option;
     }),
@@ -1454,7 +1464,7 @@ function renderAutoExploreSelectedTags(container, tags, filterKey) {
           ...draft,
           [filterKey]: normalizeTags(draft[filterKey]).filter((value) => value !== tag),
         };
-        renderAutoExploreTagOptions();
+        applyAutoExploreSettings({ close: false });
       });
       return remove;
     }),
