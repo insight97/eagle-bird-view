@@ -514,8 +514,44 @@ function createMediaCard(node) {
     if (consumeSuppressedSelectionClick()) return;
     setSelectedNode(node);
   });
+  card.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openMediaContextMenu(node);
+  });
 
   return card;
+}
+
+function openMediaContextMenu(node) {
+  if (
+    typeof eagle === "undefined" ||
+    typeof eagle.contextMenu?.open !== "function" ||
+    typeof eagle.item?.open !== "function"
+  ) {
+    showToast("目前無法開啟 Eagle 右鍵選單。", true);
+    return;
+  }
+  eagle.contextMenu.open([
+    {
+      id: "open-item-in-eagle",
+      label: "在 Eagle 中開啟",
+      click: () => void openItemInEagle(node.item.id),
+    },
+  ]);
+}
+
+async function openItemInEagle(itemId) {
+  if (typeof eagle === "undefined" || typeof eagle.item?.open !== "function") {
+    showToast("Eagle 不支援開啟素材。", true);
+    return;
+  }
+  try {
+    await eagle.item.open(itemId);
+  } catch (error) {
+    console.error("Failed to open Eagle item", error);
+    showToast(`無法在 Eagle 中開啟素材：${error.message || error}`, true);
+  }
 }
 
 function createMediaLabel(node) {
