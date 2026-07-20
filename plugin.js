@@ -131,6 +131,9 @@ if (typeof eagle !== "undefined" && typeof eagle.onPluginCreate === "function") 
     state.eagleReady = true;
     if (elements.viewport) startEagleIntegration();
   });
+  if (typeof eagle.onPluginRun === "function") {
+    eagle.onPluginRun(handlePluginRun);
+  }
 }
 
 document.addEventListener("DOMContentLoaded", setup);
@@ -254,6 +257,14 @@ function startEagleIntegration() {
   void loadSelectedItems();
 }
 
+function handlePluginRun() {
+  if (!state.started) {
+    if (elements.viewport) startEagleIntegration();
+    return;
+  }
+  void loadSelectedItems({ append: true });
+}
+
 function handleLibraryChanged() {
   clearBoard();
   state.explorationSource.clear();
@@ -268,7 +279,7 @@ function handleLibraryChanged() {
   void loadSelectedItems();
 }
 
-async function loadSelectedItems() {
+async function loadSelectedItems({ append = false } = {}) {
   if (typeof eagle === "undefined") {
     showToast("目前不在 Eagle 外掛環境中。", true);
     return;
@@ -280,6 +291,7 @@ async function loadSelectedItems() {
     if (generation !== state.selectedItemsGeneration) return;
 
     if (!items.length) {
+      if (append) return;
       clearBoard();
       if (state.unratedEnabled) {
         showToast("Eagle 目前沒有選取素材，正在探索符合條件的素材。", false);
@@ -287,6 +299,15 @@ async function loadSelectedItems() {
       } else {
         showToast("Eagle 目前沒有選取素材，可開啟自動探索。", false);
       }
+      return;
+    }
+
+    if (append) {
+      const existingIds = new Set(state.nodes.map(({ item }) => item.id));
+      const newItems = items.filter(({ id }) => id && !existingIds.has(id));
+      if (!newItems.length) return;
+      appendItemsToBoard(newItems);
+      showToast(`已加入 ${newItems.length} 個新素材。`);
       return;
     }
 
@@ -298,6 +319,32 @@ async function loadSelectedItems() {
     console.error("Failed to load selected Eagle items", error);
     showToast(`無法讀取 Eagle 素材：${error.message || error}`, true);
   }
+}
+
+function appendItemsToBoard(items) {
+  if (!items.length) return;
+  if (!state.rows.length) {
+    renderItems(items);
+    requestAnimationFrame(focusFirstItem);
+    return;
+  }
+
+  const selectedLayout = createJustifiedLayout(items);
+  let layout = { nodes: state.nodes, rows: state.rows };
+  for (const row of selectedLayout.rows) {
+    layout = insertExplorationRow(
+      layout,
+      layout.rows.at(-1),
+      row.nodes.map(({ item }) => item),
+    );
+  }
+  state.nodes = layout.nodes;
+  state.rows = layout.rows;
+  for (const node of state.materializedNodes) positionNode(node);
+  updateBoardMeta();
+  renderAutoExploreTagOptions();
+  updateMediaVisibility();
+  updateLabels();
 }
 
 function renderItems(items) {
