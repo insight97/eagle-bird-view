@@ -54,6 +54,7 @@ const DEFAULT_AUTO_EXPLORE_FILTER = Object.freeze({
   fileType: "any",
   rating: "unrated",
   tags: Object.freeze([]),
+  excludedTags: Object.freeze([]),
   tagMatch: "any",
   maxTagCount: null,
 });
@@ -139,7 +140,6 @@ function setup() {
   elements.autoExploreToggle = document.querySelector("#auto-explore-toggle");
   elements.autoExploreStatus = document.querySelector("#auto-explore-status");
   elements.autoExploreSettingsButton = document.querySelector("#auto-explore-settings-button");
-  elements.autoExploreFilterSummary = document.querySelector("#auto-explore-filter-summary");
   elements.autoExploreSettingsPanel = document.querySelector("#auto-explore-settings-panel");
   elements.autoExploreFileType = document.querySelector("#auto-explore-file-type");
   elements.autoExploreRating = document.querySelector("#auto-explore-rating");
@@ -148,6 +148,9 @@ function setup() {
   elements.autoExploreTagSearch = document.querySelector("#auto-explore-tag-search");
   elements.autoExploreTagOptions = document.querySelector("#auto-explore-tag-options");
   elements.autoExploreSelectedTags = document.querySelector("#auto-explore-selected-tags");
+  elements.autoExploreExcludedTagSearch = document.querySelector("#auto-explore-excluded-tag-search");
+  elements.autoExploreExcludedTagOptions = document.querySelector("#auto-explore-excluded-tag-options");
+  elements.autoExploreSelectedExcludedTags = document.querySelector("#auto-explore-selected-excluded-tags");
   elements.autoExploreSettingsCancel = document.querySelector("#auto-explore-settings-cancel");
   elements.autoExploreSettingsReset = document.querySelector("#auto-explore-settings-reset");
   elements.autoExploreSettingsApply = document.querySelector("#auto-explore-settings-apply");
@@ -174,6 +177,11 @@ function setup() {
   elements.autoExploreMaxTagCount?.addEventListener("input", updateDraftAutoExploreMaxTagCount);
   elements.autoExploreTagSearch?.addEventListener("input", renderAutoExploreTagOptions);
   elements.autoExploreTagSearch?.addEventListener("keydown", handleAutoExploreTagSearchKeyDown);
+  elements.autoExploreExcludedTagSearch?.addEventListener("input", renderAutoExploreTagOptions);
+  elements.autoExploreExcludedTagSearch?.addEventListener(
+    "keydown",
+    handleAutoExploreExcludedTagSearchKeyDown,
+  );
   elements.autoExploreSettingsCancel?.addEventListener("click", closeAutoExploreSettings);
   elements.autoExploreSettingsReset?.addEventListener("click", resetAutoExploreSettings);
   elements.autoExploreSettingsApply?.addEventListener("click", applyAutoExploreSettings);
@@ -1236,6 +1244,7 @@ function cloneAutoExploreFilter(filter = DEFAULT_AUTO_EXPLORE_FILTER) {
           ? Number(filter.rating)
           : DEFAULT_AUTO_EXPLORE_FILTER.rating,
     tags: normalizeTags(filter.tags),
+    excludedTags: normalizeTags(filter.excludedTags),
     tagMatch: filter.tagMatch === "all" ? "all" : "any",
     maxTagCount: Number.isInteger(maxTagCount) && maxTagCount >= 1 ? maxTagCount : null,
   };
@@ -1245,29 +1254,15 @@ function autoExploreFiltersEqual(first, second) {
   return JSON.stringify(cloneAutoExploreFilter(first)) === JSON.stringify(cloneAutoExploreFilter(second));
 }
 
-function getAutoExploreFilterSummary(filter) {
-  const normalized = cloneAutoExploreFilter(filter);
-  const fileType =
-    normalized.fileType === "video" ? "影片" : normalized.fileType === "image" ? "圖片" : "";
-  const rating =
-    normalized.rating === "unrated"
-      ? "未評分"
-      : normalized.rating === "any"
-        ? "不限星數"
-        : `${normalized.rating} 星`;
-  const tags = normalized.tags.length
-    ? `${normalized.tagMatch === "all" ? "全部" : "任一"} ${normalized.tags.length} 個 Tag`
-    : "不限 Tag";
-  const count = normalized.maxTagCount === null ? "" : `Tag < ${normalized.maxTagCount}`;
-  return [fileType, rating, tags, count].filter(Boolean).join(" · ");
-}
-
 function toggleAutoExploreSettings() {
   const panel = elements.autoExploreSettingsPanel;
   if (!panel || !state.unratedSource) return;
   if (panel.hidden) {
     state.unratedDraftFilter = cloneAutoExploreFilter(state.unratedFilter);
     if (elements.autoExploreTagSearch) elements.autoExploreTagSearch.value = "";
+    if (elements.autoExploreExcludedTagSearch) {
+      elements.autoExploreExcludedTagSearch.value = "";
+    }
     updateAutoExploreSettingsUI();
     panel.hidden = false;
     elements.autoExploreSettingsButton?.setAttribute("aria-expanded", "true");
@@ -1305,8 +1300,16 @@ function updateDraftAutoExploreMaxTagCount(event) {
 }
 
 function handleAutoExploreTagSearchKeyDown(event) {
+  selectFirstAutoExploreTagOption(event, elements.autoExploreTagOptions);
+}
+
+function handleAutoExploreExcludedTagSearchKeyDown(event) {
+  selectFirstAutoExploreTagOption(event, elements.autoExploreExcludedTagOptions);
+}
+
+function selectFirstAutoExploreTagOption(event, optionsElement) {
   if (event.key !== "Enter") return;
-  const firstOption = elements.autoExploreTagOptions?.querySelector("button");
+  const firstOption = optionsElement?.querySelector("button");
   if (!firstOption) return;
   event.preventDefault();
   firstOption.click();
@@ -1315,6 +1318,7 @@ function handleAutoExploreTagSearchKeyDown(event) {
 function resetAutoExploreSettings() {
   state.unratedDraftFilter = cloneAutoExploreFilter(DEFAULT_AUTO_EXPLORE_FILTER);
   if (elements.autoExploreTagSearch) elements.autoExploreTagSearch.value = "";
+  if (elements.autoExploreExcludedTagSearch) elements.autoExploreExcludedTagSearch.value = "";
   updateAutoExploreSettingsUI();
 }
 
@@ -1340,55 +1344,88 @@ function applyAutoExploreSettings() {
 }
 
 function renderAutoExploreTagOptions() {
-  const container = elements.autoExploreTagOptions;
   const filter = state.unratedDraftFilter || state.unratedFilter;
-  const selectedTags = normalizeTags(filter.tags);
-  renderAutoExploreSelectedTags(selectedTags);
-  if (!container) return;
-  const query = String(elements.autoExploreTagSearch?.value || "")
+  renderAutoExploreTagPicker({
+    searchElement: elements.autoExploreTagSearch,
+    optionsElement: elements.autoExploreTagOptions,
+    selectedElement: elements.autoExploreSelectedTags,
+    selectedTags: filter.tags,
+    oppositeTags: filter.excludedTags,
+    filterKey: "tags",
+  });
+  renderAutoExploreTagPicker({
+    searchElement: elements.autoExploreExcludedTagSearch,
+    optionsElement: elements.autoExploreExcludedTagOptions,
+    selectedElement: elements.autoExploreSelectedExcludedTags,
+    selectedTags: filter.excludedTags,
+    oppositeTags: filter.tags,
+    filterKey: "excludedTags",
+  });
+}
+
+function renderAutoExploreTagPicker({
+  searchElement,
+  optionsElement,
+  selectedElement,
+  selectedTags: rawSelectedTags,
+  oppositeTags: rawOppositeTags,
+  filterKey,
+}) {
+  const selectedTags = normalizeTags(rawSelectedTags);
+  const oppositeTags = normalizeTags(rawOppositeTags);
+  renderAutoExploreSelectedTags(selectedElement, selectedTags, filterKey);
+  if (!optionsElement) return;
+  const query = String(searchElement?.value || "")
     .trim()
     .toLocaleLowerCase();
   const selectedSet = new Set(selectedTags);
+  const oppositeSet = new Set(oppositeTags);
   const knownTags = getAutoExploreKnownTags();
   const tags = query
     ? knownTags
         .filter(
           (tag) =>
-            !selectedSet.has(tag) && tag.toLocaleLowerCase().includes(query),
+            !selectedSet.has(tag) &&
+            !oppositeSet.has(tag) &&
+            tag.toLocaleLowerCase().includes(query),
         )
         .sort((first, second) => first.localeCompare(second))
     : [];
 
   if (!tags.length) {
-    container.hidden = true;
-    container.replaceChildren();
+    optionsElement.hidden = true;
+    optionsElement.replaceChildren();
     if (!query) return;
     const empty = document.createElement("div");
     empty.className = "auto-explore-tag-empty";
     empty.textContent = "找不到符合的 Tag";
-    container.replaceChildren(empty);
-    container.hidden = false;
+    optionsElement.replaceChildren(empty);
+    optionsElement.hidden = false;
     return;
   }
 
-  container.hidden = false;
-  container.replaceChildren(
+  optionsElement.hidden = false;
+  optionsElement.replaceChildren(
     ...tags.map((tag) => {
       const option = document.createElement("button");
       const marker = document.createElement("span");
       option.className = "auto-explore-tag-option";
       option.type = "button";
-      option.classList.toggle("is-selected", selectedSet.has(tag));
-      option.setAttribute("aria-pressed", String(selectedSet.has(tag)));
+      option.setAttribute("aria-pressed", "false");
       marker.className = "tag-editor-check";
       marker.textContent = "+";
       option.append(marker, createTagChip(tag));
       option.addEventListener("click", () => {
         const draft = state.unratedDraftFilter || cloneAutoExploreFilter(state.unratedFilter);
-        const nextTags = new Set(draft.tags);
+        const nextTags = new Set(normalizeTags(draft[filterKey]));
+        const oppositeKey = filterKey === "tags" ? "excludedTags" : "tags";
         nextTags.add(tag);
-        state.unratedDraftFilter = { ...draft, tags: [...nextTags] };
-        if (elements.autoExploreTagSearch) elements.autoExploreTagSearch.value = "";
+        state.unratedDraftFilter = {
+          ...draft,
+          [filterKey]: [...nextTags],
+          [oppositeKey]: normalizeTags(draft[oppositeKey]).filter((value) => value !== tag),
+        };
+        if (searchElement) searchElement.value = "";
         renderAutoExploreTagOptions();
       });
       return option;
@@ -1396,8 +1433,7 @@ function renderAutoExploreTagOptions() {
   );
 }
 
-function renderAutoExploreSelectedTags(tags) {
-  const container = elements.autoExploreSelectedTags;
+function renderAutoExploreSelectedTags(container, tags, filterKey) {
   if (!container) return;
   container.hidden = tags.length === 0;
   container.replaceChildren(
@@ -1416,7 +1452,7 @@ function renderAutoExploreSelectedTags(tags) {
         const draft = state.unratedDraftFilter || cloneAutoExploreFilter(state.unratedFilter);
         state.unratedDraftFilter = {
           ...draft,
-          tags: draft.tags.filter((value) => value !== tag),
+          [filterKey]: normalizeTags(draft[filterKey]).filter((value) => value !== tag),
         };
         renderAutoExploreTagOptions();
       });
@@ -1434,7 +1470,6 @@ function getAutoExploreKnownTags() {
 }
 
 function updateAutoExploreSettingsUI() {
-  updateAutoExploreFilterSummary();
   const panel = elements.autoExploreSettingsPanel;
   if (!panel) return;
   const filter = state.unratedDraftFilter || state.unratedFilter;
@@ -1445,13 +1480,6 @@ function updateAutoExploreSettingsUI() {
     elements.autoExploreMaxTagCount.value = filter.maxTagCount ?? "";
   }
   renderAutoExploreTagOptions();
-}
-
-function updateAutoExploreFilterSummary() {
-  if (elements.autoExploreFilterSummary) {
-    elements.autoExploreFilterSummary.textContent = getAutoExploreFilterSummary(state.unratedFilter);
-    elements.autoExploreFilterSummary.title = getAutoExploreFilterSummary(state.unratedFilter);
-  }
 }
 
 function toggleUnratedExploration() {
@@ -1486,7 +1514,6 @@ function updateAutoExploreToggle() {
     ? "正在載入符合條件的素材"
     : `自動探索目前為${state.unratedEnabled ? "開啟" : "關閉"}`;
   elements.autoExploreStatus.textContent = state.unratedEnabled ? "開" : "關";
-  updateAutoExploreFilterSummary();
 }
 
 function updateExploreButton() {

@@ -192,6 +192,7 @@ test("unrated source applies rating, tag matching, and strict tag count filters"
     { id: "too-many-tags", width: 200, height: 100, star: 3, tags: ["UI", "Photo", "Brand"] },
     { id: "wrong-rating", width: 200, height: 100, star: 4, tags: ["UI", "Photo"] },
     { id: "missing-tag", width: 200, height: 100, star: 3, tags: ["UI"] },
+    { id: "excluded-tag", width: 200, height: 100, star: 3, tags: ["UI", "Photo", "Archive"] },
   ];
   const source = new UnratedItemSource({
     get: async (options) => {
@@ -204,6 +205,7 @@ test("unrated source applies rating, tag matching, and strict tag count filters"
   const result = await source.findNextRow(new Set(), {
     rating: 3,
     tags: ["UI", "Photo"],
+    excludedTags: ["Archive"],
     tagMatch: "all",
     maxTagCount: 3,
   });

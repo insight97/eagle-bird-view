@@ -23,6 +23,7 @@
     fileType: "any",
     rating: "unrated",
     tags: Object.freeze([]),
+    excludedTags: Object.freeze([]),
     tagMatch: "any",
     maxTagCount: null,
   });
@@ -165,6 +166,7 @@
       fileType,
       rating,
       tags: normalizeTags(filter.tags),
+      excludedTags: normalizeTags(filter.excludedTags),
       tagMatch: filter.tagMatch === "all" ? "all" : "any",
       maxTagCount: Number.isInteger(maxTagCount) && maxTagCount >= 1 ? maxTagCount : null,
     };
@@ -212,6 +214,7 @@
     ) {
       return false;
     }
+    if (filter.excludedTags.some((tag) => tags.includes(tag))) return false;
     return filter.maxTagCount === null || tags.length < filter.maxTagCount;
   }
 

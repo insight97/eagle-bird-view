@@ -75,7 +75,6 @@
             >
               ⚙
             </button>
-            <span id="auto-explore-filter-summary" class="auto-explore-filter-summary"></span>
             <div
               id="auto-explore-settings-panel"
               class="auto-explore-settings"
@@ -137,6 +136,28 @@
               </div>
               <div class="auto-explore-tag-hint">不選任何 Tag 代表不限 Tag</div>
               <div id="auto-explore-selected-tags" class="auto-explore-selected-tags" hidden></div>
+              <div class="auto-explore-tag-search-label">
+                <span>排除 Tag</span>
+                <div class="auto-explore-tag-picker">
+                  <input
+                    id="auto-explore-excluded-tag-search"
+                    class="auto-explore-tag-search"
+                    type="search"
+                    placeholder="搜尋要排除的 Tag"
+                  />
+                  <div
+                    id="auto-explore-excluded-tag-options"
+                    class="auto-explore-tag-options"
+                    hidden
+                  ></div>
+                </div>
+              </div>
+              <div class="auto-explore-tag-hint">含有任一排除 Tag 的素材不會被探索</div>
+              <div
+                id="auto-explore-selected-excluded-tags"
+                class="auto-explore-selected-tags"
+                hidden
+              ></div>
               <div class="auto-explore-settings-footer">
                 <button id="auto-explore-settings-cancel" class="tag-editor-button" type="button">
                   取消

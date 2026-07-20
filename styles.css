@@ -117,15 +117,6 @@ button {
   opacity: 0.55;
 }
 
-.auto-explore-filter-summary {
-  max-width: 190px;
-  overflow: hidden;
-  color: #858a93;
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .auto-explore-settings {
   position: absolute;
   top: calc(100% + 8px);
@@ -1161,7 +1152,6 @@ button {
 @media (max-width: 800px) {
   #item-count,
   #zoom-label,
-  .auto-explore-filter-summary,
   .toolbar-meta .divider {
     display: none;
   }
