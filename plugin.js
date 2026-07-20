@@ -38,7 +38,13 @@ const { startVideoPlayer } = BirdViewVideo;
 const { TagEditor } = BirdViewTagEditor;
 const MIN_ZOOM = 0.08;
 const MAX_ZOOM = 8;
-const KEYBOARD_PAN_STEP = 240;
+const DEFAULT_SMOOTH_PAN_SPEED = 480;
+const MIN_SMOOTH_PAN_SPEED = 120;
+const MAX_SMOOTH_PAN_SPEED = 3000;
+const DEFAULT_SMOOTH_ZOOM_SPEED = 1.5;
+const MIN_SMOOTH_ZOOM_SPEED = 1.05;
+const MAX_SMOOTH_ZOOM_SPEED = 12;
+const SETTINGS_STORAGE_KEY = "bird-view-settings";
 const VIEWPORT_PAN_FRACTION = 2 / 3;
 const KEYBOARD_ZOOM_FACTOR = 1.5;
 const KEYBOARD_SEEK_STEP = 5;
@@ -75,6 +81,16 @@ const state = {
   selectedNode: null,
   verticalNavigation: null,
   freeMode: true,
+  smoothPanEnabled: false,
+  smoothPanSpeed: DEFAULT_SMOOTH_PAN_SPEED,
+  smoothZoomEnabled: false,
+  smoothZoomSpeed: DEFAULT_SMOOTH_ZOOM_SPEED,
+  smoothPanKeys: new Set(),
+  smoothPanFrame: null,
+  smoothPanLastTimestamp: null,
+  smoothZoomKeys: new Set(),
+  smoothZoomFrame: null,
+  smoothZoomLastTimestamp: null,
   toastTimer: null,
   cameraFrame: null,
   cameraFocusFrame: null,
@@ -142,6 +158,12 @@ function setup() {
   elements.autoExploreStatus = document.querySelector("#auto-explore-status");
   elements.autoExploreSettingsButton = document.querySelector("#auto-explore-settings-button");
   elements.autoExploreSettingsPanel = document.querySelector("#auto-explore-settings-panel");
+  elements.smoothPanToggle = document.querySelector("#smooth-pan-toggle");
+  elements.smoothPanSpeed = document.querySelector("#smooth-pan-speed");
+  elements.smoothPanSpeedValue = document.querySelector("#smooth-pan-speed-value");
+  elements.smoothZoomToggle = document.querySelector("#smooth-zoom-toggle");
+  elements.smoothZoomSpeed = document.querySelector("#smooth-zoom-speed");
+  elements.smoothZoomSpeedValue = document.querySelector("#smooth-zoom-speed-value");
   elements.autoExploreFileTypeImage = document.querySelector("#auto-explore-file-type-image");
   elements.autoExploreFileTypeVideo = document.querySelector("#auto-explore-file-type-video");
   elements.autoExploreRating = document.querySelector("#auto-explore-rating");
@@ -168,6 +190,8 @@ function setup() {
     true,
   );
   window.addEventListener("keydown", handleKeyDown);
+  window.addEventListener("keyup", handleKeyUp);
+  window.addEventListener("blur", handleWindowBlur);
   window.addEventListener("resize", handleResize);
   document.addEventListener("pointerdown", handleAutoExploreOutsidePointerDown);
   elements.freeModeToggle.addEventListener("click", toggleFreeMode);
@@ -186,7 +210,12 @@ function setup() {
     handleAutoExploreExcludedTagSearchKeyDown,
   );
   elements.autoExploreSettingsReset?.addEventListener("click", resetAutoExploreSettings);
+  elements.smoothPanToggle?.addEventListener("change", updateBoardSettings);
+  elements.smoothPanSpeed?.addEventListener("input", updateBoardSettings);
+  elements.smoothZoomToggle?.addEventListener("change", updateBoardSettings);
+  elements.smoothZoomSpeed?.addEventListener("input", updateBoardSettings);
   elements.exploreButton.addEventListener("click", exploreNextRow);
+  restoreSavedSettings();
   updateAutoExploreToggle();
   updateFreeModeToggle();
   updateAutoExploreSettingsUI();
@@ -934,6 +963,10 @@ function handleKeyDown(event) {
 
   if (event.ctrlKey && (event.key === "PageUp" || event.key === "PageDown")) {
     event.preventDefault();
+    if (state.smoothZoomEnabled) {
+      startSmoothKeyboardZoom(event.key);
+      return;
+    }
     const factor = event.key === "PageUp" ? KEYBOARD_ZOOM_FACTOR : 1 / KEYBOARD_ZOOM_FACTOR;
     zoomAtPoint(
       elements.viewport.clientWidth / 2,
@@ -953,8 +986,110 @@ function handleKeyDown(event) {
     moveSelection(direction);
     return;
   }
-  panBy(direction[0] * -KEYBOARD_PAN_STEP, direction[1] * -KEYBOARD_PAN_STEP);
+  if (state.smoothPanEnabled) {
+    startSmoothKeyboardPan(key);
+    return;
+  }
+  const panStep = getKeyboardPanStep();
+  panBy(direction[0] * -panStep, direction[1] * -panStep);
   selectNodeAtViewportCenter();
+}
+
+function handleKeyUp(event) {
+  const key = event.key.toLowerCase();
+  if (state.smoothPanKeys.has(key)) {
+    state.smoothPanKeys.delete(key);
+    if (!state.smoothPanKeys.size) {
+      stopSmoothKeyboardPan();
+      if (state.freeMode && state.smoothPanEnabled) selectNodeAtViewportCenter();
+    }
+  }
+  if (state.smoothZoomKeys.has(key)) {
+    state.smoothZoomKeys.delete(key);
+    if (!state.smoothZoomKeys.size) stopSmoothKeyboardZoom();
+  }
+}
+
+function handleWindowBlur() {
+  stopSmoothKeyboardPan();
+  stopSmoothKeyboardZoom();
+}
+
+function startSmoothKeyboardPan(key) {
+  state.smoothPanKeys.add(key);
+  if (state.smoothPanFrame !== null) return;
+
+  state.smoothPanLastTimestamp = performance.now();
+  const step = (timestamp) => {
+    if (!state.freeMode || !state.smoothPanEnabled || !state.smoothPanKeys.size) {
+      stopSmoothKeyboardPan();
+      return;
+    }
+
+    const elapsed = Math.min(Math.max(timestamp - state.smoothPanLastTimestamp, 0), 50) / 1000;
+    state.smoothPanLastTimestamp = timestamp;
+    let x = 0;
+    let y = 0;
+    for (const pressedKey of state.smoothPanKeys) {
+      const direction = directionFor(pressedKey);
+      if (!direction) continue;
+      x += direction[0];
+      y += direction[1];
+    }
+    const length = Math.hypot(x, y);
+    if (length) {
+      panBy(
+        (-x / length) * state.smoothPanSpeed * elapsed,
+        (-y / length) * state.smoothPanSpeed * elapsed,
+      );
+    }
+    state.smoothPanFrame = requestAnimationFrame(step);
+  };
+  state.smoothPanFrame = requestAnimationFrame(step);
+}
+
+function stopSmoothKeyboardPan() {
+  state.smoothPanKeys.clear();
+  if (state.smoothPanFrame !== null) cancelAnimationFrame(state.smoothPanFrame);
+  state.smoothPanFrame = null;
+  state.smoothPanLastTimestamp = null;
+}
+
+function startSmoothKeyboardZoom(key) {
+  state.smoothZoomKeys.add(key.toLowerCase());
+  if (state.smoothZoomFrame !== null) return;
+
+  state.smoothZoomLastTimestamp = performance.now();
+  const step = (timestamp) => {
+    if (!state.smoothZoomEnabled || !state.smoothZoomKeys.size) {
+      stopSmoothKeyboardZoom();
+      return;
+    }
+
+    const elapsed = Math.min(Math.max(timestamp - state.smoothZoomLastTimestamp, 0), 50) / 1000;
+    state.smoothZoomLastTimestamp = timestamp;
+    let direction = 0;
+    for (const pressedKey of state.smoothZoomKeys) {
+      direction += pressedKey === "pageup" ? 1 : -1;
+    }
+    if (direction) {
+      const factor = Math.pow(state.smoothZoomSpeed, direction * elapsed);
+      zoomAtPoint(
+        elements.viewport.clientWidth / 2,
+        elements.viewport.clientHeight / 2,
+        factor,
+      );
+    }
+    state.smoothZoomFrame = requestAnimationFrame(step);
+  };
+  state.smoothZoomFrame = requestAnimationFrame(step);
+}
+
+function stopSmoothKeyboardZoom() {
+  state.smoothZoomKeys.clear();
+  if (state.smoothZoomFrame !== null) cancelAnimationFrame(state.smoothZoomFrame);
+  state.smoothZoomFrame = null;
+  state.smoothZoomLastTimestamp = null;
 }
 
 function openSelectedTagEditor() {
@@ -968,6 +1103,10 @@ function panBy(dx, dy) {
   state.camera.x += dx;
   state.camera.y += dy;
   updateCamera();
+}
+
+function getKeyboardPanStep() {
+  return Math.round(state.smoothPanSpeed / 2);
 }
 
 function panOneViewport(key) {
@@ -1211,6 +1350,8 @@ function maybeLoadNextUnratedRow() {
 }
 
 function toggleFreeMode() {
+  stopSmoothKeyboardPan();
+  stopSmoothKeyboardZoom();
   state.freeMode = !state.freeMode;
   state.verticalNavigation = null;
   elements.viewport.classList.toggle("is-locked", !state.freeMode);
@@ -1255,7 +1396,7 @@ function autoExploreFiltersEqual(first, second) {
 
 function toggleAutoExploreSettings() {
   const panel = elements.autoExploreSettingsPanel;
-  if (!panel || !state.unratedSource) return;
+  if (!panel) return;
   if (panel.hidden) {
     state.unratedDraftFilter = cloneAutoExploreFilter(state.unratedFilter);
     if (elements.autoExploreTagSearch) elements.autoExploreTagSearch.value = "";
@@ -1281,6 +1422,98 @@ function handleAutoExploreOutsidePointerDown(event) {
   if (!panel || panel.hidden) return;
   if (elements.autoExploreControls?.contains(event.target)) return;
   closeAutoExploreSettings();
+}
+
+function updateBoardSettings() {
+  state.smoothPanEnabled = Boolean(elements.smoothPanToggle?.checked);
+  const speed = Number(elements.smoothPanSpeed?.value);
+  if (Number.isFinite(speed)) {
+    state.smoothPanSpeed = clamp(speed, MIN_SMOOTH_PAN_SPEED, MAX_SMOOTH_PAN_SPEED);
+  }
+  state.smoothZoomEnabled = Boolean(elements.smoothZoomToggle?.checked);
+  const zoomSpeed = Number(elements.smoothZoomSpeed?.value);
+  if (Number.isFinite(zoomSpeed)) {
+    state.smoothZoomSpeed = clamp(
+      zoomSpeed,
+      MIN_SMOOTH_ZOOM_SPEED,
+      MAX_SMOOTH_ZOOM_SPEED,
+    );
+  }
+  if (!state.smoothPanEnabled) stopSmoothKeyboardPan();
+  if (!state.smoothZoomEnabled) stopSmoothKeyboardZoom();
+  saveSettings();
+  updateBoardSettingsUI();
+}
+
+function updateBoardSettingsUI() {
+  if (elements.smoothPanToggle) elements.smoothPanToggle.checked = state.smoothPanEnabled;
+  if (elements.smoothPanSpeed) elements.smoothPanSpeed.value = String(state.smoothPanSpeed);
+  if (elements.smoothPanSpeedValue) {
+    elements.smoothPanSpeedValue.textContent =
+      `${state.smoothPanSpeed} px/s · ${getKeyboardPanStep()} px/次`;
+  }
+  if (elements.smoothZoomToggle) elements.smoothZoomToggle.checked = state.smoothZoomEnabled;
+  if (elements.smoothZoomSpeed) elements.smoothZoomSpeed.value = String(state.smoothZoomSpeed);
+  if (elements.smoothZoomSpeedValue) {
+    elements.smoothZoomSpeedValue.textContent = `${state.smoothZoomSpeed.toFixed(2)}×/秒`;
+  }
+}
+
+function restoreSavedSettings() {
+  try {
+    if (typeof localStorage === "undefined") return;
+    const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
+    if (!stored) return;
+    const saved = JSON.parse(stored);
+    const board = saved?.board;
+    if (board && typeof board === "object") {
+      state.smoothPanEnabled = Boolean(board.smoothPanEnabled);
+      state.smoothPanSpeed = normalizeStoredSettingNumber(
+        board.smoothPanSpeed,
+        MIN_SMOOTH_PAN_SPEED,
+        MAX_SMOOTH_PAN_SPEED,
+        DEFAULT_SMOOTH_PAN_SPEED,
+      );
+      state.smoothZoomEnabled = Boolean(board.smoothZoomEnabled);
+      state.smoothZoomSpeed = normalizeStoredSettingNumber(
+        board.smoothZoomSpeed,
+        MIN_SMOOTH_ZOOM_SPEED,
+        MAX_SMOOTH_ZOOM_SPEED,
+        DEFAULT_SMOOTH_ZOOM_SPEED,
+      );
+    }
+    if (saved?.autoExploreFilter && typeof saved.autoExploreFilter === "object") {
+      state.unratedFilter = cloneAutoExploreFilter(saved.autoExploreFilter);
+    }
+  } catch (error) {
+    console.warn("Failed to restore Bird View settings", error);
+  }
+}
+
+function saveSettings() {
+  try {
+    if (typeof localStorage === "undefined") return;
+    localStorage.setItem(
+      SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        board: {
+          smoothPanEnabled: state.smoothPanEnabled,
+          smoothPanSpeed: state.smoothPanSpeed,
+          smoothZoomEnabled: state.smoothZoomEnabled,
+          smoothZoomSpeed: state.smoothZoomSpeed,
+        },
+        autoExploreFilter: state.unratedFilter,
+      }),
+    );
+  } catch (error) {
+    console.warn("Failed to save Bird View settings", error);
+  }
+}
+
+function normalizeStoredSettingNumber(value, minimum, maximum, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? clamp(number, minimum, maximum) : fallback;
 }
 
 function updateDraftAutoExploreFileTypes(event) {
@@ -1357,6 +1590,7 @@ function applyAutoExploreSettings({ close = true } = {}) {
   const nextFilter = cloneAutoExploreFilter(state.unratedDraftFilter);
   const changed = !autoExploreFiltersEqual(state.unratedFilter, nextFilter);
   state.unratedFilter = nextFilter;
+  saveSettings();
   if (close) closeAutoExploreSettings();
   else state.unratedDraftFilter = cloneAutoExploreFilter(nextFilter);
   updateAutoExploreSettingsUI();
@@ -1501,6 +1735,7 @@ function getAutoExploreKnownTags() {
 }
 
 function updateAutoExploreSettingsUI() {
+  updateBoardSettingsUI();
   const panel = elements.autoExploreSettingsPanel;
   if (!panel) return;
   const filter = state.unratedDraftFilter || state.unratedFilter;
@@ -1541,9 +1776,7 @@ function toggleUnratedExploration() {
 function updateAutoExploreToggle() {
   if (!elements.autoExploreToggle) return;
   elements.autoExploreToggle.disabled = !state.unratedSource;
-  if (elements.autoExploreSettingsButton) {
-    elements.autoExploreSettingsButton.disabled = !state.unratedSource;
-  }
+  if (elements.autoExploreSettingsButton) elements.autoExploreSettingsButton.disabled = false;
   elements.autoExploreToggle.classList.toggle("is-active", state.unratedEnabled);
   elements.autoExploreToggle.classList.toggle("is-loading", state.unratedLoading);
   elements.autoExploreToggle.setAttribute("aria-checked", String(state.unratedEnabled));

@@ -147,6 +147,22 @@ button {
   font-weight: 700;
 }
 
+.auto-explore-settings-section-heading {
+  margin-top: 3px;
+  border-top: 1px solid #363a40;
+  padding-top: 9px;
+  color: #eef0f3;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.auto-explore-settings-subheading {
+  margin-top: 2px;
+  color: #aeb2ba;
+  font-size: 10px;
+  font-weight: 700;
+}
+
 .auto-explore-setting-row,
 .auto-explore-tag-search-label {
   display: flex;
@@ -204,6 +220,39 @@ button {
 
 .auto-explore-number {
   width: 74px;
+}
+
+.auto-explore-speed-row {
+  justify-content: space-between;
+}
+
+.auto-explore-speed-control {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.auto-explore-range {
+  width: 132px;
+  accent-color: #7971ed;
+  cursor: pointer;
+}
+
+.auto-explore-speed-value {
+  min-width: 126px;
+  color: #b8bbc2;
+  font-size: 9px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.auto-explore-zoom-speed-value {
+  min-width: 58px;
+  color: #b8bbc2;
+  font-size: 10px;
+  text-align: right;
+  white-space: nowrap;
 }
 
 .auto-explore-select:focus,

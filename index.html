@@ -69,7 +69,7 @@
               id="auto-explore-settings-button"
               class="settings-button"
               type="button"
-              aria-label="設定自動探索條件"
+              aria-label="設定自動探索與白板選項"
               aria-expanded="false"
               disabled
             >
@@ -163,6 +163,55 @@
                 class="auto-explore-selected-tags"
                 hidden
               ></div>
+              <div class="auto-explore-settings-section-heading">白板選項</div>
+              <div class="auto-explore-settings-subheading">移動</div>
+              <label class="auto-explore-setting-row">
+                <span>平滑移動</span>
+                <input id="smooth-pan-toggle" type="checkbox" />
+              </label>
+              <div class="auto-explore-setting-row auto-explore-speed-row">
+                <span>移動速度</span>
+                <div class="auto-explore-speed-control">
+                  <input
+                    id="smooth-pan-speed"
+                    class="auto-explore-range"
+                    type="range"
+                    min="120"
+                    max="3000"
+                    step="20"
+                    value="480"
+                  />
+                  <output id="smooth-pan-speed-value" class="auto-explore-speed-value" for="smooth-pan-speed">
+                    480
+                  </output>
+                </div>
+              </div>
+              <div class="auto-explore-settings-subheading">縮放</div>
+              <label class="auto-explore-setting-row">
+                <span>平滑縮放</span>
+                <input id="smooth-zoom-toggle" type="checkbox" />
+              </label>
+              <div class="auto-explore-setting-row auto-explore-speed-row">
+                <span>縮放速度</span>
+                <div class="auto-explore-speed-control">
+                  <input
+                    id="smooth-zoom-speed"
+                    class="auto-explore-range"
+                    type="range"
+                    min="1.05"
+                    max="12"
+                    step="0.05"
+                    value="1.5"
+                  />
+                  <output
+                    id="smooth-zoom-speed-value"
+                    class="auto-explore-zoom-speed-value"
+                    for="smooth-zoom-speed"
+                  >
+                    1.50×/秒
+                  </output>
+                </div>
+              </div>
               <div class="auto-explore-settings-footer">
                 <button id="auto-explore-settings-reset" class="tag-editor-button" type="button">
                   預設
