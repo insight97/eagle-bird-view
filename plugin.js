@@ -1000,6 +1000,12 @@ function handleKeyDown(event) {
     closeAutoExploreSettings();
     return;
   }
+  if (event.key === "F11") {
+    event.preventDefault();
+    if (event.repeat) return;
+    void toggleFullScreen();
+    return;
+  }
   if (isInteractiveTarget(event.target)) return;
 
   if (!event.ctrlKey && !event.metaKey && !event.altKey && /^[1-5]$/.test(event.key)) {
@@ -1092,6 +1098,26 @@ function handleKeyDown(event) {
   const panStep = getKeyboardPanStep();
   panBy(direction[0] * -panStep, direction[1] * -panStep);
   selectNodeAtViewportCenter();
+}
+
+async function toggleFullScreen() {
+  if (
+    typeof eagle === "undefined" ||
+    typeof eagle.window?.isFullScreen !== "function" ||
+    typeof eagle.window?.setFullScreen !== "function"
+  ) {
+    showToast("目前無法切換全螢幕模式。", true);
+    return;
+  }
+
+  try {
+    const isFullScreen = await eagle.window.isFullScreen();
+    await eagle.window.setFullScreen(!isFullScreen);
+    handleResize();
+  } catch (error) {
+    console.error("Failed to toggle Eagle fullscreen", error);
+    showToast(`無法切換全螢幕模式：${error.message || error}`, true);
+  }
 }
 
 function handleKeyUp(event) {
