@@ -45,6 +45,20 @@ test("findCandidates reuses cached folder and tag queries", async () => {
   assert.equal(calls, 4);
 });
 
+test("findCandidates excludes non-media files", async () => {
+  const source = new RelatedItemSource({
+    get: async () => [
+      { id: "image", ext: "jpg" },
+      { id: "text", ext: "txt" },
+    ],
+    getByIds: async () => [],
+  });
+
+  const result = await source.findCandidates({ folders: ["ui"], tags: [] });
+
+  assert.deepEqual(result.map(({ id }) => id), ["image"]);
+});
+
 test("findCandidates limits the number of queries from heavily tagged items", async () => {
   let calls = 0;
   const source = new RelatedItemSource({
@@ -149,6 +163,25 @@ test("unrated source allows exploration without a tag filter", async () => {
   assert.deepEqual(result.map(({ id }) => id), ["without-tags", "with-tags"]);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].tags, undefined);
+});
+
+test("unrated source excludes non-media files from image and video exploration", async () => {
+  const source = new UnratedItemSource({
+    get: async () => [
+      { id: "image", ext: "jpg", width: 200, height: 100 },
+      { id: "video", ext: "mp4", width: 200, height: 100 },
+      { id: "text", ext: "txt", width: 200, height: 100 },
+      { id: "document", ext: "pdf", width: 200, height: 100 },
+    ],
+    getByIds: async () => [],
+  }, () => 0);
+
+  const result = await source.findNextRow(new Set(), {
+    fileTypes: ["image", "video"],
+    rating: "any",
+  });
+
+  assert.deepEqual(result.map(({ id }) => id), ["image", "video"]);
 });
 
 test("unrated source filters images and videos by file type", async () => {

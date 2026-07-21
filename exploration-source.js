@@ -20,6 +20,21 @@
   const MAX_CACHED_ITEMS_PER_QUERY = 240;
   const MAX_CANDIDATES = 600;
   const FILE_TYPES = Object.freeze(["image", "video"]);
+  const IMAGE_EXTENSIONS = new Set([
+    "avif",
+    "bmp",
+    "gif",
+    "heic",
+    "heif",
+    "ico",
+    "jpeg",
+    "jpg",
+    "png",
+    "svg",
+    "tif",
+    "tiff",
+    "webp",
+  ]);
   const DEFAULT_UNRATED_FILTER = Object.freeze({
     fileTypes: Object.freeze(["image", "video"]),
     rating: "unrated",
@@ -63,7 +78,14 @@
       for (const [cacheKey, conditions] of queries) {
         const items = await this.#query(cacheKey, conditions);
         for (const item of items) {
-          if (!item?.id || item.isDeleted || excludedIds.has(item.id)) continue;
+          if (
+            !item?.id ||
+            item.isDeleted ||
+            excludedIds.has(item.id) ||
+            !isSupportedMediaItem(item)
+          ) {
+            continue;
+          }
           itemsById.set(item.id, item);
           if (itemsById.size >= MAX_CANDIDATES) break;
         }
@@ -199,7 +221,8 @@
 
   function isEligibleItem(item, excludedIds, filter) {
     if (!item?.id || item.isDeleted || excludedIds.has(item.id)) return false;
-    if (!filter.fileTypes.includes(getItemFileType(item))) return false;
+    const fileType = getItemFileType(item);
+    if (!fileType || !filter.fileTypes.includes(fileType)) return false;
     if (filter.rating !== "any") {
       const rating = getItemRating(item);
       if (filter.rating === "unrated" ? rating !== 0 : rating !== filter.rating) return false;
@@ -218,7 +241,14 @@
   }
 
   function getItemFileType(item) {
-    return VIDEO_EXTENSIONS.has(String(item?.ext || "").toLowerCase()) ? "video" : "image";
+    const extension = String(item?.ext || "").toLowerCase().replace(/^\./, "");
+    if (VIDEO_EXTENSIONS.has(extension)) return "video";
+    if (!extension || IMAGE_EXTENSIONS.has(extension)) return "image";
+    return null;
+  }
+
+  function isSupportedMediaItem(item) {
+    return getItemFileType(item) !== null;
   }
 
   function normalizeFileTypes(filter) {
