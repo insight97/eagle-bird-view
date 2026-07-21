@@ -431,7 +431,7 @@ button {
 
 .selection-tags {
   min-width: 0;
-  max-width: min(260px, 28vw);
+  max-width: min(400px, 36vw);
   overflow: hidden;
   text-overflow: ellipsis;
 }
