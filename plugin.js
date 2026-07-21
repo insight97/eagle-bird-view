@@ -47,6 +47,8 @@ const MAX_SMOOTH_ZOOM_SPEED = 12;
 const SETTINGS_STORAGE_KEY = "bird-view-settings";
 const VIEWPORT_PAN_FRACTION = 2 / 3;
 const KEYBOARD_ZOOM_FACTOR = 1.5;
+const HOME_ZOOM = 1.1;
+const CAMERA_FIT_PADDING = 64;
 const KEYBOARD_SEEK_STEP = 5;
 const KEYBOARD_VOLUME_STEP = 0.05;
 const PAN_START_THRESHOLD = 4;
@@ -1015,6 +1017,20 @@ function handleKeyDown(event) {
   }
 
   if (
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    !event.shiftKey &&
+    (event.key === "Home" || event.key === "End")
+  ) {
+    event.preventDefault();
+    if (event.repeat) return;
+    if (event.key === "Home") focusSelectedNodeAtZoom(HOME_ZOOM);
+    else fitSelectedRowInViewport();
+    return;
+  }
+
+  if (
     event.ctrlKey &&
     ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)
   ) {
@@ -1268,9 +1284,16 @@ function moveSelection(direction, { center = !state.freeMode, forceCenter = fals
 function centerCameraOnNode(node, { animate = true } = {}) {
   if (!node) return;
   const displayHeight = node.mediaHeight + (node.isVideo ? VIDEO_CONTROLS_HEIGHT : 0);
+  centerCameraOnPoint(
+    { x: node.x + node.width / 2, y: node.y + displayHeight / 2 },
+    { animate },
+  );
+}
+
+function centerCameraOnPoint(point, { animate = true } = {}) {
   const target = centerCameraAtPoint(
     state.camera,
-    { x: node.x + node.width / 2, y: node.y + displayHeight / 2 },
+    point,
     { width: elements.viewport.clientWidth, height: elements.viewport.clientHeight },
   );
   cancelCameraFocus();
@@ -1297,6 +1320,58 @@ function centerCameraOnNode(node, { animate = true } = {}) {
     else state.cameraFocusFrame = null;
   };
   state.cameraFocusFrame = requestAnimationFrame(step);
+}
+
+function focusSelectedNodeAtZoom(zoom) {
+  const node = state.selectedNode;
+  if (!node) return;
+  stopSmoothKeyboardPan();
+  stopSmoothKeyboardZoom();
+  state.camera.scale = clamp(
+    getBaseScale() * zoom,
+    getBaseScale() * MIN_ZOOM,
+    getBaseScale() * MAX_ZOOM,
+  );
+  centerCameraOnNode(node);
+}
+
+function fitSelectedRowInViewport() {
+  const selectedNode = state.selectedNode;
+  if (!selectedNode) return;
+  const row = state.rows.find((candidate) => candidate.nodes.includes(selectedNode));
+  if (!row?.nodes.length) return;
+
+  const bounds = row.nodes.reduce(
+    (result, node) => {
+      const displayHeight = node.mediaHeight + (node.isVideo ? VIDEO_CONTROLS_HEIGHT : 0);
+      return {
+        left: Math.min(result.left, node.x),
+        top: Math.min(result.top, node.y),
+        right: Math.max(result.right, node.x + node.width),
+        bottom: Math.max(result.bottom, node.y + displayHeight),
+      };
+    },
+    { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity },
+  );
+  const width = bounds.right - bounds.left;
+  const height = bounds.bottom - bounds.top;
+  if (!(width > 0 && height > 0)) return;
+
+  stopSmoothKeyboardPan();
+  stopSmoothKeyboardZoom();
+  const viewportWidth = elements.viewport.clientWidth;
+  const viewportHeight = elements.viewport.clientHeight;
+  const availableWidth = Math.max(viewportWidth - CAMERA_FIT_PADDING * 2, 1);
+  const availableHeight = Math.max(viewportHeight - CAMERA_FIT_PADDING * 2, 1);
+  state.camera.scale = clamp(
+    Math.min(availableWidth / width, availableHeight / height),
+    getBaseScale() * MIN_ZOOM,
+    getBaseScale() * MAX_ZOOM,
+  );
+  centerCameraOnPoint({
+    x: (bounds.left + bounds.right) / 2,
+    y: (bounds.top + bounds.bottom) / 2,
+  });
 }
 
 function cancelCameraFocus() {
