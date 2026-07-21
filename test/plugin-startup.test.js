@@ -150,12 +150,33 @@ test("auto exploration defaults off and a library change restarts selected item 
   assert.equal(fullScreen, false);
   assert.equal(fullScreenCalls, 2);
 
+  let insertPrevented = false;
+  keyDown({
+    key: "Insert",
+    repeat: false,
+    target: null,
+    preventDefault() {
+      insertPrevented = true;
+    },
+  });
+  await Promise.resolve();
+  assert.equal(insertPrevented, true);
+  assert.equal(unratedRequests, 1);
+  assert.equal(elements.get("#auto-explore-status").textContent, "開");
+
+  keyDown({ key: "Insert", repeat: true, target: null, preventDefault() {} });
+  await Promise.resolve();
+  assert.equal(elements.get("#auto-explore-status").textContent, "開");
+
+  keyDown({ key: "Insert", repeat: false, target: null, preventDefault() {} });
+  assert.equal(elements.get("#auto-explore-status").textContent, "關");
+
   elements.get("#free-mode-toggle").click();
   assert.equal(elements.get("#free-mode-status").textContent, "關");
 
   elements.get("#auto-explore-toggle").click();
   await Promise.resolve();
-  assert.equal(unratedRequests, 1);
+  assert.equal(unratedRequests, 2);
   assert.equal(elements.get("#auto-explore-status").textContent, "開");
 
   libraryChanged();

@@ -1008,6 +1008,12 @@ function handleKeyDown(event) {
     void toggleFullScreen();
     return;
   }
+  if (event.key === "Insert") {
+    event.preventDefault();
+    if (event.repeat) return;
+    toggleUnratedExploration();
+    return;
+  }
   if (isInteractiveTarget(event.target)) return;
 
   if (!event.ctrlKey && !event.metaKey && !event.altKey && /^[1-5]$/.test(event.key)) {
