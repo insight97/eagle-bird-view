@@ -424,7 +424,8 @@ button {
 
 .selection-dimensions,
 .selection-rating,
-.selection-tags {
+.selection-tags,
+.selection-folders {
   flex: none;
   white-space: nowrap;
 }
@@ -433,6 +434,14 @@ button {
   min-width: 0;
   max-width: min(400px, 36vw);
   overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.selection-folders {
+  min-width: 0;
+  max-width: min(280px, 24vw);
+  overflow: hidden;
+  color: #a8abb1;
   text-overflow: ellipsis;
 }
 

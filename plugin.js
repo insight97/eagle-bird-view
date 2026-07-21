@@ -113,6 +113,7 @@ const state = {
   lastUnratedTriggerRow: null,
   tagColors: new Map(),
   tagColorGeneration: 0,
+  folderNames: new Map(),
   selectedItemsGeneration: 0,
   viewportSize: null,
   started: false,
@@ -158,6 +159,8 @@ function setup() {
   elements.selectionRating = document.querySelector("#selection-rating");
   elements.selectionTagsDivider = document.querySelector("#selection-tags-divider");
   elements.selectionTags = document.querySelector("#selection-tags");
+  elements.selectionFoldersDivider = document.querySelector("#selection-folders-divider");
+  elements.selectionFolders = document.querySelector("#selection-folders");
   elements.autoExploreToggle = document.querySelector("#auto-explore-toggle");
   elements.autoExploreStatus = document.querySelector("#auto-explore-status");
   elements.autoExploreSettingsButton = document.querySelector("#auto-explore-settings-button");
@@ -259,6 +262,7 @@ function handlePluginRun() {
 
 function handleLibraryChanged() {
   clearBoard();
+  state.folderNames.clear();
   state.explorationSource.clear();
   state.unratedSource.clear();
   state.unratedGeneration += 1;
@@ -332,6 +336,7 @@ function appendItemsToBoard(items) {
   }
   state.nodes = layout.nodes;
   state.rows = layout.rows;
+  void loadFolderNames(items);
   for (const node of state.materializedNodes) positionNode(node);
   updateBoardMeta();
   renderAutoExploreTagOptions();
@@ -353,6 +358,7 @@ function renderItems(items) {
   state.nodes = layout.nodes;
   state.rows = layout.rows;
   state.lastUnratedTriggerRow = null;
+  void loadFolderNames(items);
   renderAutoExploreTagOptions();
   refreshBaseScale();
 
@@ -1423,6 +1429,7 @@ async function exploreNextRow() {
     );
     state.nodes = layout.nodes;
     state.rows = layout.rows;
+    void loadFolderNames(items);
     for (const node of state.materializedNodes) positionNode(node);
     updateBoardMeta();
     renderAutoExploreTagOptions();
@@ -1476,6 +1483,7 @@ async function loadNextUnratedRow({ focus = false } = {}) {
       state.nodes = layout.nodes;
       state.rows = layout.rows;
     }
+    void loadFolderNames(items);
     for (const node of state.materializedNodes) positionNode(node);
     updateBoardMeta();
     renderAutoExploreTagOptions();
@@ -2048,6 +2056,31 @@ function updateBoardMeta() {
   elements.emptyState.hidden = count > 0;
 }
 
+async function loadFolderNames(items) {
+  const folderIds = [
+    ...new Set(items.flatMap((item) => normalizeTags(item.folders))),
+  ];
+  if (!folderIds.length) return;
+  if (typeof eagle === "undefined" || typeof eagle.folder?.getByIds !== "function") {
+    return;
+  }
+
+  const missingFolderIds = folderIds.filter((id) => !state.folderNames.has(id));
+  if (!missingFolderIds.length) return;
+
+  try {
+    const folders = await eagle.folder.getByIds(missingFolderIds);
+    for (const folder of folders || []) {
+      const id = String(folder?.id || "").trim();
+      const name = String(folder?.name || "").trim();
+      if (id && name) state.folderNames.set(id, name);
+    }
+    updateSelectionStatus();
+  } catch (error) {
+    console.warn("Failed to load Eagle folder names", error);
+  }
+}
+
 function updateSelectionStatus() {
   if (!elements.selectionStatus) return;
   const item = state.selectedNode?.item;
@@ -2060,6 +2093,9 @@ function updateSelectionStatus() {
   const dimensions = formatItemDimensions(item);
   const rating = getItemRating(item);
   const tags = normalizeTags(item.tags);
+  const folders = normalizeTags(item.folders)
+    .map((folderId) => state.folderNames.get(folderId))
+    .filter(Boolean);
 
   elements.selectionName.textContent = name;
   elements.selectionName.title = name;
@@ -2081,6 +2117,10 @@ function updateSelectionStatus() {
   elements.selectionTagsDivider.hidden = tags.length === 0;
   elements.selectionTags.replaceChildren(...tags.map(createTagChip));
   elements.selectionTags.title = tags.join(", ");
+  elements.selectionFolders.hidden = folders.length === 0;
+  elements.selectionFoldersDivider.hidden = folders.length === 0;
+  elements.selectionFolders.textContent = folders.join(" / ");
+  elements.selectionFolders.title = folders.join(" / ");
 }
 
 function updateCamera() {
