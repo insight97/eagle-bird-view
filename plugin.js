@@ -19,6 +19,7 @@ const {
   getLabelDetailLevel,
   getLabelRect,
   getPanLayerTranslation,
+  getRowFocusScale,
   getWrappedGridTranslation,
   getViewportWorkInterval,
   getTagColorStyle,
@@ -49,7 +50,7 @@ const MAX_SMOOTH_ZOOM_SPEED = 12;
 const SETTINGS_STORAGE_KEY = "bird-view-settings";
 const VIEWPORT_PAN_FRACTION = 2 / 3;
 const KEYBOARD_ZOOM_FACTOR = 1.5;
-const FOCUS_ZOOM = 1.2;
+const FOCUS_ROW_EMPHASIS = 0.9;
 const CAMERA_FIT_PADDING = 64;
 const KEYBOARD_SEEK_STEP = 5;
 const KEYBOARD_VOLUME_STEP = 0.05;
@@ -1001,7 +1002,7 @@ function handleKeyDown(event) {
   ) {
     event.preventDefault();
     if (event.repeat) return;
-    if (event.key === "Home") focusSelectedNodeAtZoom(FOCUS_ZOOM);
+    if (event.key === "Home") focusSelectedNodeAtRowScale();
     else fitSelectedRowInViewport();
     return;
   }
@@ -1018,7 +1019,7 @@ function handleKeyDown(event) {
     if (arrowAction === "focus-selection") {
       if (event.repeat) return;
       const node = moveSelection(directionFor(event.key));
-      if (node) focusSelectedNodeAtZoom(FOCUS_ZOOM, node);
+      if (node) focusSelectedNodeAtRowScale(node);
       return;
     }
     if (arrowAction === "viewport-pan") {
@@ -1311,12 +1312,16 @@ function animateCameraTo(target, { animate = true } = {}) {
   state.cameraFocusFrame = requestAnimationFrame(step);
 }
 
-function focusSelectedNodeAtZoom(zoom, node = state.selectedNode) {
+function focusSelectedNodeAtRowScale(node = state.selectedNode) {
   if (!node) return;
   stopSmoothKeyboardPan();
   stopSmoothKeyboardZoom();
+  const row = state.rows.find((candidate) => candidate.nodes.includes(node));
+  const rowHeight = row ? row.bottom - row.top : node.mediaHeight;
   const scale = clamp(
-    getBaseScale() * zoom,
+    getRowFocusScale(getBaseScale(), rowHeight, {
+      emphasis: FOCUS_ROW_EMPHASIS,
+    }),
     getBaseScale() * MIN_ZOOM,
     getBaseScale() * MAX_ZOOM,
   );
@@ -1504,6 +1509,7 @@ function maybeLoadNextUnratedRow() {
       state.camera,
       { width: elements.viewport.clientWidth, height: elements.viewport.clientHeight },
       getBaseScale(),
+      ORIGINAL_IMAGE_ZOOM,
     )
   ) {
     return;

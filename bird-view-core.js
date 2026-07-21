@@ -424,8 +424,8 @@
     return selected;
   }
 
-  function shouldLoadUnratedRow(rows, camera, viewport, baseScale) {
-    if (!rows.length || camera.scale <= baseScale) return false;
+  function shouldLoadUnratedRow(rows, camera, viewport, baseScale, minimumZoom = 0.8) {
+    if (!rows.length || camera.scale < baseScale * minimumZoom) return false;
     const lastRow = rows.at(-1);
     const screenCenter = camera.y + ((lastRow.top + lastRow.bottom) / 2) * camera.scale;
     return screenCenter >= 0 && screenCenter <= viewport.height;
@@ -585,6 +585,30 @@
     return row.nodes.some(({ isVideo }) => isVideo) ? VIDEO_CONTROLS_HEIGHT : 0;
   }
 
+  function getRowFocusScale(
+    baseScale,
+    rowHeight,
+    { targetHeight = TARGET_ROW_HEIGHT, emphasis = 0.9 } = {},
+  ) {
+    const safeBaseScale = Number(baseScale);
+    const safeRowHeight = Number(rowHeight);
+    const safeTargetHeight = Number(targetHeight);
+    const safeEmphasis = Number(emphasis);
+    if (
+      !Number.isFinite(safeBaseScale) ||
+      !Number.isFinite(safeRowHeight) ||
+      !Number.isFinite(safeTargetHeight) ||
+      !Number.isFinite(safeEmphasis) ||
+      safeBaseScale <= 0 ||
+      safeRowHeight <= 0 ||
+      safeTargetHeight <= 0 ||
+      safeEmphasis <= 0
+    ) {
+      return safeBaseScale > 0 ? safeBaseScale : 0;
+    }
+    return safeBaseScale * (safeTargetHeight / safeRowHeight) * safeEmphasis;
+  }
+
   function findNodesNearViewport(rows, camera, viewport, screenMargin) {
     if (!rows.length) return [];
     const left = (-camera.x - screenMargin) / camera.scale;
@@ -634,6 +658,7 @@
     getAspectRatio,
     getItemRating,
     getNextRating,
+    getRowFocusScale,
     getLabelRect,
     getLabelDetailLevel,
     getPanLayerTranslation,

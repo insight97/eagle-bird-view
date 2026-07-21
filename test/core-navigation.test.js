@@ -17,6 +17,7 @@ const {
   getLabelDetailLevel,
   getLabelRect,
   getPanLayerTranslation,
+  getRowFocusScale,
   getWrappedGridTranslation,
   getViewportWorkInterval,
   getTagColorStyle,
@@ -66,6 +67,12 @@ test("interpolateCamera animates position and zoom together", () => {
   assert.equal(middle.y, 77.5);
   assert.ok(Math.abs(middle.scale - 1.0875) < Number.EPSILON * 10);
   assert.deepEqual(interpolateCamera(start, target, 2), target);
+});
+
+test("getRowFocusScale normalizes focus size by row height", () => {
+  assert.equal(getRowFocusScale(0.5, 180), 0.45);
+  assert.equal(getRowFocusScale(0.5, 90), 0.9);
+  assert.equal(getRowFocusScale(0.5, 360), 0.225);
 });
 
 test("getItemRating accepts Eagle stars and clamps invalid values", () => {

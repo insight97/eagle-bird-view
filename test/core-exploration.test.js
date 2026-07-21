@@ -138,14 +138,16 @@ test("random exploration selects enough items to fill one row", () => {
   assert.deepEqual(selected.map(({ id }) => id), ["item-0", "item-1", "item-2", "item-3"]);
 });
 
-test("unrated exploration only triggers while zoomed in on the last row", () => {
+test("unrated exploration triggers from 80% zoom on the last row", () => {
   const rows = [
     { top: 0, bottom: 180 },
     { top: 212, bottom: 392 },
   ];
   const viewport = { width: 1200, height: 800 };
 
-  assert.equal(shouldLoadUnratedRow(rows, { x: 0, y: 0, scale: 1 }, viewport, 1), false);
+  assert.equal(shouldLoadUnratedRow(rows, { x: 0, y: 0, scale: 0.79 }, viewport, 1), false);
+  assert.equal(shouldLoadUnratedRow(rows, { x: 0, y: 0, scale: 0.8 }, viewport, 1), true);
+  assert.equal(shouldLoadUnratedRow(rows, { x: 0, y: 0, scale: 1 }, viewport, 1), true);
   assert.equal(shouldLoadUnratedRow(rows, { x: 0, y: 0, scale: 1.5 }, viewport, 1), true);
   assert.equal(shouldLoadUnratedRow(rows, { x: 0, y: -1000, scale: 1.5 }, viewport, 1), false);
 });
