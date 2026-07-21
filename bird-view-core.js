@@ -34,6 +34,7 @@
     arrowleft: [-1, 0],
     arrowright: [1, 0],
   };
+  const ARROW_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
   const WASD_TO_ARROW = { w: "arrowup", s: "arrowdown", a: "arrowleft", d: "arrowright" };
 
   function clamp(value, minimum, maximum) {
@@ -43,6 +44,21 @@
   function directionFor(key) {
     const normalizedKey = String(key || "").toLowerCase();
     return ARROW_DIRECTIONS[normalizedKey] || ARROW_DIRECTIONS[WASD_TO_ARROW[normalizedKey]];
+  }
+
+  function getArrowKeyAction(
+    event,
+    { freeMode = true, playingVideo = false } = {},
+  ) {
+    if (!ARROW_KEYS.has(event?.key)) return null;
+    if (event.ctrlKey && !event.shiftKey && !event.metaKey && !event.altKey) {
+      return playingVideo ? "video-control" : "focus-selection";
+    }
+    if (event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      return freeMode ? "viewport-pan" : "selection";
+    }
+    if (event.ctrlKey || event.metaKey || event.altKey) return null;
+    return freeMode ? "free-pan" : "selection";
   }
 
   function getViewportPanDelta(key, viewport, fraction = 2 / 3) {
@@ -67,6 +83,16 @@
       ...camera,
       x: viewport.width / 2 - point.x * camera.scale,
       y: viewport.height / 2 - point.y * camera.scale,
+    };
+  }
+
+  function interpolateCamera(start, target, progress) {
+    const normalizedProgress = clamp(progress, 0, 1);
+    const eased = 1 - (1 - normalizedProgress) ** 3;
+    return {
+      x: start.x + (target.x - start.x) * eased,
+      y: start.y + (target.y - start.y) * eased,
+      scale: start.scale + (target.scale - start.scale) * eased,
     };
   }
 
@@ -601,6 +627,7 @@
     centerCameraAtPoint,
     createJustifiedLayout,
     directionFor,
+    getArrowKeyAction,
     findNearestNodeToPoint,
     findNearestNodeInRows,
     findDirectionalNeighbor,
@@ -623,6 +650,7 @@
     getViewportPanDelta,
     getViewportWorldCenter,
     insertExplorationRow,
+    interpolateCamera,
     isPlayingVideo,
     selectDiverseExplorationRow,
     selectRandomExplorationRow,

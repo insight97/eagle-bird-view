@@ -11,6 +11,7 @@ const {
   findNearestNodeToPoint,
   formatFileSize,
   formatItemDimensions,
+  getArrowKeyAction,
   getItemRating,
   getNextRating,
   getLabelDetailLevel,
@@ -22,6 +23,7 @@ const {
   getViewportPanDelta,
   getViewportWorldCenter,
   isPlayingVideo,
+  interpolateCamera,
   normalizeTags,
   normalizeTagColor,
   rankTagMatches,
@@ -51,6 +53,19 @@ test("centerCameraAtPoint keeps a selected item centered at the current zoom", (
     x: 300,
     y: 200,
   });
+});
+
+test("interpolateCamera animates position and zoom together", () => {
+  const start = { x: 20, y: -10, scale: 1 };
+  const target = { x: -180, y: 90, scale: 1.1 };
+
+  assert.deepEqual(interpolateCamera(start, target, 0), start);
+  assert.deepEqual(interpolateCamera(start, target, 1), target);
+  const middle = interpolateCamera(start, target, 0.5);
+  assert.equal(middle.x, -155);
+  assert.equal(middle.y, 77.5);
+  assert.ok(Math.abs(middle.scale - 1.0875) < Number.EPSILON * 10);
+  assert.deepEqual(interpolateCamera(start, target, 2), target);
 });
 
 test("getItemRating accepts Eagle stars and clamps invalid values", () => {
@@ -120,6 +135,30 @@ test("directionFor normalizes arrow keys and WASD", () => {
   assert.deepEqual(directionFor("ArrowLeft"), [-1, 0]);
   assert.deepEqual(directionFor("W"), [0, -1]);
   assert.equal(directionFor("Enter"), undefined);
+});
+
+test("getArrowKeyAction keeps modifier behavior explicit", () => {
+  const arrow = { key: "ArrowRight" };
+  assert.equal(getArrowKeyAction(arrow, { freeMode: true }), "free-pan");
+  assert.equal(getArrowKeyAction(arrow, { freeMode: false }), "selection");
+  assert.equal(
+    getArrowKeyAction({ ...arrow, shiftKey: true }, { freeMode: true }),
+    "viewport-pan",
+  );
+  assert.equal(
+    getArrowKeyAction({ ...arrow, shiftKey: true }, { freeMode: false }),
+    "selection",
+  );
+  assert.equal(
+    getArrowKeyAction({ ...arrow, ctrlKey: true }, { freeMode: true }),
+    "focus-selection",
+  );
+  assert.equal(
+    getArrowKeyAction({ ...arrow, ctrlKey: true }, { playingVideo: true }),
+    "video-control",
+  );
+  assert.equal(getArrowKeyAction({ ...arrow, metaKey: true }), null);
+  assert.equal(getArrowKeyAction({ key: "W" }), null);
 });
 
 test("getViewportPanDelta moves two-thirds of the relevant viewport axis", () => {

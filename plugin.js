@@ -13,6 +13,7 @@ const {
   findNodesNearViewport,
   formatFileSize,
   formatItemDimensions,
+  getArrowKeyAction,
   getItemRating,
   getNextRating,
   getLabelDetailLevel,
@@ -24,6 +25,7 @@ const {
   getViewportPanDelta,
   getViewportWorldCenter,
   insertExplorationRow,
+  interpolateCamera,
   isPlayingVideo,
   normalizeTags,
   normalizeTagColor,
@@ -1036,38 +1038,40 @@ function handleKeyDown(event) {
     return;
   }
 
-  if (
-    event.ctrlKey &&
-    !event.shiftKey &&
-    !event.metaKey &&
-    !event.altKey &&
-    ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)
-  ) {
+  const arrowAction = getArrowKeyAction(event, {
+    freeMode: state.freeMode,
+    playingVideo: isPlayingVideo(state.selectedNode?.videoElement),
+  });
+  if (arrowAction) {
     event.preventDefault();
-    if (isPlayingVideo(state.selectedNode?.videoElement)) {
+    if (arrowAction === "video-control") {
       controlSelectedVideo(event.key);
-    } else {
+      return;
+    }
+    if (arrowAction === "focus-selection") {
       if (event.repeat) return;
       const node = moveSelection(directionFor(event.key), { center: false });
       if (node) focusSelectedNodeAtZoom(HOME_ZOOM, node);
+      return;
     }
-    return;
-  }
-
-  if (
-    event.shiftKey &&
-    !event.ctrlKey &&
-    !event.metaKey &&
-    !event.altKey &&
-    ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)
-  ) {
-    event.preventDefault();
-    if (!state.freeMode) {
-      moveSelection(directionFor(event.key));
-    } else {
+    if (arrowAction === "viewport-pan") {
       panOneViewport(event.key);
       selectNodeAtViewportCenter();
+      return;
     }
+    if (arrowAction === "selection") {
+      moveSelection(directionFor(event.key));
+      return;
+    }
+    const key = event.key.toLowerCase();
+    if (state.smoothPanEnabled) {
+      startSmoothKeyboardPan(key);
+      return;
+    }
+    const panStep = getKeyboardPanStep();
+    const direction = directionFor(key);
+    panBy(direction[0] * -panStep, direction[1] * -panStep);
+    selectNodeAtViewportCenter();
     return;
   }
 
@@ -1106,8 +1110,8 @@ function handleKeyDown(event) {
 
   if (!direction) return;
   event.preventDefault();
-  if (!state.freeMode || event.shiftKey) {
-    moveSelection(direction, { center: true, forceCenter: event.shiftKey });
+  if (!state.freeMode) {
+    moveSelection(direction);
     return;
   }
   if (state.smoothPanEnabled) {
@@ -1366,10 +1370,7 @@ function animateCameraTo(target, { animate = true } = {}) {
   const startedAt = performance.now();
   const step = (timestamp) => {
     const progress = clamp((timestamp - startedAt) / CAMERA_FOCUS_DURATION, 0, 1);
-    const eased = 1 - (1 - progress) ** 3;
-    state.camera.x = start.x + (target.x - start.x) * eased;
-    state.camera.y = start.y + (target.y - start.y) * eased;
-    state.camera.scale = start.scale + (target.scale - start.scale) * eased;
+    Object.assign(state.camera, interpolateCamera(start, target, progress));
     updateCamera();
     if (progress < 1) state.cameraFocusFrame = requestAnimationFrame(step);
     else state.cameraFocusFrame = null;

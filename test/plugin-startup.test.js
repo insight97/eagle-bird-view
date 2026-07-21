@@ -14,6 +14,9 @@ test("auto exploration defaults off and a library change restarts selected item 
   let selectedRequests = 0;
   let unratedRequests = 0;
   const selectedResolvers = [];
+  let keyDown;
+  let fullScreen = false;
+  let fullScreenCalls = 0;
   const elements = new Map();
   const createElementStub = () => {
     const handlers = new Map();
@@ -87,9 +90,20 @@ test("auto exploration defaults off and a library change restarts selected item 
       onLibraryChanged(callback) {
         libraryChanged = callback;
       },
+      window: {
+        async isFullScreen() {
+          return fullScreen;
+        },
+        async setFullScreen(nextValue) {
+          fullScreen = nextValue;
+          fullScreenCalls += 1;
+        },
+      },
     },
     window: {
-      addEventListener() {},
+      addEventListener(type, callback) {
+        if (type === "keydown") keyDown = callback;
+      },
       clearTimeout() {},
       setTimeout() { return 1; },
     },
@@ -111,6 +125,30 @@ test("auto exploration defaults off and a library change restarts selected item 
   assert.equal(unratedRequests, 0);
   assert.equal(elements.get("#free-mode-status").textContent, "開");
   assert.equal(elements.get("#auto-explore-status").textContent, "關");
+
+  let prevented = false;
+  keyDown({
+    key: "F11",
+    repeat: false,
+    target: null,
+    preventDefault() {
+      prevented = true;
+    },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(prevented, true);
+  assert.equal(fullScreen, true);
+  assert.equal(fullScreenCalls, 1);
+
+  keyDown({ key: "F11", repeat: true, target: null, preventDefault() {} });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(fullScreen, true);
+  assert.equal(fullScreenCalls, 1);
+
+  keyDown({ key: "F11", repeat: false, target: null, preventDefault() {} });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(fullScreen, false);
+  assert.equal(fullScreenCalls, 2);
 
   elements.get("#free-mode-toggle").click();
   assert.equal(elements.get("#free-mode-status").textContent, "關");
