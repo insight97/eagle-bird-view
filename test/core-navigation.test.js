@@ -139,20 +139,9 @@ test("directionFor normalizes arrow keys and WASD", () => {
 
 test("getArrowKeyAction keeps modifier behavior explicit", () => {
   const arrow = { key: "ArrowRight" };
-  assert.equal(getArrowKeyAction(arrow, { freeMode: true }), "free-pan");
-  assert.equal(getArrowKeyAction(arrow, { freeMode: false }), "selection");
-  assert.equal(
-    getArrowKeyAction({ ...arrow, shiftKey: true }, { freeMode: true }),
-    "viewport-pan",
-  );
-  assert.equal(
-    getArrowKeyAction({ ...arrow, shiftKey: true }, { freeMode: false }),
-    "selection",
-  );
-  assert.equal(
-    getArrowKeyAction({ ...arrow, ctrlKey: true }, { freeMode: true }),
-    "focus-selection",
-  );
+  assert.equal(getArrowKeyAction(arrow), "free-pan");
+  assert.equal(getArrowKeyAction({ ...arrow, shiftKey: true }), "viewport-pan");
+  assert.equal(getArrowKeyAction({ ...arrow, ctrlKey: true }), "focus-selection");
   assert.equal(
     getArrowKeyAction({ ...arrow, ctrlKey: true }, { playingVideo: true }),
     "video-control",

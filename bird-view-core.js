@@ -46,19 +46,16 @@
     return ARROW_DIRECTIONS[normalizedKey] || ARROW_DIRECTIONS[WASD_TO_ARROW[normalizedKey]];
   }
 
-  function getArrowKeyAction(
-    event,
-    { freeMode = true, playingVideo = false } = {},
-  ) {
+  function getArrowKeyAction(event, { playingVideo = false } = {}) {
     if (!ARROW_KEYS.has(event?.key)) return null;
     if (event.ctrlKey && !event.shiftKey && !event.metaKey && !event.altKey) {
       return playingVideo ? "video-control" : "focus-selection";
     }
     if (event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
-      return freeMode ? "viewport-pan" : "selection";
+      return "viewport-pan";
     }
     if (event.ctrlKey || event.metaKey || event.altKey) return null;
-    return freeMode ? "free-pan" : "selection";
+    return "free-pan";
   }
 
   function getViewportPanDelta(key, viewport, fraction = 2 / 3) {
