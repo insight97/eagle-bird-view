@@ -49,7 +49,7 @@ const MAX_SMOOTH_ZOOM_SPEED = 12;
 const SETTINGS_STORAGE_KEY = "bird-view-settings";
 const VIEWPORT_PAN_FRACTION = 2 / 3;
 const KEYBOARD_ZOOM_FACTOR = 1.5;
-const HOME_ZOOM = 1.1;
+const FOCUS_ZOOM = 1.2;
 const CAMERA_FIT_PADDING = 64;
 const KEYBOARD_SEEK_STEP = 5;
 const KEYBOARD_VOLUME_STEP = 0.05;
@@ -1039,7 +1039,7 @@ function handleKeyDown(event) {
   ) {
     event.preventDefault();
     if (event.repeat) return;
-    if (event.key === "Home") focusSelectedNodeAtZoom(HOME_ZOOM);
+    if (event.key === "Home") focusSelectedNodeAtZoom(FOCUS_ZOOM);
     else fitSelectedRowInViewport();
     return;
   }
@@ -1057,7 +1057,7 @@ function handleKeyDown(event) {
     if (arrowAction === "focus-selection") {
       if (event.repeat) return;
       const node = moveSelection(directionFor(event.key), { center: false });
-      if (node) focusSelectedNodeAtZoom(HOME_ZOOM, node);
+      if (node) focusSelectedNodeAtZoom(FOCUS_ZOOM, node);
       return;
     }
     if (arrowAction === "viewport-pan") {
