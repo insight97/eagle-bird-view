@@ -1038,12 +1038,31 @@ function handleKeyDown(event) {
 
   if (
     event.ctrlKey &&
+    !event.shiftKey &&
+    !event.metaKey &&
+    !event.altKey &&
     ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)
   ) {
     event.preventDefault();
     if (isPlayingVideo(state.selectedNode?.videoElement)) {
       controlSelectedVideo(event.key);
-    } else if (!state.freeMode) {
+    } else {
+      if (event.repeat) return;
+      const node = moveSelection(directionFor(event.key), { center: false });
+      if (node) focusSelectedNodeAtZoom(HOME_ZOOM, node);
+    }
+    return;
+  }
+
+  if (
+    event.shiftKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)
+  ) {
+    event.preventDefault();
+    if (!state.freeMode) {
       moveSelection(directionFor(event.key));
     } else {
       panOneViewport(event.key);
@@ -1272,7 +1291,7 @@ function setSelectedNode(
 }
 
 function moveSelection(direction, { center = !state.freeMode, forceCenter = false } = {}) {
-  if (!direction || !state.selectedNode) return;
+  if (!direction || !state.selectedNode) return null;
   const [dx, dy] = direction;
   if (dy) {
     if (!state.verticalNavigation) {
@@ -1298,13 +1317,15 @@ function moveSelection(direction, { center = !state.freeMode, forceCenter = fals
         forceCenter,
         preserveVerticalNavigation: true,
       });
+      return node;
     }
-    return;
+    return null;
   }
 
   state.verticalNavigation = null;
   const node = findDirectionalNeighbor(state.rows, state.selectedNode, direction);
   if (node) setSelectedNode(node, { center, forceCenter });
+  return node || null;
 }
 
 function centerCameraOnNode(node, { animate = true } = {}) {
@@ -1322,25 +1343,33 @@ function centerCameraOnPoint(point, { animate = true } = {}) {
     point,
     { width: elements.viewport.clientWidth, height: elements.viewport.clientHeight },
   );
+  animateCameraTo(target, { animate });
+}
+
+function animateCameraTo(target, { animate = true } = {}) {
   cancelCameraFocus();
-  if (Math.abs(state.camera.x - target.x) < 0.1 && Math.abs(state.camera.y - target.y) < 0.1) {
+  if (
+    Math.abs(state.camera.x - target.x) < 0.1 &&
+    Math.abs(state.camera.y - target.y) < 0.1 &&
+    Math.abs(state.camera.scale - target.scale) < 0.0001
+  ) {
     updateCamera();
     return;
   }
   if (!animate) {
-    state.camera.x = target.x;
-    state.camera.y = target.y;
+    state.camera = { ...state.camera, ...target };
     updateCamera();
     return;
   }
 
-  const start = { x: state.camera.x, y: state.camera.y };
+  const start = { ...state.camera };
   const startedAt = performance.now();
   const step = (timestamp) => {
     const progress = clamp((timestamp - startedAt) / CAMERA_FOCUS_DURATION, 0, 1);
     const eased = 1 - (1 - progress) ** 3;
     state.camera.x = start.x + (target.x - start.x) * eased;
     state.camera.y = start.y + (target.y - start.y) * eased;
+    state.camera.scale = start.scale + (target.scale - start.scale) * eased;
     updateCamera();
     if (progress < 1) state.cameraFocusFrame = requestAnimationFrame(step);
     else state.cameraFocusFrame = null;
@@ -1348,17 +1377,22 @@ function centerCameraOnPoint(point, { animate = true } = {}) {
   state.cameraFocusFrame = requestAnimationFrame(step);
 }
 
-function focusSelectedNodeAtZoom(zoom) {
-  const node = state.selectedNode;
+function focusSelectedNodeAtZoom(zoom, node = state.selectedNode) {
   if (!node) return;
   stopSmoothKeyboardPan();
   stopSmoothKeyboardZoom();
-  state.camera.scale = clamp(
+  const scale = clamp(
     getBaseScale() * zoom,
     getBaseScale() * MIN_ZOOM,
     getBaseScale() * MAX_ZOOM,
   );
-  centerCameraOnNode(node);
+  const displayHeight = node.mediaHeight + (node.isVideo ? VIDEO_CONTROLS_HEIGHT : 0);
+  const target = centerCameraAtPoint(
+    { ...state.camera, scale },
+    { x: node.x + node.width / 2, y: node.y + displayHeight / 2 },
+    { width: elements.viewport.clientWidth, height: elements.viewport.clientHeight },
+  );
+  animateCameraTo(target);
 }
 
 function fitSelectedRowInViewport() {
@@ -1389,15 +1423,20 @@ function fitSelectedRowInViewport() {
   const viewportHeight = elements.viewport.clientHeight;
   const availableWidth = Math.max(viewportWidth - CAMERA_FIT_PADDING * 2, 1);
   const availableHeight = Math.max(viewportHeight - CAMERA_FIT_PADDING * 2, 1);
-  state.camera.scale = clamp(
+  const scale = clamp(
     Math.min(availableWidth / width, availableHeight / height),
     getBaseScale() * MIN_ZOOM,
     getBaseScale() * MAX_ZOOM,
   );
-  centerCameraOnPoint({
-    x: (bounds.left + bounds.right) / 2,
-    y: (bounds.top + bounds.bottom) / 2,
-  });
+  const target = centerCameraAtPoint(
+    { ...state.camera, scale },
+    {
+      x: (bounds.left + bounds.right) / 2,
+      y: (bounds.top + bounds.bottom) / 2,
+    },
+    { width: viewportWidth, height: viewportHeight },
+  );
+  animateCameraTo(target);
 }
 
 function cancelCameraFocus() {
@@ -2216,7 +2255,7 @@ function runViewportWork() {
   state.lastViewportWork = performance.now();
   updateMediaVisibility({ deferCleanup: state.isPanning });
   updateLabels();
-  if (state.freeMode) selectNodeAtViewportCenter();
+  if (state.freeMode && state.cameraFocusFrame === null) selectNodeAtViewportCenter();
   maybeLoadNextUnratedRow();
 }
 
