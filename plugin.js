@@ -1065,8 +1065,8 @@ function handleKeyDown(event) {
 
   if (!direction) return;
   event.preventDefault();
-  if (!state.freeMode) {
-    moveSelection(direction);
+  if (!state.freeMode || event.shiftKey) {
+    moveSelection(direction, { center: true, forceCenter: event.shiftKey });
     return;
   }
   if (state.smoothPanEnabled) {
@@ -1212,7 +1212,7 @@ function clearSelection() {
 
 function setSelectedNode(
   node,
-  { center = !state.freeMode, preserveVerticalNavigation = false } = {},
+  { center = !state.freeMode, forceCenter = false, preserveVerticalNavigation = false } = {},
 ) {
   if (!node) return;
   if (!preserveVerticalNavigation) state.verticalNavigation = null;
@@ -1225,11 +1225,11 @@ function setSelectedNode(
     node.label?.classList.add("is-selected");
   }
   updateSelectionStatus();
-  if (center && !state.freeMode) centerCameraOnNode(node);
+  if (center && (forceCenter || !state.freeMode)) centerCameraOnNode(node);
   updateExploreButton();
 }
 
-function moveSelection(direction) {
+function moveSelection(direction, { center = !state.freeMode, forceCenter = false } = {}) {
   if (!direction || !state.selectedNode) return;
   const [dx, dy] = direction;
   if (dy) {
@@ -1250,13 +1250,19 @@ function moveSelection(direction) {
       preferredX: state.verticalNavigation.preferredX,
       edgeTarget: state.verticalNavigation.edgeTarget,
     });
-    if (node) setSelectedNode(node, { preserveVerticalNavigation: true });
+    if (node) {
+      setSelectedNode(node, {
+        center,
+        forceCenter,
+        preserveVerticalNavigation: true,
+      });
+    }
     return;
   }
 
   state.verticalNavigation = null;
   const node = findDirectionalNeighbor(state.rows, state.selectedNode, direction);
-  if (node) setSelectedNode(node);
+  if (node) setSelectedNode(node, { center, forceCenter });
 }
 
 function centerCameraOnNode(node, { animate = true } = {}) {
