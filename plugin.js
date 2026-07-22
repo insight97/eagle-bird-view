@@ -89,6 +89,7 @@ const state = {
   smoothPanSpeed: DEFAULT_SMOOTH_PAN_SPEED,
   smoothZoomEnabled: false,
   smoothZoomSpeed: DEFAULT_SMOOTH_ZOOM_SPEED,
+  videoVolume: 1,
   smoothPanKeys: new Set(),
   smoothPanFrame: null,
   smoothPanLastTimestamp: null,
@@ -539,6 +540,7 @@ function createMediaCard(node) {
     playButton.addEventListener("pointerdown", (event) => event.stopPropagation());
     playButton.addEventListener("click", (event) => {
       event.stopPropagation();
+      setSelectedNode(node);
       startVideo(frame, image, playButton, item, node);
     });
     node.startPlayback = () => startVideo(frame, image, playButton, item, node);
@@ -548,6 +550,7 @@ function createMediaCard(node) {
   card.addEventListener("dblclick", (event) => {
     if (!node.isVideo || event.target.closest("button, input")) return;
     event.preventDefault();
+    setSelectedNode(node);
     if (node.togglePlayback) {
       node.togglePlayback();
     } else {
@@ -887,6 +890,8 @@ function startVideo(frame, image, playButton, item, node) {
     item,
     node,
     controlsHeight: VIDEO_CONTROLS_HEIGHT,
+    initialVolume: state.videoVolume,
+    onVolumeChange: rememberVideoVolume,
     applyRotation: () => applyMediaRotation(node),
     onLayoutChange: () => {
       positionNode(node);
@@ -1989,6 +1994,14 @@ function controlSelectedVideo(key) {
     0,
     1,
   );
+  rememberVideoVolume(video.volume);
+  showToast(`音量 ${Math.round(video.volume * 100)}%`, false, 1000);
+}
+
+function rememberVideoVolume(volume) {
+  const nextVolume = Number(volume);
+  if (!Number.isFinite(nextVolume)) return;
+  state.videoVolume = clamp(nextVolume, 0, 1);
 }
 
 function zoomAtPoint(pointerX, pointerY, factor) {

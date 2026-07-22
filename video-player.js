@@ -13,6 +13,8 @@
       item,
       node,
       controlsHeight,
+      initialVolume = 1,
+      onVolumeChange,
       applyRotation,
       onLayoutChange,
       showToast,
@@ -36,6 +38,10 @@
     video.loop = true;
     video.playsInline = true;
     video.preload = "metadata";
+    const nextVolume = Number(initialVolume);
+    video.volume = Number.isFinite(nextVolume)
+      ? Math.min(1, Math.max(0, nextVolume))
+      : 1;
     node.mediaElement = video;
     applyRotation();
     controls.className = "video-controls";
@@ -123,6 +129,7 @@
       volumeButton.textContent = isMuted ? "🔇" : "🔊";
       volumeButton.setAttribute("aria-label", isMuted ? "取消靜音" : "靜音");
       volumeButton.title = isMuted ? "取消靜音" : "靜音";
+      onVolumeChange?.(video.volume);
     });
     video.addEventListener("error", () => {
       if (node.videoElement !== video) return;
