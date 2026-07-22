@@ -655,6 +655,36 @@ button {
   transform-origin: center;
 }
 
+.original-retry-button {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  display: none;
+  max-width: calc(100% - 20px);
+  padding: 6px 10px;
+  overflow: hidden;
+  border: 1px solid #e56b6f;
+  border-radius: 4px;
+  background: rgb(28 30 34 / 88%);
+  color: #ffd9db;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.media-card[data-media-quality="original-failed"] .original-retry-button {
+  display: block;
+}
+
+.original-retry-button:hover {
+  border-color: #ff9b9f;
+  background: rgb(92 42 48 / 94%);
+  color: #fff;
+}
+
 .media-frame video {
   display: block;
   width: 100%;

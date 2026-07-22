@@ -61,7 +61,7 @@ test("the slot remains active until the adapter reports decoded completion", () 
   assert.equal(starts.length, 2);
 });
 
-test("an original failure preserves the ready thumbnail and is not retried", () => {
+test("an original failure preserves the thumbnail until manually retried", () => {
   const starts = [];
   const queue = new MediaLoadQueue();
   const node = register(queue, starts);
@@ -75,6 +75,10 @@ test("an original failure preserves the ready thumbnail and is not retried", () 
   assert.deepEqual(starts.map(({ quality }) => quality), ["thumbnail", "original"]);
   assert.equal(queue.snapshot(node).readyQuality, "thumbnail");
   assert.equal(queue.snapshot(node).originalFailed, true);
+
+  queue.retry(node, "original");
+  assert.deepEqual(starts.map(({ quality }) => quality), ["thumbnail", "original", "original"]);
+  assert.equal(queue.snapshot(node).originalFailed, false);
 });
 
 test("disposing an active node frees its slot and ignores stale completion", () => {

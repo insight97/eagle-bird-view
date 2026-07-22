@@ -420,6 +420,7 @@ function createMediaCard(node) {
   const card = document.createElement("article");
   const frame = document.createElement("div");
   const image = document.createElement("img");
+  const retryOriginalButton = !isVideo ? document.createElement("button") : null;
   const mediaGeneration = (node.mediaGeneration || 0) + 1;
   node.mediaGeneration = mediaGeneration;
 
@@ -437,6 +438,17 @@ function createMediaCard(node) {
   image.decoding = "async";
   image.draggable = false;
   image.style.visibility = "hidden";
+  if (retryOriginalButton) {
+    retryOriginalButton.className = "original-retry-button";
+    retryOriginalButton.type = "button";
+    retryOriginalButton.textContent = "原圖載入失敗，重試";
+    retryOriginalButton.setAttribute("aria-label", `重試載入 ${item.name || "素材"} 的原圖`);
+    retryOriginalButton.addEventListener("pointerdown", (event) => event.stopPropagation());
+    retryOriginalButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      retryOriginalImage(node);
+    });
+  }
   node.mediaElement = image;
   node.loadMedia = (quality = "thumbnail") => mediaLoadQueue.request(node, quality);
   mediaLoadQueue.register(node, {
@@ -493,8 +505,7 @@ function createMediaCard(node) {
             return;
           }
           node.preloadImage = null;
-          card.dataset.mediaQuality =
-            mediaLoadQueue.snapshot(node)?.readyQuality || "original-failed";
+          card.dataset.mediaQuality = "original-failed";
           mediaLoadQueue.complete(node, "original", false);
         });
         originalImage.src = mediaURL;
@@ -528,6 +539,7 @@ function createMediaCard(node) {
   });
 
   frame.append(image);
+  if (retryOriginalButton) frame.append(retryOriginalButton);
   card.append(frame);
   node.previewImage = image;
 
@@ -899,6 +911,14 @@ function startVideo(frame, image, playButton, item, node) {
     },
     showToast,
   });
+}
+
+function retryOriginalImage(node) {
+  if (!node || node.isVideo || !node.item?.fileURL) return;
+  const requested = mediaLoadQueue.retry(node, "original");
+  if (!requested) return;
+  node.element?.setAttribute("data-media-quality", "loading-original");
+  showToast("正在重新載入原圖。", false, 1000);
 }
 
 function beginPan(event) {

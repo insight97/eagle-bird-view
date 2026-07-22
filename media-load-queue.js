@@ -79,6 +79,14 @@
       return true;
     }
 
+    retry(node, requestedQuality = "original") {
+      const state = this.#states.get(node);
+      if (!state || state.disposed) return false;
+      if (requestedQuality === "original") state.originalFailed = false;
+      if (requestedQuality === "thumbnail") state.thumbnailFailed = false;
+      return this.request(node, requestedQuality);
+    }
+
     complete(node, quality, succeeded) {
       const state = this.#states.get(node);
       if (
