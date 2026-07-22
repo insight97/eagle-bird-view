@@ -81,6 +81,20 @@ test("an original failure preserves the thumbnail until manually retried", () =>
   assert.equal(queue.snapshot(node).originalFailed, false);
 });
 
+test("failing a queued original releases it without blocking the thumbnail", () => {
+  const starts = [];
+  const queue = new MediaLoadQueue();
+  const node = register(queue, starts);
+
+  queue.request(node, "original");
+  assert.equal(queue.fail(node, "original"), true);
+  queue.complete(node, "thumbnail", true);
+
+  assert.deepEqual(starts.map(({ quality }) => quality), ["thumbnail"]);
+  assert.equal(queue.snapshot(node).pendingQuality, null);
+  assert.equal(queue.snapshot(node).originalFailed, true);
+});
+
 test("disposing an active node frees its slot and ignores stale completion", () => {
   const starts = [];
   const canceled = [];

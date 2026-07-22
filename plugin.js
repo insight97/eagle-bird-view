@@ -56,7 +56,7 @@ const KEYBOARD_SEEK_STEP = 5;
 const KEYBOARD_VOLUME_STEP = 0.05;
 const PAN_START_THRESHOLD = 4;
 const ORIGINAL_IMAGE_ZOOM = 0.8;
-const ORIGINAL_IMAGE_LOAD_TIMEOUT = 15000;
+const ORIGINAL_IMAGE_LOAD_TIMEOUT = 8000;
 const MAX_CONCURRENT_IMAGE_LOADS = 4;
 const RESOURCE_RELEASE_VIEWPORTS = 3;
 const GRID_LAYER_OVERFLOW = 768;
@@ -403,6 +403,7 @@ function releaseMediaCard(node) {
   node.previewImage = null;
   node.preloadImage = null;
   node.startPlayback = null;
+  node.retryOriginal = null;
   node.videoElement = null;
   node.togglePlayback = null;
   node.mediaElement = null;
@@ -452,11 +453,25 @@ function createMediaCard(node) {
     });
   }
   node.mediaElement = image;
-  node.loadMedia = (quality = "thumbnail") => mediaLoadQueue.request(node, quality);
   const clearOriginalLoadTimeout = () => {
     if (originalLoadTimeoutId === null) return;
     window.clearTimeout(originalLoadTimeoutId);
     originalLoadTimeoutId = null;
+  };
+  const markOriginalLoadFailed = (reason = "error") => {
+    const snapshot = mediaLoadQueue.snapshot(node);
+    const isRequested =
+      snapshot?.pendingQuality === "original" ||
+      snapshot?.queuedQuality === "original" ||
+      snapshot?.loadingQuality === "original";
+    if (!isRequested) return;
+    clearOriginalLoadTimeout();
+    if (retryOriginalButton) {
+      retryOriginalButton.textContent =
+        reason === "timeout" ? "原圖載入逾時，重試" : "原圖載入失敗，重試";
+    }
+    if (!mediaLoadQueue.fail(node, "original")) return;
+    card.dataset.mediaQuality = "original-failed";
   };
   const failOriginalLoad = (reason = "error", originalImage) => {
     if (
@@ -466,15 +481,41 @@ function createMediaCard(node) {
     ) {
       return;
     }
-    clearOriginalLoadTimeout();
-    node.preloadImage = null;
-    originalImage.removeAttribute("src");
-    if (retryOriginalButton) {
-      retryOriginalButton.textContent =
-        reason === "timeout" ? "原圖載入逾時，重試" : "原圖載入失敗，重試";
-    }
-    card.dataset.mediaQuality = "original-failed";
-    mediaLoadQueue.complete(node, "original", false);
+    markOriginalLoadFailed(reason);
+  };
+  const watchOriginalLoad = () => {
+    const snapshot = mediaLoadQueue.snapshot(node);
+    const isRequested =
+      snapshot?.pendingQuality === "original" ||
+      snapshot?.queuedQuality === "original" ||
+      snapshot?.loadingQuality === "original";
+    if (!isRequested || originalLoadTimeoutId !== null) return;
+    originalLoadTimeoutId = window.setTimeout(() => {
+      const latest = mediaLoadQueue.snapshot(node);
+      const stillRequested =
+        latest?.pendingQuality === "original" ||
+        latest?.queuedQuality === "original" ||
+        latest?.loadingQuality === "original";
+      if (!stillRequested) {
+        clearOriginalLoadTimeout();
+        return;
+      }
+      if (latest.loadingQuality === "original" && node.preloadImage) {
+        failOriginalLoad("timeout", node.preloadImage);
+      } else {
+        markOriginalLoadFailed("timeout");
+      }
+    }, ORIGINAL_IMAGE_LOAD_TIMEOUT);
+  };
+  node.loadMedia = (quality = "thumbnail") => {
+    const requested = mediaLoadQueue.request(node, quality);
+    if (quality === "original" && originalImageURL) watchOriginalLoad();
+    return requested;
+  };
+  node.retryOriginal = () => {
+    const requested = mediaLoadQueue.retry(node, "original");
+    watchOriginalLoad();
+    return requested;
   };
   mediaLoadQueue.register(node, {
     hasOriginal: Boolean(originalImageURL),
@@ -483,11 +524,13 @@ function createMediaCard(node) {
       originalImageURL && fallbackURL && originalImageURL !== fallbackURL,
     ),
     cancel: (quality) => {
-      if (quality !== "original" || !node.preloadImage) return;
+      if (quality !== "original") return;
       clearOriginalLoadTimeout();
+      if (!node.preloadImage) return;
       const originalImage = node.preloadImage;
       node.preloadImage = null;
       originalImage.removeAttribute("src");
+      originalImage.remove();
       card.dataset.mediaQuality = mediaLoadQueue.snapshot(node)?.readyQuality || "idle";
     },
     start: (quality) => {
@@ -503,7 +546,10 @@ function createMediaCard(node) {
         originalImage.alt = image.alt;
         originalImage.decoding = "async";
         originalImage.draggable = false;
+        originalImage.style.visibility = "hidden";
+        originalImage.setAttribute("aria-hidden", "true");
         node.preloadImage = originalImage;
+        frame.append(originalImage);
         originalImage.addEventListener("load", async () => {
           clearOriginalLoadTimeout();
           await waitForImageDecode(originalImage);
@@ -527,10 +573,6 @@ function createMediaCard(node) {
         originalImage.addEventListener("error", () => {
           failOriginalLoad("error", originalImage);
         });
-        originalLoadTimeoutId = window.setTimeout(
-          () => failOriginalLoad("timeout", originalImage),
-          ORIGINAL_IMAGE_LOAD_TIMEOUT,
-        );
         originalImage.src = mediaURL;
         return;
       }
@@ -545,7 +587,8 @@ function createMediaCard(node) {
       return;
     }
     image.style.visibility = "visible";
-    card.dataset.mediaQuality = "thumbnail";
+    card.dataset.mediaQuality =
+      mediaLoadQueue.snapshot(node)?.originalFailed ? "original-failed" : "thumbnail";
     applyMediaRotation(node);
     mediaLoadQueue.complete(node, "thumbnail", true);
   });
@@ -938,7 +981,7 @@ function startVideo(frame, image, playButton, item, node) {
 
 function retryOriginalImage(node) {
   if (!node || node.isVideo || !node.item?.fileURL) return;
-  const requested = mediaLoadQueue.retry(node, "original");
+  const requested = node.retryOriginal?.();
   if (!requested) return;
   node.element?.setAttribute("data-media-quality", "loading-original");
   showToast("正在重新載入原圖。", false, 1000);
@@ -2082,6 +2125,7 @@ function focusFirstItem() {
   state.camera.y = viewportHeight / 2 - (node.y + displayHeight / 2) * scale;
   updateCamera();
   selectNodeAtViewportCenter();
+  updateMediaVisibility();
 }
 
 function clearBoard() {

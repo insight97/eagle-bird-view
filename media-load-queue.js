@@ -87,6 +87,20 @@
       return this.request(node, requestedQuality);
     }
 
+    fail(node, failedQuality = "original") {
+      const state = this.#states.get(node);
+      if (!state || state.disposed) return false;
+      const isRequested =
+        state.pendingQuality === failedQuality ||
+        state.queuedQuality === failedQuality ||
+        state.loadingQuality === failedQuality;
+      if (!isRequested) return false;
+      this.cancel(node, failedQuality);
+      if (failedQuality === "original") state.originalFailed = true;
+      if (failedQuality === "thumbnail") state.thumbnailFailed = true;
+      return true;
+    }
+
     complete(node, quality, succeeded) {
       const state = this.#states.get(node);
       if (
@@ -131,21 +145,24 @@
         state.loadingQuality = null;
         this.#active = Math.max(0, this.#active - 1);
         canceled = true;
+      }
+      if (canceled) {
         try {
           state.cancel?.(quality);
         } catch {
           // Cancellation is best-effort; the stale completion will be ignored.
         }
+        this.#pump();
       }
-
-      if (canceled) this.#pump();
       return canceled;
     }
 
     dispose(node) {
       const state = this.#states.get(node);
       if (!state || state.disposed) return;
-      const loadingQuality = state.loadingQuality;
+      const activeQualities = new Set(
+        [state.loadingQuality, state.queuedQuality, state.pendingQuality].filter(Boolean),
+      );
       state.disposed = true;
       state.queued = false;
       state.pendingQuality = null;
@@ -153,9 +170,9 @@
       state.loading = false;
       state.loadingQuality = null;
       this.#states.delete(node);
-      if (loadingQuality) {
+      for (const quality of activeQualities) {
         try {
-          state.cancel?.(loadingQuality);
+          state.cancel?.(quality);
         } catch {
           // Disposal must still release the queue slot if adapter cleanup fails.
         }
