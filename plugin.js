@@ -56,6 +56,7 @@ const KEYBOARD_SEEK_STEP = 5;
 const KEYBOARD_VOLUME_STEP = 0.05;
 const PAN_START_THRESHOLD = 4;
 const ORIGINAL_IMAGE_ZOOM = 0.8;
+const ORIGINAL_IMAGE_LOAD_TIMEOUT = 15000;
 const MAX_CONCURRENT_IMAGE_LOADS = 4;
 const RESOURCE_RELEASE_VIEWPORTS = 3;
 const GRID_LAYER_OVERFLOW = 768;
@@ -422,6 +423,7 @@ function createMediaCard(node) {
   const image = document.createElement("img");
   const retryOriginalButton = !isVideo ? document.createElement("button") : null;
   const mediaGeneration = (node.mediaGeneration || 0) + 1;
+  let originalLoadTimeoutId = null;
   node.mediaGeneration = mediaGeneration;
 
   card.className = "media-card";
@@ -451,6 +453,29 @@ function createMediaCard(node) {
   }
   node.mediaElement = image;
   node.loadMedia = (quality = "thumbnail") => mediaLoadQueue.request(node, quality);
+  const clearOriginalLoadTimeout = () => {
+    if (originalLoadTimeoutId === null) return;
+    window.clearTimeout(originalLoadTimeoutId);
+    originalLoadTimeoutId = null;
+  };
+  const failOriginalLoad = (reason = "error", originalImage) => {
+    if (
+      node.mediaGeneration !== mediaGeneration ||
+      node.preloadImage !== originalImage ||
+      mediaLoadQueue.snapshot(node)?.loadingQuality !== "original"
+    ) {
+      return;
+    }
+    clearOriginalLoadTimeout();
+    node.preloadImage = null;
+    originalImage.removeAttribute("src");
+    if (retryOriginalButton) {
+      retryOriginalButton.textContent =
+        reason === "timeout" ? "原圖載入逾時，重試" : "原圖載入失敗，重試";
+    }
+    card.dataset.mediaQuality = "original-failed";
+    mediaLoadQueue.complete(node, "original", false);
+  };
   mediaLoadQueue.register(node, {
     hasOriginal: Boolean(originalImageURL),
     hasThumbnail: Boolean(fallbackURL),
@@ -459,6 +484,7 @@ function createMediaCard(node) {
     ),
     cancel: (quality) => {
       if (quality !== "original" || !node.preloadImage) return;
+      clearOriginalLoadTimeout();
       const originalImage = node.preloadImage;
       node.preloadImage = null;
       originalImage.removeAttribute("src");
@@ -479,6 +505,7 @@ function createMediaCard(node) {
         originalImage.draggable = false;
         node.preloadImage = originalImage;
         originalImage.addEventListener("load", async () => {
+          clearOriginalLoadTimeout();
           await waitForImageDecode(originalImage);
           if (
             node.mediaGeneration !== mediaGeneration ||
@@ -498,16 +525,12 @@ function createMediaCard(node) {
           mediaLoadQueue.complete(node, "original", true);
         });
         originalImage.addEventListener("error", () => {
-          if (
-            node.mediaGeneration !== mediaGeneration ||
-            node.preloadImage !== originalImage
-          ) {
-            return;
-          }
-          node.preloadImage = null;
-          card.dataset.mediaQuality = "original-failed";
-          mediaLoadQueue.complete(node, "original", false);
+          failOriginalLoad("error", originalImage);
         });
+        originalLoadTimeoutId = window.setTimeout(
+          () => failOriginalLoad("timeout", originalImage),
+          ORIGINAL_IMAGE_LOAD_TIMEOUT,
+        );
         originalImage.src = mediaURL;
         return;
       }
