@@ -378,29 +378,19 @@ function appendItemsToBoard(items) {
     return;
   }
 
-  const layoutWidth = getBoardLayoutWidth();
-  const layoutOptions = getBoardLayoutOptions();
-  const selectedLayout = createJustifiedLayout(
-    items,
-    state.layoutDirection,
-    layoutWidth,
-    layoutOptions,
-  );
+  const layoutConfig = getBoardLayoutConfig();
+  const selectedLayout = createBoardLayout(items, layoutConfig);
   let layout = {
     nodes: state.nodes,
     rows: state.rows,
-    direction: state.layoutDirection,
-    layoutWidth,
-    ...layoutOptions,
+    ...layoutConfig,
   };
   for (const row of selectedLayout.rows) {
-    layout = insertExplorationRow(
+    layout = insertBoardRow(
       layout,
       layout.rows.at(-1),
       row.nodes.map(({ item }) => item),
-      state.layoutDirection,
-      layoutWidth,
-      layoutOptions,
+      layoutConfig,
     );
   }
   state.nodes = layout.nodes;
@@ -423,12 +413,7 @@ function renderItems(items) {
   state.labelCamera = null;
   elements.labels.style.transform = "none";
   state.mountedNodes.clear();
-  const layout = createJustifiedLayout(
-    items,
-    state.layoutDirection,
-    getBoardLayoutWidth(),
-    getBoardLayoutOptions(),
-  );
+  const layout = createBoardLayout(items);
   state.nodes = layout.nodes;
   state.rows = layout.rows;
   state.lastUnratedTriggerRow = null;
@@ -458,12 +443,7 @@ function relayoutBoard() {
   state.labelCamera = null;
   elements.labels.style.transform = "none";
 
-  const layout = createJustifiedLayout(
-    items,
-    state.layoutDirection,
-    getBoardLayoutWidth(),
-    getBoardLayoutOptions(),
-  );
+  const layout = createBoardLayout(items);
   for (const node of layout.nodes) {
     node.rotation = rotations.get(node.item.id) || 0;
   }
@@ -1697,21 +1677,16 @@ async function exploreNextRow() {
 
     const pivotRow = state.rows.find((row) => row.nodes.includes(pivotNode));
     if (!pivotRow) return;
-    const layoutWidth = getBoardLayoutWidth();
-    const layoutOptions = getBoardLayoutOptions();
-    const layout = insertExplorationRow(
+    const layoutConfig = getBoardLayoutConfig();
+    const layout = insertBoardRow(
       {
         nodes: state.nodes,
         rows: state.rows,
-        direction: state.layoutDirection,
-        layoutWidth,
-        ...layoutOptions,
+        ...layoutConfig,
       },
       pivotRow,
       items,
-      state.layoutDirection,
-      layoutWidth,
-      layoutOptions,
+      layoutConfig,
     );
     state.nodes = layout.nodes;
     state.rows = layout.rows;
@@ -1741,11 +1716,11 @@ async function loadNextUnratedRow({ focus = false } = {}) {
   updateAutoExploreToggle();
   try {
     const excludedIds = new Set(boardNodes.map(({ item }) => item.id));
-    const layoutWidth = getBoardLayoutWidth();
+    const layoutConfig = getBoardLayoutConfig();
     const candidates = await source.findNextRow(
       excludedIds,
       state.unratedFilter,
-      layoutWidth,
+      layoutConfig.layoutWidth,
       state.maxExplorationItems,
     );
     if (generation !== state.unratedGeneration || state.nodes !== boardNodes) return;
@@ -1763,29 +1738,19 @@ async function loadNextUnratedRow({ focus = false } = {}) {
     }
 
     if (!state.rows.length) {
-      const layout = createJustifiedLayout(
-        items,
-        state.layoutDirection,
-        layoutWidth,
-        getBoardLayoutOptions(),
-      );
+      const layout = createBoardLayout(items, layoutConfig);
       state.nodes = layout.nodes;
       state.rows = layout.rows;
     } else {
-      const layoutOptions = getBoardLayoutOptions();
-      const layout = insertExplorationRow(
+      const layout = insertBoardRow(
         {
           nodes: state.nodes,
           rows: state.rows,
-          direction: state.layoutDirection,
-          layoutWidth,
-          ...layoutOptions,
+          ...layoutConfig,
         },
         state.rows.at(-1),
         items,
-        state.layoutDirection,
-        layoutWidth,
-        layoutOptions,
+        layoutConfig,
       );
       state.nodes = layout.nodes;
       state.rows = layout.rows;
@@ -2075,6 +2040,34 @@ function getBoardLayoutOptions() {
   return state.seamlessMode
     ? { gap: SEAMLESS_LAYOUT_GAP, rowGap: SEAMLESS_ROW_GAP }
     : { gap: LAYOUT_GAP, rowGap: ROW_GAP };
+}
+
+function getBoardLayoutConfig() {
+  return {
+    direction: state.layoutDirection,
+    layoutWidth: getBoardLayoutWidth(),
+    ...getBoardLayoutOptions(),
+  };
+}
+
+function createBoardLayout(items, config = getBoardLayoutConfig()) {
+  return createJustifiedLayout(
+    items,
+    config.direction,
+    config.layoutWidth,
+    config,
+  );
+}
+
+function insertBoardRow(layout, afterRow, items, config = getBoardLayoutConfig()) {
+  return insertExplorationRow(
+    layout,
+    afterRow,
+    items,
+    config.direction,
+    config.layoutWidth,
+    config,
+  );
 }
 
 function normalizeMaxExplorationItems(value) {
