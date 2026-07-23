@@ -22,6 +22,7 @@ const {
   formatFileSize,
   formatItemDimensions,
   getArrowKeyAction,
+  getCrossRowFocusDuration,
   getItemRating,
   getNextRating,
   getLabelDetailLevel,
@@ -67,10 +68,6 @@ const CAMERA_FIT_PADDING = 64;
 const KEYBOARD_SEEK_STEP = 5;
 const KEYBOARD_VOLUME_STEP = 0.05;
 const PAN_START_THRESHOLD = 4;
-const CROSS_ROW_FOCUS_MIN_DURATION = 240;
-const CROSS_ROW_FOCUS_MAX_DURATION = 420;
-const CROSS_ROW_FOCUS_DISTANCE_FACTOR = 0.1;
-const CROSS_ROW_FOCUS_SCALE_FACTOR = 100;
 const ORIGINAL_IMAGE_ZOOM = 0.8;
 const ORIGINAL_IMAGE_LOAD_TIMEOUT = 8000;
 const MAX_CONCURRENT_IMAGE_LOADS = 4;
@@ -1572,21 +1569,6 @@ function focusSelectedNodeAtRowScale(node = state.selectedNode, { crossRow = fal
   animateCameraTo(target, {
     duration: crossRow ? getCrossRowFocusDuration(state.camera, target) : CAMERA_FOCUS_DURATION,
   });
-}
-
-function getCrossRowFocusDuration(start, target) {
-  const distance = Math.hypot(target.x - start.x, target.y - start.y);
-  const scaleRatio =
-    start.scale > 0 && target.scale > 0
-      ? Math.abs(Math.log(target.scale / start.scale))
-      : 0;
-  return clamp(
-    CROSS_ROW_FOCUS_MIN_DURATION +
-      distance * CROSS_ROW_FOCUS_DISTANCE_FACTOR +
-      scaleRatio * CROSS_ROW_FOCUS_SCALE_FACTOR,
-    CROSS_ROW_FOCUS_MIN_DURATION,
-    CROSS_ROW_FOCUS_MAX_DURATION,
-  );
 }
 
 function fitSelectedRowInViewport() {

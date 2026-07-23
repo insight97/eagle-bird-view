@@ -12,6 +12,7 @@ const {
   formatFileSize,
   formatItemDimensions,
   getArrowKeyAction,
+  getCrossRowFocusDuration,
   getItemRating,
   getNextRating,
   getLabelDetailLevel,
@@ -155,6 +156,18 @@ test("getArrowKeyAction keeps modifier behavior explicit", () => {
   );
   assert.equal(getArrowKeyAction({ ...arrow, metaKey: true }), null);
   assert.equal(getArrowKeyAction({ key: "W" }), null);
+});
+
+test("getCrossRowFocusDuration adapts to camera distance and scale", () => {
+  const start = { x: 0, y: 0, scale: 1 };
+  assert.equal(getCrossRowFocusDuration(start, start), 240);
+
+  const longer = getCrossRowFocusDuration(start, { x: 500, y: 220, scale: 1.5 });
+  assert.ok(longer > 240);
+  assert.equal(
+    getCrossRowFocusDuration(start, { x: 10000, y: 10000, scale: 8 }),
+    420,
+  );
 });
 
 test("getViewportPanDelta moves two-thirds of the relevant viewport axis", () => {

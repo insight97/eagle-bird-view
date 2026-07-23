@@ -20,6 +20,10 @@
   const LABEL_MIN_SCALE = 1;
   const LABEL_DETAILS_MIN_ZOOM = 0.5;
   const LABEL_DETAILS_MIN_SCALE = 1.5;
+  const CROSS_ROW_FOCUS_MIN_DURATION = 240;
+  const CROSS_ROW_FOCUS_MAX_DURATION = 420;
+  const CROSS_ROW_FOCUS_DISTANCE_FACTOR = 0.1;
+  const CROSS_ROW_FOCUS_SCALE_FACTOR = 100;
   const EXPLORATION_RANK_WEIGHTS = Object.freeze([40, 25, 17, 11, 7]);
   const DEFAULT_MAX_EXPLORATION_ITEMS = 12;
   const MIN_EXPLORATION_ITEMS = 3;
@@ -97,6 +101,26 @@
       y: start.y + (target.y - start.y) * eased,
       scale: start.scale + (target.scale - start.scale) * eased,
     };
+  }
+
+  function getCrossRowFocusDuration(start, target) {
+    const distance = Math.hypot(
+      Number(target?.x) - Number(start?.x),
+      Number(target?.y) - Number(start?.y),
+    );
+    const startScale = Number(start?.scale);
+    const targetScale = Number(target?.scale);
+    const scaleRatio =
+      startScale > 0 && targetScale > 0
+        ? Math.abs(Math.log(targetScale / startScale))
+        : 0;
+    return clamp(
+      CROSS_ROW_FOCUS_MIN_DURATION +
+        distance * CROSS_ROW_FOCUS_DISTANCE_FACTOR +
+        scaleRatio * CROSS_ROW_FOCUS_SCALE_FACTOR,
+      CROSS_ROW_FOCUS_MIN_DURATION,
+      CROSS_ROW_FOCUS_MAX_DURATION,
+    );
   }
 
   function resizeCamera(camera, previousViewport, nextViewport, previousBaseScale, nextBaseScale) {
@@ -814,6 +838,7 @@
     createJustifiedLayout,
     directionFor,
     getArrowKeyAction,
+    getCrossRowFocusDuration,
     findNearestNodeToPoint,
     findNearestNodeInRows,
     findDirectionalNeighbor,
