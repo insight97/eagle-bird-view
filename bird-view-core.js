@@ -21,7 +21,9 @@
   const LABEL_DETAILS_MIN_ZOOM = 0.5;
   const LABEL_DETAILS_MIN_SCALE = 1.5;
   const EXPLORATION_RANK_WEIGHTS = Object.freeze([40, 25, 17, 11, 7]);
+  const DEFAULT_MAX_EXPLORATION_ITEMS = 12;
   const MIN_EXPLORATION_ITEMS = 3;
+  const MAX_EXPLORATION_ITEMS = 50;
   const TAG_COLOR_PALETTE = Object.freeze({
     red: "#e56b6f",
     orange: "#e99045",
@@ -377,8 +379,10 @@
     pivot,
     random = Math.random,
     layoutWidth = LAYOUT_WIDTH,
+    maxItems = DEFAULT_MAX_EXPLORATION_ITEMS,
   ) {
     const normalizedLayoutWidth = normalizeLayoutWidth(layoutWidth);
+    const normalizedMaxItems = normalizeExplorationItemLimit(maxItems);
     const pivotFolders = new Set(pivot.folders || []);
     const pivotTags = new Set(pivot.tags || []);
     const eligible = candidates
@@ -419,8 +423,9 @@
       const gapWidth = LAYOUT_GAP * Math.max(0, selected.length - 1);
       const fittedHeight = (normalizedLayoutWidth - gapWidth) / aspectRatioSum;
       if (
-        selected.length >= MIN_EXPLORATION_ITEMS &&
-        (normalizedLayoutWidth === MIN_LAYOUT_WIDTH || fittedHeight <= TARGET_ROW_HEIGHT)
+        selected.length >= normalizedMaxItems ||
+        (selected.length >= MIN_EXPLORATION_ITEMS &&
+          (normalizedLayoutWidth === MIN_LAYOUT_WIDTH || fittedHeight <= TARGET_ROW_HEIGHT))
       ) {
         break;
       }
@@ -433,8 +438,10 @@
     candidates,
     random = Math.random,
     layoutWidth = LAYOUT_WIDTH,
+    maxItems = DEFAULT_MAX_EXPLORATION_ITEMS,
   ) {
     const normalizedLayoutWidth = normalizeLayoutWidth(layoutWidth);
+    const normalizedMaxItems = normalizeExplorationItemLimit(maxItems);
     const remaining = [...candidates];
     const selected = [];
     let aspectRatioSum = 0;
@@ -448,8 +455,9 @@
       const gapWidth = LAYOUT_GAP * Math.max(0, selected.length - 1);
       const fittedHeight = (normalizedLayoutWidth - gapWidth) / aspectRatioSum;
       if (
-        selected.length >= MIN_EXPLORATION_ITEMS &&
-        (normalizedLayoutWidth === MIN_LAYOUT_WIDTH || fittedHeight <= TARGET_ROW_HEIGHT)
+        selected.length >= normalizedMaxItems ||
+        (selected.length >= MIN_EXPLORATION_ITEMS &&
+          (normalizedLayoutWidth === MIN_LAYOUT_WIDTH || fittedHeight <= TARGET_ROW_HEIGHT))
       ) {
         break;
       }
@@ -523,6 +531,13 @@
     if (layoutWidth === Infinity) return Infinity;
     const value = Number(layoutWidth);
     return Number.isFinite(value) ? clamp(value, MIN_LAYOUT_WIDTH, MAX_LAYOUT_WIDTH) : LAYOUT_WIDTH;
+  }
+
+  function normalizeExplorationItemLimit(maxItems) {
+    const value = Number(maxItems);
+    return Number.isFinite(value)
+      ? clamp(Math.floor(value), MIN_EXPLORATION_ITEMS, MAX_EXPLORATION_ITEMS)
+      : DEFAULT_MAX_EXPLORATION_ITEMS;
   }
 
   function createJustifiedLayout(
@@ -754,8 +769,10 @@
   return Object.freeze({
     LAYOUT_GAP,
     ROW_GAP,
+    DEFAULT_MAX_EXPLORATION_ITEMS,
     LAYOUT_WIDTH,
     MAX_LAYOUT_WIDTH,
+    MAX_EXPLORATION_ITEMS,
     MAX_ROW_HEIGHT,
     MIN_EXPLORATION_ITEMS,
     MIN_LAYOUT_WIDTH,

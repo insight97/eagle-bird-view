@@ -135,6 +135,7 @@
       excludedIds = new Set(),
       filter = DEFAULT_UNRATED_FILTER,
       layoutWidth,
+      maxItems,
     ) {
       const normalizedFilter = normalizeUnratedFilter(filter);
       const filterKey = JSON.stringify(normalizedFilter);
@@ -156,7 +157,12 @@
       const available = items.filter(
         (item) => isEligibleItem(item, excludedIds, normalizedFilter),
       );
-      const selected = selectRandomExplorationRow(available, this.#random, layoutWidth);
+      const selected = selectRandomExplorationRow(
+        available,
+        this.#random,
+        layoutWidth,
+        maxItems,
+      );
       if (selected.length) {
         const selectedIds = new Set(selected.map(({ id }) => id));
         this.#items = Promise.resolve(items.filter(({ id }) => !selectedIds.has(id)));

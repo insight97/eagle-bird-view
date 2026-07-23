@@ -1,9 +1,12 @@
 "use strict";
 
 const {
+  DEFAULT_MAX_EXPLORATION_ITEMS,
   LAYOUT_WIDTH,
   MAX_LAYOUT_WIDTH,
+  MAX_EXPLORATION_ITEMS,
   MIN_LAYOUT_WIDTH,
+  MIN_EXPLORATION_ITEMS,
   TARGET_ROW_HEIGHT,
   VIDEO_CONTROLS_HEIGHT,
   VIDEO_EXTENSIONS,
@@ -115,6 +118,7 @@ const state = {
   layoutDirection: DEFAULT_LAYOUT_DIRECTION,
   layoutWidth: DEFAULT_LAYOUT_WIDTH,
   layoutWidthUnlimited: false,
+  maxExplorationItems: DEFAULT_MAX_EXPLORATION_ITEMS,
   videoVolume: 1,
   smoothPanKeys: new Set(),
   smoothPanFrame: null,
@@ -195,6 +199,8 @@ function setup() {
   elements.layoutDirection = document.querySelector("#board-layout-direction");
   elements.layoutWidth = document.querySelector("#board-layout-width");
   elements.layoutWidthValue = document.querySelector("#board-layout-width-value");
+  elements.maxExplorationItems = document.querySelector("#board-exploration-max-items");
+  elements.maxExplorationItemsValue = document.querySelector("#board-exploration-max-items-value");
   elements.smoothPanToggle = document.querySelector("#smooth-pan-toggle");
   elements.smoothPanSpeed = document.querySelector("#smooth-pan-speed");
   elements.smoothPanSpeedValue = document.querySelector("#smooth-pan-speed-value");
@@ -241,6 +247,7 @@ function setup() {
   elements.autoExploreSettingsReset?.addEventListener("click", resetAutoExploreSettings);
   elements.layoutDirection?.addEventListener("change", updateBoardSettings);
   elements.layoutWidth?.addEventListener("input", updateBoardSettings);
+  elements.maxExplorationItems?.addEventListener("input", updateBoardSettings);
   elements.smoothPanToggle?.addEventListener("change", updateBoardSettings);
   elements.smoothPanSpeed?.addEventListener("input", updateBoardSettings);
   elements.smoothZoomToggle?.addEventListener("change", updateBoardSettings);
@@ -1592,6 +1599,7 @@ async function exploreNextRow() {
       pivot,
       Math.random,
       getBoardLayoutWidth(),
+      state.maxExplorationItems,
     );
     if (!selectedCandidates.length) {
       showToast(`找不到更多與「${pivot.name || "目前素材"}」相關的素材。`, false);
@@ -1653,6 +1661,7 @@ async function loadNextUnratedRow({ focus = false } = {}) {
       excludedIds,
       state.unratedFilter,
       layoutWidth,
+      state.maxExplorationItems,
     );
     if (generation !== state.unratedGeneration || state.nodes !== boardNodes) return;
     if (!candidates.length) {
@@ -1799,6 +1808,10 @@ function updateBoardSettings() {
     nextLayoutWidthUnlimited !== state.layoutWidthUnlimited;
   state.layoutWidth = nextLayoutWidth;
   state.layoutWidthUnlimited = nextLayoutWidthUnlimited;
+  const nextMaxExplorationItems = elements.maxExplorationItems
+    ? normalizeMaxExplorationItems(elements.maxExplorationItems.value)
+    : state.maxExplorationItems;
+  state.maxExplorationItems = nextMaxExplorationItems;
   state.smoothPanEnabled = Boolean(elements.smoothPanToggle?.checked);
   const speed = Number(elements.smoothPanSpeed?.value);
   if (Number.isFinite(speed)) {
@@ -1835,6 +1848,12 @@ function updateBoardSettingsUI() {
     elements.layoutWidthValue.textContent = state.layoutWidthUnlimited
       ? "無限"
       : `${state.layoutWidth} px`;
+  }
+  if (elements.maxExplorationItems) {
+    elements.maxExplorationItems.value = String(state.maxExplorationItems);
+  }
+  if (elements.maxExplorationItemsValue) {
+    elements.maxExplorationItemsValue.textContent = `${state.maxExplorationItems} 個`;
   }
   if (elements.smoothPanToggle) elements.smoothPanToggle.checked = state.smoothPanEnabled;
   if (elements.smoothPanSpeed) elements.smoothPanSpeed.value = String(state.smoothPanSpeed);
@@ -1874,6 +1893,7 @@ function restoreSavedSettings() {
       state.layoutDirection = normalizeLayoutDirection(board.layoutDirection);
       state.layoutWidth = normalizeBoardLayoutWidth(board.layoutWidth);
       state.layoutWidthUnlimited = Boolean(board.layoutWidthUnlimited);
+      state.maxExplorationItems = normalizeMaxExplorationItems(board.maxExplorationItems);
     }
     if (saved?.autoExploreFilter && typeof saved.autoExploreFilter === "object") {
       state.unratedFilter = cloneAutoExploreFilter(saved.autoExploreFilter);
@@ -1894,6 +1914,7 @@ function saveSettings() {
           layoutDirection: state.layoutDirection,
           layoutWidth: state.layoutWidth,
           layoutWidthUnlimited: state.layoutWidthUnlimited,
+          maxExplorationItems: state.maxExplorationItems,
           smoothPanEnabled: state.smoothPanEnabled,
           smoothPanSpeed: state.smoothPanSpeed,
           smoothZoomEnabled: state.smoothZoomEnabled,
@@ -1927,6 +1948,13 @@ function normalizeBoardLayoutWidth(width) {
 
 function getBoardLayoutWidth() {
   return state.layoutWidthUnlimited ? Infinity : state.layoutWidth;
+}
+
+function normalizeMaxExplorationItems(value) {
+  const number = Number(value);
+  return Number.isFinite(number)
+    ? clamp(Math.floor(number), MIN_EXPLORATION_ITEMS, MAX_EXPLORATION_ITEMS)
+    : DEFAULT_MAX_EXPLORATION_ITEMS;
 }
 
 function updateDraftAutoExploreFileTypes(event) {

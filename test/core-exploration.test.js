@@ -3,6 +3,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
+  DEFAULT_MAX_EXPLORATION_ITEMS,
+  MAX_EXPLORATION_ITEMS,
   MIN_EXPLORATION_ITEMS,
   MIN_LAYOUT_WIDTH,
   selectDiverseExplorationRow,
@@ -158,6 +160,21 @@ test("exploration selects at least the configured minimum when candidates are av
   );
 
   assert.equal(selectRandomExplorationRow(candidates, () => 0).length, MIN_EXPLORATION_ITEMS);
+});
+
+test("exploration respects the configured maximum even with unlimited width", () => {
+  const candidates = Array.from({ length: MAX_EXPLORATION_ITEMS + 5 }, (_, index) =>
+    item(`item-${index}`, [], [], 1600, 1000),
+  );
+
+  assert.equal(
+    selectRandomExplorationRow(candidates, () => 0, Infinity, DEFAULT_MAX_EXPLORATION_ITEMS).length,
+    DEFAULT_MAX_EXPLORATION_ITEMS,
+  );
+  assert.equal(
+    selectRandomExplorationRow(candidates, () => 0, Infinity, MAX_EXPLORATION_ITEMS).length,
+    MAX_EXPLORATION_ITEMS,
+  );
 });
 
 test("unrated exploration triggers from 80% zoom on the last row", () => {
