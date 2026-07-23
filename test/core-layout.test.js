@@ -4,6 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   LAYOUT_GAP,
+  MIN_LAYOUT_WIDTH,
   ROW_GAP,
   TARGET_ROW_HEIGHT,
   VIDEO_CONTROLS_HEIGHT,
@@ -41,6 +42,33 @@ test("createJustifiedLayout can place items from right to left", () => {
   assert.equal(layout.nodes[0].item.id, "first");
   assert.equal(layout.nodes[0].x, 1020);
   assert.equal(layout.nodes[1].x, 826);
+});
+
+test("createJustifiedLayout uses one item per row at the minimum width", () => {
+  const items = [
+    { id: "wide", width: 1600, height: 1000, ext: "jpg" },
+    { id: "portrait", width: 100, height: 200, ext: "jpg" },
+  ];
+  const layout = createJustifiedLayout(items, "ltr", MIN_LAYOUT_WIDTH);
+
+  assert.equal(layout.layoutWidth, MIN_LAYOUT_WIDTH);
+  assert.equal(layout.rows.length, items.length);
+  assert.deepEqual(layout.rows.map((row) => row.nodes.length), [1, 1]);
+});
+
+test("createJustifiedLayout supports an unlimited width single row", () => {
+  const items = Array.from({ length: 12 }, (_, index) => ({
+    id: `item-${index}`,
+    width: 1600,
+    height: 1000,
+    ext: "jpg",
+  }));
+  const layout = createJustifiedLayout(items, "rtl", Infinity);
+
+  assert.equal(layout.layoutWidth, Infinity);
+  assert.equal(layout.rows.length, 1);
+  assert.equal(layout.rows[0].nodes.length, items.length);
+  assert.ok(layout.nodes.every(({ x, width }) => Number.isFinite(x) && width > 0));
 });
 
 test("createJustifiedLayout justifies completed rows and reserves video controls", () => {
@@ -116,6 +144,29 @@ test("insertExplorationRow inserts below its anchor and shifts later rows", () =
     result.nodes.slice(anchorRow.nodes.length, anchorRow.nodes.length + 4),
     result.insertedRow.nodes,
   );
+});
+
+test("insertExplorationRow keeps the minimum-width layout to one item per row", () => {
+  const layout = createJustifiedLayout(
+    [{ id: "anchor", width: 1000, height: 1000, ext: "jpg" }],
+    "ltr",
+    MIN_LAYOUT_WIDTH,
+  );
+  const result = insertExplorationRow(
+    layout,
+    layout.rows[0],
+    [
+      { id: "first", width: 1000, height: 1000, ext: "jpg" },
+      { id: "second", width: 1000, height: 1000, ext: "jpg" },
+    ],
+    "ltr",
+    MIN_LAYOUT_WIDTH,
+  );
+
+  assert.equal(result.insertedRows.length, 2);
+  assert.deepEqual(result.insertedRows.map((row) => row.nodes.length), [1, 1]);
+  assert.equal(result.rows[1], result.insertedRows[0]);
+  assert.equal(result.rows[2], result.insertedRows[1]);
 });
 
 test("repeated exploration keeps the newest row directly below the same anchor", () => {

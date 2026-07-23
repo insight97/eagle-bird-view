@@ -255,6 +255,14 @@ button {
   white-space: nowrap;
 }
 
+.auto-explore-layout-width-value {
+  min-width: 58px;
+  color: #b8bbc2;
+  font-size: 10px;
+  text-align: right;
+  white-space: nowrap;
+}
+
 .auto-explore-select:focus,
 .auto-explore-number:focus,
 .auto-explore-tag-search:focus {

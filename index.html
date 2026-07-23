@@ -160,6 +160,27 @@
                   <option value="rtl">由右至左</option>
                 </select>
               </label>
+              <div class="auto-explore-setting-row auto-explore-speed-row">
+                <span>每列最大寬度</span>
+                <div class="auto-explore-speed-control">
+                  <input
+                    id="board-layout-width"
+                    class="auto-explore-range"
+                    type="range"
+                    min="240"
+                    max="2400"
+                    step="40"
+                    value="1200"
+                  />
+                  <output
+                    id="board-layout-width-value"
+                    class="auto-explore-layout-width-value"
+                    for="board-layout-width"
+                  >
+                    1200 px
+                  </output>
+                </div>
+              </div>
               <div class="auto-explore-settings-subheading">移動</div>
               <label class="auto-explore-setting-row">
                 <span>平滑移動</span>

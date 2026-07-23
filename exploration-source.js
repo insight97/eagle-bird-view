@@ -131,7 +131,11 @@
       this.#random = random;
     }
 
-    async findNextRow(excludedIds = new Set(), filter = DEFAULT_UNRATED_FILTER) {
+    async findNextRow(
+      excludedIds = new Set(),
+      filter = DEFAULT_UNRATED_FILTER,
+      layoutWidth,
+    ) {
       const normalizedFilter = normalizeUnratedFilter(filter);
       const filterKey = JSON.stringify(normalizedFilter);
       if (this.#filterKey !== filterKey) {
@@ -152,7 +156,7 @@
       const available = items.filter(
         (item) => isEligibleItem(item, excludedIds, normalizedFilter),
       );
-      const selected = selectRandomExplorationRow(available, this.#random);
+      const selected = selectRandomExplorationRow(available, this.#random, layoutWidth);
       if (selected.length) {
         const selectedIds = new Set(selected.map(({ id }) => id));
         this.#items = Promise.resolve(items.filter(({ id }) => !selectedIds.has(id)));

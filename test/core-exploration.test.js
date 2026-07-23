@@ -3,6 +3,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
+  MIN_EXPLORATION_ITEMS,
+  MIN_LAYOUT_WIDTH,
   selectDiverseExplorationRow,
   selectRandomExplorationRow,
   shouldLoadUnratedRow,
@@ -92,8 +94,8 @@ test("exploration randomizes among the highest-ranked candidates", () => {
   const fromStart = selectDiverseExplorationRow(candidates, pivot, () => 0);
   const fromEnd = selectDiverseExplorationRow(candidates, pivot, () => 0.999999);
 
-  assert.deepEqual(fromStart.map(({ id }) => id), ["a", "b"]);
-  assert.deepEqual(fromEnd.map(({ id }) => id), ["d", "c"]);
+  assert.deepEqual(fromStart.map(({ id }) => id), ["a", "b", "c"]);
+  assert.deepEqual(fromEnd.map(({ id }) => id), ["d", "c", "b"]);
 });
 
 test("exploration can select a lower-ranked candidate from the weighted shortlist", () => {
@@ -136,6 +138,26 @@ test("random exploration selects enough items to fill one row", () => {
 
   assert.equal(selected.length, 4);
   assert.deepEqual(selected.map(({ id }) => id), ["item-0", "item-1", "item-2", "item-3"]);
+});
+
+test("exploration row selection respects minimum and unlimited layout widths", () => {
+  const candidates = Array.from({ length: 5 }, (_, index) =>
+    item(`item-${index}`, [], [], 1600, 1000),
+  );
+
+  assert.equal(
+    selectRandomExplorationRow(candidates, () => 0, MIN_LAYOUT_WIDTH).length,
+    MIN_EXPLORATION_ITEMS,
+  );
+  assert.equal(selectRandomExplorationRow(candidates, () => 0, Infinity).length, candidates.length);
+});
+
+test("exploration selects at least the configured minimum when candidates are available", () => {
+  const candidates = Array.from({ length: 5 }, (_, index) =>
+    item(`item-${index}`, [], [], 400, 100),
+  );
+
+  assert.equal(selectRandomExplorationRow(candidates, () => 0).length, MIN_EXPLORATION_ITEMS);
 });
 
 test("unrated exploration triggers from 80% zoom on the last row", () => {

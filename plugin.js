@@ -1,6 +1,9 @@
 "use strict";
 
 const {
+  LAYOUT_WIDTH,
+  MAX_LAYOUT_WIDTH,
+  MIN_LAYOUT_WIDTH,
   TARGET_ROW_HEIGHT,
   VIDEO_CONTROLS_HEIGHT,
   VIDEO_EXTENSIONS,
@@ -48,6 +51,7 @@ const DEFAULT_SMOOTH_ZOOM_SPEED = 1.5;
 const MIN_SMOOTH_ZOOM_SPEED = 1.05;
 const MAX_SMOOTH_ZOOM_SPEED = 12;
 const DEFAULT_LAYOUT_DIRECTION = "ltr";
+const DEFAULT_LAYOUT_WIDTH = LAYOUT_WIDTH;
 const SETTINGS_STORAGE_KEY = "bird-view-settings";
 const VIEWPORT_PAN_FRACTION = 2 / 3;
 const KEYBOARD_ZOOM_FACTOR = 1.5;
@@ -109,6 +113,8 @@ const state = {
   smoothZoomEnabled: false,
   smoothZoomSpeed: DEFAULT_SMOOTH_ZOOM_SPEED,
   layoutDirection: DEFAULT_LAYOUT_DIRECTION,
+  layoutWidth: DEFAULT_LAYOUT_WIDTH,
+  layoutWidthUnlimited: false,
   videoVolume: 1,
   smoothPanKeys: new Set(),
   smoothPanFrame: null,
@@ -187,6 +193,8 @@ function setup() {
   elements.autoExploreSettingsButton = document.querySelector("#auto-explore-settings-button");
   elements.autoExploreSettingsPanel = document.querySelector("#auto-explore-settings-panel");
   elements.layoutDirection = document.querySelector("#board-layout-direction");
+  elements.layoutWidth = document.querySelector("#board-layout-width");
+  elements.layoutWidthValue = document.querySelector("#board-layout-width-value");
   elements.smoothPanToggle = document.querySelector("#smooth-pan-toggle");
   elements.smoothPanSpeed = document.querySelector("#smooth-pan-speed");
   elements.smoothPanSpeedValue = document.querySelector("#smooth-pan-speed-value");
@@ -232,6 +240,7 @@ function setup() {
   );
   elements.autoExploreSettingsReset?.addEventListener("click", resetAutoExploreSettings);
   elements.layoutDirection?.addEventListener("change", updateBoardSettings);
+  elements.layoutWidth?.addEventListener("input", updateBoardSettings);
   elements.smoothPanToggle?.addEventListener("change", updateBoardSettings);
   elements.smoothPanSpeed?.addEventListener("input", updateBoardSettings);
   elements.smoothZoomToggle?.addEventListener("change", updateBoardSettings);
@@ -348,11 +357,13 @@ function appendItemsToBoard(items) {
     return;
   }
 
-  const selectedLayout = createJustifiedLayout(items, state.layoutDirection);
+  const layoutWidth = getBoardLayoutWidth();
+  const selectedLayout = createJustifiedLayout(items, state.layoutDirection, layoutWidth);
   let layout = {
     nodes: state.nodes,
     rows: state.rows,
     direction: state.layoutDirection,
+    layoutWidth,
   };
   for (const row of selectedLayout.rows) {
     layout = insertExplorationRow(
@@ -360,6 +371,7 @@ function appendItemsToBoard(items) {
       layout.rows.at(-1),
       row.nodes.map(({ item }) => item),
       state.layoutDirection,
+      layoutWidth,
     );
   }
   state.nodes = layout.nodes;
@@ -382,7 +394,7 @@ function renderItems(items) {
   state.labelCamera = null;
   elements.labels.style.transform = "none";
   state.mountedNodes.clear();
-  const layout = createJustifiedLayout(items, state.layoutDirection);
+  const layout = createJustifiedLayout(items, state.layoutDirection, getBoardLayoutWidth());
   state.nodes = layout.nodes;
   state.rows = layout.rows;
   state.lastUnratedTriggerRow = null;
@@ -412,7 +424,7 @@ function relayoutBoard() {
   state.labelCamera = null;
   elements.labels.style.transform = "none";
 
-  const layout = createJustifiedLayout(items, state.layoutDirection);
+  const layout = createJustifiedLayout(items, state.layoutDirection, getBoardLayoutWidth());
   for (const node of layout.nodes) {
     node.rotation = rotations.get(node.item.id) || 0;
   }
@@ -1575,7 +1587,12 @@ async function exploreNextRow() {
     const excludedIds = new Set(boardNodes.map(({ item }) => item.id));
     const candidates = await source.findCandidates(pivot, excludedIds);
     if (state.nodes !== boardNodes) return;
-    const selectedCandidates = selectDiverseExplorationRow(candidates, pivot);
+    const selectedCandidates = selectDiverseExplorationRow(
+      candidates,
+      pivot,
+      Math.random,
+      getBoardLayoutWidth(),
+    );
     if (!selectedCandidates.length) {
       showToast(`找不到更多與「${pivot.name || "目前素材"}」相關的素材。`, false);
       return;
@@ -1590,11 +1607,18 @@ async function exploreNextRow() {
 
     const pivotRow = state.rows.find((row) => row.nodes.includes(pivotNode));
     if (!pivotRow) return;
+    const layoutWidth = getBoardLayoutWidth();
     const layout = insertExplorationRow(
-      { nodes: state.nodes, rows: state.rows, direction: state.layoutDirection },
+      {
+        nodes: state.nodes,
+        rows: state.rows,
+        direction: state.layoutDirection,
+        layoutWidth,
+      },
       pivotRow,
       items,
       state.layoutDirection,
+      layoutWidth,
     );
     state.nodes = layout.nodes;
     state.rows = layout.rows;
@@ -1624,7 +1648,12 @@ async function loadNextUnratedRow({ focus = false } = {}) {
   updateAutoExploreToggle();
   try {
     const excludedIds = new Set(boardNodes.map(({ item }) => item.id));
-    const candidates = await source.findNextRow(excludedIds, state.unratedFilter);
+    const layoutWidth = getBoardLayoutWidth();
+    const candidates = await source.findNextRow(
+      excludedIds,
+      state.unratedFilter,
+      layoutWidth,
+    );
     if (generation !== state.unratedGeneration || state.nodes !== boardNodes) return;
     if (!candidates.length) {
       state.unratedExhausted = true;
@@ -1640,15 +1669,21 @@ async function loadNextUnratedRow({ focus = false } = {}) {
     }
 
     if (!state.rows.length) {
-      const layout = createJustifiedLayout(items, state.layoutDirection);
+      const layout = createJustifiedLayout(items, state.layoutDirection, layoutWidth);
       state.nodes = layout.nodes;
       state.rows = layout.rows;
     } else {
       const layout = insertExplorationRow(
-        { nodes: state.nodes, rows: state.rows, direction: state.layoutDirection },
+        {
+          nodes: state.nodes,
+          rows: state.rows,
+          direction: state.layoutDirection,
+          layoutWidth,
+        },
         state.rows.at(-1),
         items,
         state.layoutDirection,
+        layoutWidth,
       );
       state.nodes = layout.nodes;
       state.rows = layout.rows;
@@ -1753,6 +1788,17 @@ function updateBoardSettings() {
     : state.layoutDirection;
   const layoutDirectionChanged = nextLayoutDirection !== state.layoutDirection;
   state.layoutDirection = nextLayoutDirection;
+  const nextLayoutWidth = elements.layoutWidth
+    ? normalizeBoardLayoutWidth(elements.layoutWidth.value)
+    : state.layoutWidth;
+  const nextLayoutWidthUnlimited = elements.layoutWidth
+    ? nextLayoutWidth >= MAX_LAYOUT_WIDTH
+    : state.layoutWidthUnlimited;
+  const layoutWidthChanged =
+    nextLayoutWidth !== state.layoutWidth ||
+    nextLayoutWidthUnlimited !== state.layoutWidthUnlimited;
+  state.layoutWidth = nextLayoutWidth;
+  state.layoutWidthUnlimited = nextLayoutWidthUnlimited;
   state.smoothPanEnabled = Boolean(elements.smoothPanToggle?.checked);
   const speed = Number(elements.smoothPanSpeed?.value);
   if (Number.isFinite(speed)) {
@@ -1771,11 +1817,25 @@ function updateBoardSettings() {
   if (!state.smoothZoomEnabled) stopSmoothKeyboardZoom();
   saveSettings();
   updateBoardSettingsUI();
-  if (layoutDirectionChanged) relayoutBoard();
+  if (layoutDirectionChanged || layoutWidthChanged) relayoutBoard();
 }
 
 function updateBoardSettingsUI() {
   if (elements.layoutDirection) elements.layoutDirection.value = state.layoutDirection;
+  if (elements.layoutWidth) {
+    elements.layoutWidth.value = String(
+      state.layoutWidthUnlimited ? MAX_LAYOUT_WIDTH : state.layoutWidth,
+    );
+    elements.layoutWidth.setAttribute(
+      "aria-valuetext",
+      state.layoutWidthUnlimited ? "無限" : `${state.layoutWidth} px`,
+    );
+  }
+  if (elements.layoutWidthValue) {
+    elements.layoutWidthValue.textContent = state.layoutWidthUnlimited
+      ? "無限"
+      : `${state.layoutWidth} px`;
+  }
   if (elements.smoothPanToggle) elements.smoothPanToggle.checked = state.smoothPanEnabled;
   if (elements.smoothPanSpeed) elements.smoothPanSpeed.value = String(state.smoothPanSpeed);
   if (elements.smoothPanSpeedValue) {
@@ -1812,6 +1872,8 @@ function restoreSavedSettings() {
         DEFAULT_SMOOTH_ZOOM_SPEED,
       );
       state.layoutDirection = normalizeLayoutDirection(board.layoutDirection);
+      state.layoutWidth = normalizeBoardLayoutWidth(board.layoutWidth);
+      state.layoutWidthUnlimited = Boolean(board.layoutWidthUnlimited);
     }
     if (saved?.autoExploreFilter && typeof saved.autoExploreFilter === "object") {
       state.unratedFilter = cloneAutoExploreFilter(saved.autoExploreFilter);
@@ -1830,6 +1892,8 @@ function saveSettings() {
         version: 1,
         board: {
           layoutDirection: state.layoutDirection,
+          layoutWidth: state.layoutWidth,
+          layoutWidthUnlimited: state.layoutWidthUnlimited,
           smoothPanEnabled: state.smoothPanEnabled,
           smoothPanSpeed: state.smoothPanSpeed,
           smoothZoomEnabled: state.smoothZoomEnabled,
@@ -1850,6 +1914,19 @@ function normalizeStoredSettingNumber(value, minimum, maximum, fallback) {
 
 function normalizeLayoutDirection(direction) {
   return direction === "rtl" ? "rtl" : DEFAULT_LAYOUT_DIRECTION;
+}
+
+function normalizeBoardLayoutWidth(width) {
+  return normalizeStoredSettingNumber(
+    width,
+    MIN_LAYOUT_WIDTH,
+    MAX_LAYOUT_WIDTH,
+    DEFAULT_LAYOUT_WIDTH,
+  );
+}
+
+function getBoardLayoutWidth() {
+  return state.layoutWidthUnlimited ? Infinity : state.layoutWidth;
 }
 
 function updateDraftAutoExploreFileTypes(event) {

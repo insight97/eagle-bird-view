@@ -8,6 +8,8 @@
   const VIDEO_EXTENSIONS = new Set(["mp4", "m4v", "mov", "webm", "mkv"]);
   const VIDEO_CONTROLS_HEIGHT = 10;
   const LAYOUT_WIDTH = 1200;
+  const MIN_LAYOUT_WIDTH = 240;
+  const MAX_LAYOUT_WIDTH = 2400;
   const TARGET_ROW_HEIGHT = 180;
   const MIN_ROW_HEIGHT = 140;
   const MAX_ROW_HEIGHT = 220;
@@ -19,6 +21,7 @@
   const LABEL_DETAILS_MIN_ZOOM = 0.5;
   const LABEL_DETAILS_MIN_SCALE = 1.5;
   const EXPLORATION_RANK_WEIGHTS = Object.freeze([40, 25, 17, 11, 7]);
+  const MIN_EXPLORATION_ITEMS = 3;
   const TAG_COLOR_PALETTE = Object.freeze({
     red: "#e56b6f",
     orange: "#e99045",
@@ -369,7 +372,13 @@
     return width / height;
   }
 
-  function selectDiverseExplorationRow(candidates, pivot, random = Math.random) {
+  function selectDiverseExplorationRow(
+    candidates,
+    pivot,
+    random = Math.random,
+    layoutWidth = LAYOUT_WIDTH,
+  ) {
+    const normalizedLayoutWidth = normalizeLayoutWidth(layoutWidth);
     const pivotFolders = new Set(pivot.folders || []);
     const pivotTags = new Set(pivot.tags || []);
     const eligible = candidates
@@ -408,14 +417,24 @@
       }
 
       const gapWidth = LAYOUT_GAP * Math.max(0, selected.length - 1);
-      const fittedHeight = (LAYOUT_WIDTH - gapWidth) / aspectRatioSum;
-      if (fittedHeight <= TARGET_ROW_HEIGHT) break;
+      const fittedHeight = (normalizedLayoutWidth - gapWidth) / aspectRatioSum;
+      if (
+        selected.length >= MIN_EXPLORATION_ITEMS &&
+        (normalizedLayoutWidth === MIN_LAYOUT_WIDTH || fittedHeight <= TARGET_ROW_HEIGHT)
+      ) {
+        break;
+      }
     }
 
     return selected;
   }
 
-  function selectRandomExplorationRow(candidates, random = Math.random) {
+  function selectRandomExplorationRow(
+    candidates,
+    random = Math.random,
+    layoutWidth = LAYOUT_WIDTH,
+  ) {
+    const normalizedLayoutWidth = normalizeLayoutWidth(layoutWidth);
     const remaining = [...candidates];
     const selected = [];
     let aspectRatioSum = 0;
@@ -427,8 +446,13 @@
       aspectRatioSum += getAspectRatio(item);
 
       const gapWidth = LAYOUT_GAP * Math.max(0, selected.length - 1);
-      const fittedHeight = (LAYOUT_WIDTH - gapWidth) / aspectRatioSum;
-      if (fittedHeight <= TARGET_ROW_HEIGHT) break;
+      const fittedHeight = (normalizedLayoutWidth - gapWidth) / aspectRatioSum;
+      if (
+        selected.length >= MIN_EXPLORATION_ITEMS &&
+        (normalizedLayoutWidth === MIN_LAYOUT_WIDTH || fittedHeight <= TARGET_ROW_HEIGHT)
+      ) {
+        break;
+      }
     }
 
     return selected;
@@ -495,8 +519,19 @@
     return direction === "rtl" ? "rtl" : DEFAULT_LAYOUT_DIRECTION;
   }
 
-  function createJustifiedLayout(items, direction = DEFAULT_LAYOUT_DIRECTION) {
+  function normalizeLayoutWidth(layoutWidth) {
+    if (layoutWidth === Infinity) return Infinity;
+    const value = Number(layoutWidth);
+    return Number.isFinite(value) ? clamp(value, MIN_LAYOUT_WIDTH, MAX_LAYOUT_WIDTH) : LAYOUT_WIDTH;
+  }
+
+  function createJustifiedLayout(
+    items,
+    direction = DEFAULT_LAYOUT_DIRECTION,
+    layoutWidth = LAYOUT_WIDTH,
+  ) {
     const normalizedDirection = normalizeLayoutDirection(direction);
+    const normalizedLayoutWidth = normalizeLayoutWidth(layoutWidth);
     const nodes = [];
     const rows = [];
     let row = [];
@@ -510,6 +545,7 @@
         y,
         justify,
         normalizedDirection,
+        normalizedLayoutWidth,
       );
       nodes.push(...layoutRow.nodes);
       rows.push(layoutRow);
@@ -528,12 +564,19 @@
       aspectRatioSum += aspectRatio;
 
       const gapWidth = LAYOUT_GAP * Math.max(0, row.length - 1);
-      const fittedHeight = (LAYOUT_WIDTH - gapWidth) / aspectRatioSum;
-      if (fittedHeight <= TARGET_ROW_HEIGHT) commitRow(true);
+      const fittedHeight = (normalizedLayoutWidth - gapWidth) / aspectRatioSum;
+      if (normalizedLayoutWidth === MIN_LAYOUT_WIDTH || fittedHeight <= TARGET_ROW_HEIGHT) {
+        commitRow(true);
+      }
     }
 
     commitRow(false);
-    return { nodes, rows, direction: normalizedDirection };
+    return {
+      nodes,
+      rows,
+      direction: normalizedDirection,
+      layoutWidth: normalizedLayoutWidth,
+    };
   }
 
   function insertExplorationRow(
@@ -541,34 +584,67 @@
     afterRow,
     items,
     direction = layout.direction || DEFAULT_LAYOUT_DIRECTION,
+    layoutWidth = layout.layoutWidth ?? LAYOUT_WIDTH,
   ) {
     const normalizedDirection = normalizeLayoutDirection(direction);
+    const normalizedLayoutWidth = normalizeLayoutWidth(layoutWidth);
     const rowIndex = layout.rows.indexOf(afterRow);
     if (rowIndex < 0) throw new Error("Exploration anchor row is not part of the layout");
     if (!items.length) {
-      return { ...layout, direction: normalizedDirection, insertedRow: null, shift: 0 };
+      return {
+        ...layout,
+        direction: normalizedDirection,
+        layoutWidth: normalizedLayoutWidth,
+        insertedRow: null,
+        insertedRows: [],
+        shift: 0,
+      };
     }
 
     const top = afterRow.bottom + getRowControlsHeight(afterRow) + ROW_GAP;
-    const insertedRow = createLayoutRow(
-      items,
-      top,
-      isFilledRow(items),
-      normalizedDirection,
-    );
-    const shift = getRowAdvance(insertedRow);
+    const itemGroups = normalizedLayoutWidth === MIN_LAYOUT_WIDTH
+      ? items.map((item) => [item])
+      : [items];
+    const insertedRows = [];
+    let nextTop = top;
+    for (const group of itemGroups) {
+      const insertedRow = createLayoutRow(
+        group,
+        nextTop,
+        isFilledRow(group, normalizedLayoutWidth),
+        normalizedDirection,
+        normalizedLayoutWidth,
+      );
+      insertedRows.push(insertedRow);
+      nextTop += getRowAdvance(insertedRow);
+    }
+    const shift = nextTop - top;
     for (let index = rowIndex + 1; index < layout.rows.length; index += 1) {
       const row = layout.rows[index];
       row.top += shift;
       row.bottom += shift;
       for (const node of row.nodes) node.y += shift;
     }
-    layout.rows.splice(rowIndex + 1, 0, insertedRow);
+    layout.rows.splice(rowIndex + 1, 0, ...insertedRows);
     layout.nodes = layout.rows.flatMap((row) => row.nodes);
-    return { ...layout, direction: normalizedDirection, insertedRow, shift };
+    return {
+      ...layout,
+      direction: normalizedDirection,
+      layoutWidth: normalizedLayoutWidth,
+      insertedRow: insertedRows[0],
+      insertedRows,
+      shift,
+    };
   }
 
-  function createLayoutRow(items, y, justify, direction = DEFAULT_LAYOUT_DIRECTION) {
+  function createLayoutRow(
+    items,
+    y,
+    justify,
+    direction = DEFAULT_LAYOUT_DIRECTION,
+    layoutWidth = LAYOUT_WIDTH,
+  ) {
+    const normalizedLayoutWidth = normalizeLayoutWidth(layoutWidth);
     const entries = items.map((item) => ({
       item,
       aspectRatio: getAspectRatio(item),
@@ -576,16 +652,21 @@
     }));
     const aspectRatioSum = entries.reduce((sum, entry) => sum + entry.aspectRatio, 0);
     const gapWidth = LAYOUT_GAP * Math.max(0, entries.length - 1);
-    const fittedHeight = (LAYOUT_WIDTH - gapWidth) / aspectRatioSum;
-    let rowHeight = justify ? fittedHeight : TARGET_ROW_HEIGHT;
+    const fittedHeight = (normalizedLayoutWidth - gapWidth) / aspectRatioSum;
+    let rowHeight = justify ? fittedHeight : Math.min(TARGET_ROW_HEIGHT, fittedHeight);
     rowHeight = Math.min(MAX_ROW_HEIGHT, rowHeight);
 
     if (rowHeight < MIN_ROW_HEIGHT) {
       const widthAtMinimumHeight = aspectRatioSum * MIN_ROW_HEIGHT + gapWidth;
-      if (widthAtMinimumHeight <= LAYOUT_WIDTH) rowHeight = MIN_ROW_HEIGHT;
+      if (widthAtMinimumHeight <= normalizedLayoutWidth) rowHeight = MIN_ROW_HEIGHT;
     }
 
-    let x = direction === "rtl" ? LAYOUT_WIDTH : 0;
+    const rowWidth = aspectRatioSum * rowHeight + gapWidth;
+    let x = direction === "rtl"
+      ? Number.isFinite(normalizedLayoutWidth)
+        ? normalizedLayoutWidth
+        : rowWidth
+      : 0;
     const layoutRow = { top: y, bottom: y + rowHeight, nodes: [] };
     for (const entry of entries) {
       const width = entry.aspectRatio * rowHeight;
@@ -605,10 +686,11 @@
     return layoutRow;
   }
 
-  function isFilledRow(items) {
+  function isFilledRow(items, layoutWidth = LAYOUT_WIDTH) {
+    const normalizedLayoutWidth = normalizeLayoutWidth(layoutWidth);
     const aspectRatioSum = items.reduce((sum, item) => sum + getAspectRatio(item), 0);
     const gapWidth = LAYOUT_GAP * Math.max(0, items.length - 1);
-    return (LAYOUT_WIDTH - gapWidth) / aspectRatioSum <= TARGET_ROW_HEIGHT;
+    return (normalizedLayoutWidth - gapWidth) / aspectRatioSum <= TARGET_ROW_HEIGHT;
   }
 
   function getRowAdvance(row) {
@@ -673,7 +755,10 @@
     LAYOUT_GAP,
     ROW_GAP,
     LAYOUT_WIDTH,
+    MAX_LAYOUT_WIDTH,
     MAX_ROW_HEIGHT,
+    MIN_EXPLORATION_ITEMS,
+    MIN_LAYOUT_WIDTH,
     MIN_ROW_HEIGHT,
     TARGET_ROW_HEIGHT,
     VIDEO_CONTROLS_HEIGHT,
