@@ -89,6 +89,16 @@ test("auto exploration defaults off and a library change restarts selected item 
         };
       },
     },
+    BirdViewSelection: {
+      createSelectionNavigation() {
+        return {
+          clearSelection() {},
+          moveSelection() { return null; },
+          selectNodeAtViewportCenter() {},
+          setSelectedNode() {},
+        };
+      },
+    },
     document: {
       addEventListener(type, callback) {
         if (type === "DOMContentLoaded") domReady = callback;

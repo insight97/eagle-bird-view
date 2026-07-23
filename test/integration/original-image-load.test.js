@@ -162,6 +162,16 @@ function buildPlugin(item) {
         };
       },
     },
+    BirdViewSelection: {
+      createSelectionNavigation() {
+        return {
+          clearSelection() {},
+          moveSelection() { return null; },
+          selectNodeAtViewportCenter() {},
+          setSelectedNode() {},
+        };
+      },
+    },
     document: {
       addEventListener(type, callback) {
         if (type === "DOMContentLoaded") domReady = callback;

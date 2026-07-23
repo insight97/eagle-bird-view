@@ -15,8 +15,6 @@ const {
   clamp,
   createJustifiedLayout,
   directionFor,
-  findDirectionalNeighbor,
-  findNearestNodeInRows,
   findNodesNearViewport,
   formatFileSize,
   formatItemDimensions,
@@ -29,7 +27,6 @@ const {
   getWrappedGridTranslation,
   getViewportWorkInterval,
   getTagColorStyle,
-  getViewportWorldCenter,
   insertExplorationRow,
   isPlayingVideo,
   normalizeTags,
@@ -43,6 +40,7 @@ const { RelatedItemSource, UnratedItemSource } = BirdViewExploration;
 const { startVideoPlayer } = BirdViewVideo;
 const { TagEditor } = BirdViewTagEditor;
 const { createCameraNavigation } = BirdViewCamera;
+const { createSelectionNavigation } = BirdViewSelection;
 const DEFAULT_SMOOTH_PAN_SPEED = 480;
 const MIN_SMOOTH_PAN_SPEED = 120;
 const MAX_SMOOTH_PAN_SPEED = 3000;
@@ -148,6 +146,7 @@ const state = {
 
 const elements = {};
 let cameraNavigation = null;
+let selectionNavigation = null;
 const mediaLoadQueue = new MediaLoadQueue({ maxConcurrent: MAX_CONCURRENT_IMAGE_LOADS });
 const tagEditor = new TagEditor({
   getViewport: () => elements.viewport,
@@ -222,6 +221,12 @@ function setup() {
   elements.exploreButton = document.querySelector("#explore-button");
   elements.toast = document.querySelector("#toast");
 
+  selectionNavigation = createSelectionNavigation({
+    state,
+    elements,
+    onSelectNode: applySelectedNode,
+    onClearSelection: applyClearedSelection,
+  });
   cameraNavigation = createCameraNavigation({
     state,
     elements,
@@ -1361,21 +1366,24 @@ function panOneViewport(key) {
 }
 
 function clearSelection() {
-  state.selectedNode?.element?.classList.remove("is-selected");
-  state.selectedNode?.label?.classList.remove("is-selected");
-  state.selectedNode = null;
-  state.verticalNavigation = null;
+  selectionNavigation.clearSelection();
+}
+
+function setSelectedNode(node, { preserveVerticalNavigation = false } = {}) {
+  selectionNavigation.setSelectedNode(node, { preserveVerticalNavigation });
+}
+
+function applyClearedSelection(previousNode) {
+  previousNode?.element?.classList.remove("is-selected");
+  previousNode?.label?.classList.remove("is-selected");
   updateSelectionStatus();
   updateExploreButton();
 }
 
-function setSelectedNode(node, { preserveVerticalNavigation = false } = {}) {
-  if (!node) return;
-  if (!preserveVerticalNavigation) state.verticalNavigation = null;
-  if (node !== state.selectedNode) {
-    state.selectedNode?.element?.classList.remove("is-selected");
-    state.selectedNode?.label?.classList.remove("is-selected");
-    state.selectedNode = node;
+function applySelectedNode(node, { changed, previousNode }) {
+  if (changed) {
+    previousNode?.element?.classList.remove("is-selected");
+    previousNode?.label?.classList.remove("is-selected");
     mountMediaCard(node);
     preloadSelectedNode(node);
     node.element.classList.add("is-selected");
@@ -1400,40 +1408,7 @@ function preloadSelectedNode(node) {
 }
 
 function moveSelection(direction) {
-  if (!direction || !state.selectedNode) return null;
-  const [dx, dy] = direction;
-  if (dy) {
-    if (!state.verticalNavigation) {
-      const currentRow = state.rows.find((row) => row.nodes.includes(state.selectedNode));
-      const nodeIndex = currentRow?.nodes.indexOf(state.selectedNode) ?? -1;
-      state.verticalNavigation = {
-        preferredX: state.selectedNode.x + state.selectedNode.width / 2,
-        edgeTarget:
-          nodeIndex === 0
-            ? "first"
-            : nodeIndex === (currentRow?.nodes.length || 0) - 1
-              ? "last"
-              : null,
-      };
-    }
-    const node = findDirectionalNeighbor(state.rows, state.selectedNode, direction, {
-      preferredX: state.verticalNavigation.preferredX,
-      edgeTarget: state.verticalNavigation.edgeTarget,
-    });
-    if (node) {
-      setSelectedNode(node, { preserveVerticalNavigation: true });
-      return node;
-    }
-    return null;
-  }
-
-  state.verticalNavigation = null;
-  const node = findDirectionalNeighbor(state.rows, state.selectedNode, direction, {
-    wrapRows: true,
-    layoutDirection: state.layoutDirection,
-  });
-  if (node) setSelectedNode(node);
-  return node || null;
+  return selectionNavigation.moveSelection(direction);
 }
 
 function focusSelectedNodeAtRowScale(node = state.selectedNode, { crossRow = false } = {}) {
@@ -2166,12 +2141,7 @@ function updateExploreButton() {
 }
 
 function selectNodeAtViewportCenter() {
-  const viewportCenter = getViewportWorldCenter(state.camera, {
-    width: elements.viewport.clientWidth,
-    height: elements.viewport.clientHeight,
-  });
-  const node = findNearestNodeInRows(state.rows, viewportCenter);
-  if (node && node !== state.selectedNode) setSelectedNode(node);
+  selectionNavigation.selectNodeAtViewportCenter();
 }
 
 function activateSelectedNode() {
