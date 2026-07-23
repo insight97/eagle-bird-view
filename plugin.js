@@ -67,6 +67,10 @@ const CAMERA_FIT_PADDING = 64;
 const KEYBOARD_SEEK_STEP = 5;
 const KEYBOARD_VOLUME_STEP = 0.05;
 const PAN_START_THRESHOLD = 4;
+const CROSS_ROW_FOCUS_MIN_DURATION = 240;
+const CROSS_ROW_FOCUS_MAX_DURATION = 420;
+const CROSS_ROW_FOCUS_DISTANCE_FACTOR = 0.1;
+const CROSS_ROW_FOCUS_SCALE_FACTOR = 100;
 const ORIGINAL_IMAGE_ZOOM = 0.8;
 const ORIGINAL_IMAGE_LOAD_TIMEOUT = 8000;
 const MAX_CONCURRENT_IMAGE_LOADS = 4;
@@ -1249,8 +1253,10 @@ function handleKeyDown(event) {
     }
     if (arrowAction === "focus-selection") {
       if (event.repeat) return;
+      const previousRow = state.rows.find((row) => row.nodes.includes(state.selectedNode));
       const node = moveSelection(directionFor(event.key));
-      if (node) focusSelectedNodeAtRowScale(node);
+      const nextRow = node && state.rows.find((row) => row.nodes.includes(node));
+      if (node) focusSelectedNodeAtRowScale(node, { crossRow: previousRow !== nextRow });
       return;
     }
     if (arrowAction === "viewport-pan") {
@@ -1476,11 +1482,26 @@ function setSelectedNode(node, { preserveVerticalNavigation = false } = {}) {
     state.selectedNode?.label?.classList.remove("is-selected");
     state.selectedNode = node;
     mountMediaCard(node);
+    preloadSelectedNode(node);
     node.element.classList.add("is-selected");
     node.label?.classList.add("is-selected");
   }
   updateSelectionStatus();
   updateExploreButton();
+}
+
+function preloadSelectedNode(node) {
+  const snapshot = mediaLoadQueue.snapshot(node);
+  if (
+    !snapshot ||
+    snapshot.readyQuality ||
+    snapshot.loading ||
+    snapshot.queued ||
+    snapshot.pendingQuality
+  ) {
+    return;
+  }
+  node.loadMedia?.("thumbnail");
 }
 
 function moveSelection(direction) {
@@ -1520,7 +1541,7 @@ function moveSelection(direction) {
   return node || null;
 }
 
-function animateCameraTo(target, { animate = true } = {}) {
+function animateCameraTo(target, { animate = true, duration = CAMERA_FOCUS_DURATION } = {}) {
   cancelCameraFocus();
   if (
     Math.abs(state.camera.x - target.x) < 0.1 &&
@@ -1538,8 +1559,9 @@ function animateCameraTo(target, { animate = true } = {}) {
 
   const start = { ...state.camera };
   const startedAt = performance.now();
+  const transitionDuration = Math.max(1, Number(duration) || CAMERA_FOCUS_DURATION);
   const step = (timestamp) => {
-    const progress = clamp((timestamp - startedAt) / CAMERA_FOCUS_DURATION, 0, 1);
+    const progress = clamp((timestamp - startedAt) / transitionDuration, 0, 1);
     Object.assign(state.camera, interpolateCamera(start, target, progress));
     updateCamera();
     if (progress < 1) state.cameraFocusFrame = requestAnimationFrame(step);
@@ -1548,7 +1570,7 @@ function animateCameraTo(target, { animate = true } = {}) {
   state.cameraFocusFrame = requestAnimationFrame(step);
 }
 
-function focusSelectedNodeAtRowScale(node = state.selectedNode) {
+function focusSelectedNodeAtRowScale(node = state.selectedNode, { crossRow = false } = {}) {
   if (!node) return;
   stopSmoothKeyboardPan();
   stopSmoothKeyboardZoom();
@@ -1567,7 +1589,24 @@ function focusSelectedNodeAtRowScale(node = state.selectedNode) {
     { x: node.x + node.width / 2, y: node.y + displayHeight / 2 },
     { width: elements.viewport.clientWidth, height: elements.viewport.clientHeight },
   );
-  animateCameraTo(target);
+  animateCameraTo(target, {
+    duration: crossRow ? getCrossRowFocusDuration(state.camera, target) : CAMERA_FOCUS_DURATION,
+  });
+}
+
+function getCrossRowFocusDuration(start, target) {
+  const distance = Math.hypot(target.x - start.x, target.y - start.y);
+  const scaleRatio =
+    start.scale > 0 && target.scale > 0
+      ? Math.abs(Math.log(target.scale / start.scale))
+      : 0;
+  return clamp(
+    CROSS_ROW_FOCUS_MIN_DURATION +
+      distance * CROSS_ROW_FOCUS_DISTANCE_FACTOR +
+      scaleRatio * CROSS_ROW_FOCUS_SCALE_FACTOR,
+    CROSS_ROW_FOCUS_MIN_DURATION,
+    CROSS_ROW_FOCUS_MAX_DURATION,
+  );
 }
 
 function fitSelectedRowInViewport() {
@@ -2586,10 +2625,11 @@ function flushViewportWork() {
 
 function runViewportWork() {
   state.viewportWorkTimer = null;
+  if (state.cameraFocusFrame !== null) return;
   state.lastViewportWork = performance.now();
   updateMediaVisibility({ deferCleanup: state.isPanning });
   updateLabels();
-  if (state.cameraFocusFrame === null) selectNodeAtViewportCenter();
+  selectNodeAtViewportCenter();
   maybeLoadNextUnratedRow();
 }
 
