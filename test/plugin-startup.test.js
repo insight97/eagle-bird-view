@@ -69,6 +69,26 @@ test("auto exploration defaults off and a library change restarts selected item 
     BirdViewExploration: { RelatedItemSource, UnratedItemSource },
     BirdViewVideo: { startVideoPlayer() {} },
     BirdViewTagEditor: { TagEditor },
+    BirdViewCamera: {
+      createCameraNavigation() {
+        return {
+          animateCameraTo() {},
+          cancelCameraFocus() {},
+          fitSelectedRowInViewport() {},
+          focusSelectedNodeAtRowScale() {},
+          getKeyboardPanStep() { return 240; },
+          handleKeyUp() {},
+          handleWindowBlur() {},
+          panBy() {},
+          panOneViewport() {},
+          startSmoothKeyboardPan() {},
+          startSmoothKeyboardZoom() {},
+          stopSmoothKeyboardPan() {},
+          stopSmoothKeyboardZoom() {},
+          zoomAtPoint() {},
+        };
+      },
+    },
     document: {
       addEventListener(type, callback) {
         if (type === "DOMContentLoaded") domReady = callback;

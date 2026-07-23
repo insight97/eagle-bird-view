@@ -13,7 +13,6 @@ const {
   VIDEO_CONTROLS_HEIGHT,
   VIDEO_EXTENSIONS,
   clamp,
-  centerCameraAtPoint,
   createJustifiedLayout,
   directionFor,
   findDirectionalNeighbor,
@@ -22,34 +21,28 @@ const {
   formatFileSize,
   formatItemDimensions,
   getArrowKeyAction,
-  getCrossRowFocusDuration,
   getItemRating,
   getNextRating,
   getLabelDetailLevel,
   getLabelRect,
   getPanLayerTranslation,
-  getRowFocusScale,
   getWrappedGridTranslation,
   getViewportWorkInterval,
   getTagColorStyle,
-  getViewportPanDelta,
   getViewportWorldCenter,
   insertExplorationRow,
-  interpolateCamera,
   isPlayingVideo,
   normalizeTags,
   normalizeTagColor,
   resizeCamera,
   selectDiverseExplorationRow,
   shouldLoadUnratedRow,
-  zoomCameraAtPoint,
 } = BirdViewCore;
 const { MediaLoadQueue, waitForImageDecode } = BirdViewMedia;
 const { RelatedItemSource, UnratedItemSource } = BirdViewExploration;
 const { startVideoPlayer } = BirdViewVideo;
 const { TagEditor } = BirdViewTagEditor;
-const MIN_ZOOM = 0.08;
-const MAX_ZOOM = 8;
+const { createCameraNavigation } = BirdViewCamera;
 const DEFAULT_SMOOTH_PAN_SPEED = 480;
 const MIN_SMOOTH_PAN_SPEED = 120;
 const MAX_SMOOTH_PAN_SPEED = 3000;
@@ -61,10 +54,7 @@ const DEFAULT_LAYOUT_WIDTH = LAYOUT_WIDTH;
 const SEAMLESS_LAYOUT_GAP = 0;
 const SEAMLESS_ROW_GAP = 0;
 const SETTINGS_STORAGE_KEY = "bird-view-settings";
-const VIEWPORT_PAN_FRACTION = 2 / 3;
 const KEYBOARD_ZOOM_FACTOR = 1.5;
-const FOCUS_ROW_EMPHASIS = 0.9;
-const CAMERA_FIT_PADDING = 64;
 const KEYBOARD_SEEK_STEP = 5;
 const KEYBOARD_VOLUME_STEP = 0.05;
 const PAN_START_THRESHOLD = 4;
@@ -74,7 +64,6 @@ const MAX_CONCURRENT_IMAGE_LOADS = 4;
 const RESOURCE_RELEASE_VIEWPORTS = 3;
 const GRID_LAYER_OVERFLOW = 768;
 const METADATA_SUCCESS_TOAST_MS = 1200;
-const CAMERA_FOCUS_DURATION = 180;
 const AUTO_EXPLORE_FILE_TYPES = Object.freeze(["image", "video"]);
 const DEFAULT_AUTO_EXPLORE_FILTER = Object.freeze({
   fileTypes: Object.freeze(["image", "video"]),
@@ -158,6 +147,7 @@ const state = {
 };
 
 const elements = {};
+let cameraNavigation = null;
 const mediaLoadQueue = new MediaLoadQueue({ maxConcurrent: MAX_CONCURRENT_IMAGE_LOADS });
 const tagEditor = new TagEditor({
   getViewport: () => elements.viewport,
@@ -231,6 +221,14 @@ function setup() {
   elements.autoExploreSettingsReset = document.querySelector("#auto-explore-settings-reset");
   elements.exploreButton = document.querySelector("#explore-button");
   elements.toast = document.querySelector("#toast");
+
+  cameraNavigation = createCameraNavigation({
+    state,
+    elements,
+    getBaseScale,
+    updateCamera,
+    selectNodeAtViewportCenter,
+  });
 
   elements.viewport.addEventListener("pointerdown", beginPan);
   elements.viewport.addEventListener("wheel", handleWheel, { passive: false });
@@ -1318,100 +1316,27 @@ async function toggleFullScreen() {
 }
 
 function handleKeyUp(event) {
-  const key = event.key.toLowerCase();
-  if (state.smoothPanKeys.has(key)) {
-    state.smoothPanKeys.delete(key);
-    if (!state.smoothPanKeys.size) {
-      stopSmoothKeyboardPan();
-      if (state.smoothPanEnabled) selectNodeAtViewportCenter();
-    }
-  }
-  if (state.smoothZoomKeys.has(key)) {
-    state.smoothZoomKeys.delete(key);
-    if (!state.smoothZoomKeys.size) stopSmoothKeyboardZoom();
-  }
+  cameraNavigation.handleKeyUp(event.key);
 }
 
 function handleWindowBlur() {
-  stopSmoothKeyboardPan();
-  stopSmoothKeyboardZoom();
+  cameraNavigation.handleWindowBlur();
 }
 
 function startSmoothKeyboardPan(key) {
-  state.smoothPanKeys.add(key);
-  if (state.smoothPanFrame !== null) return;
-
-  state.smoothPanLastTimestamp = performance.now();
-  const step = (timestamp) => {
-    if (!state.smoothPanEnabled || !state.smoothPanKeys.size) {
-      stopSmoothKeyboardPan();
-      return;
-    }
-
-    const elapsed = Math.min(Math.max(timestamp - state.smoothPanLastTimestamp, 0), 50) / 1000;
-    state.smoothPanLastTimestamp = timestamp;
-    let x = 0;
-    let y = 0;
-    for (const pressedKey of state.smoothPanKeys) {
-      const direction = directionFor(pressedKey);
-      if (!direction) continue;
-      x += direction[0];
-      y += direction[1];
-    }
-    const length = Math.hypot(x, y);
-    if (length) {
-      panBy(
-        (-x / length) * state.smoothPanSpeed * elapsed,
-        (-y / length) * state.smoothPanSpeed * elapsed,
-      );
-    }
-    state.smoothPanFrame = requestAnimationFrame(step);
-  };
-  state.smoothPanFrame = requestAnimationFrame(step);
+  cameraNavigation.startSmoothKeyboardPan(key);
 }
 
 function stopSmoothKeyboardPan() {
-  state.smoothPanKeys.clear();
-  if (state.smoothPanFrame !== null) cancelAnimationFrame(state.smoothPanFrame);
-  state.smoothPanFrame = null;
-  state.smoothPanLastTimestamp = null;
+  cameraNavigation.stopSmoothKeyboardPan();
 }
 
 function startSmoothKeyboardZoom(key) {
-  state.smoothZoomKeys.add(key.toLowerCase());
-  if (state.smoothZoomFrame !== null) return;
-
-  state.smoothZoomLastTimestamp = performance.now();
-  const step = (timestamp) => {
-    if (!state.smoothZoomEnabled || !state.smoothZoomKeys.size) {
-      stopSmoothKeyboardZoom();
-      return;
-    }
-
-    const elapsed = Math.min(Math.max(timestamp - state.smoothZoomLastTimestamp, 0), 50) / 1000;
-    state.smoothZoomLastTimestamp = timestamp;
-    let direction = 0;
-    for (const pressedKey of state.smoothZoomKeys) {
-      direction += pressedKey === "pageup" ? 1 : -1;
-    }
-    if (direction) {
-      const factor = Math.pow(state.smoothZoomSpeed, direction * elapsed);
-      zoomAtPoint(
-        elements.viewport.clientWidth / 2,
-        elements.viewport.clientHeight / 2,
-        factor,
-      );
-    }
-    state.smoothZoomFrame = requestAnimationFrame(step);
-  };
-  state.smoothZoomFrame = requestAnimationFrame(step);
+  cameraNavigation.startSmoothKeyboardZoom(key);
 }
 
 function stopSmoothKeyboardZoom() {
-  state.smoothZoomKeys.clear();
-  if (state.smoothZoomFrame !== null) cancelAnimationFrame(state.smoothZoomFrame);
-  state.smoothZoomFrame = null;
-  state.smoothZoomLastTimestamp = null;
+  cameraNavigation.stopSmoothKeyboardZoom();
 }
 
 function openSelectedTagEditor() {
@@ -1424,22 +1349,15 @@ function openSelectedTagEditor() {
 }
 
 function panBy(dx, dy) {
-  state.camera.x += dx;
-  state.camera.y += dy;
-  updateCamera();
+  cameraNavigation.panBy(dx, dy);
 }
 
 function getKeyboardPanStep() {
-  return Math.round(state.smoothPanSpeed / 2);
+  return cameraNavigation.getKeyboardPanStep();
 }
 
 function panOneViewport(key) {
-  const delta = getViewportPanDelta(
-    key,
-    { width: elements.viewport.clientWidth, height: elements.viewport.clientHeight },
-    VIEWPORT_PAN_FRACTION,
-  );
-  if (delta) panBy(delta.x, delta.y);
+  cameraNavigation.panOneViewport(key);
 }
 
 function clearSelection() {
@@ -1518,107 +1436,16 @@ function moveSelection(direction) {
   return node || null;
 }
 
-function animateCameraTo(target, { animate = true, duration = CAMERA_FOCUS_DURATION } = {}) {
-  cancelCameraFocus();
-  if (
-    Math.abs(state.camera.x - target.x) < 0.1 &&
-    Math.abs(state.camera.y - target.y) < 0.1 &&
-    Math.abs(state.camera.scale - target.scale) < 0.0001
-  ) {
-    updateCamera();
-    return;
-  }
-  if (!animate) {
-    state.camera = { ...state.camera, ...target };
-    updateCamera();
-    return;
-  }
-
-  const start = { ...state.camera };
-  const startedAt = performance.now();
-  const transitionDuration = Math.max(1, Number(duration) || CAMERA_FOCUS_DURATION);
-  const step = (timestamp) => {
-    const progress = clamp((timestamp - startedAt) / transitionDuration, 0, 1);
-    Object.assign(state.camera, interpolateCamera(start, target, progress));
-    updateCamera();
-    if (progress < 1) state.cameraFocusFrame = requestAnimationFrame(step);
-    else state.cameraFocusFrame = null;
-  };
-  state.cameraFocusFrame = requestAnimationFrame(step);
-}
-
 function focusSelectedNodeAtRowScale(node = state.selectedNode, { crossRow = false } = {}) {
-  if (!node) return;
-  stopSmoothKeyboardPan();
-  stopSmoothKeyboardZoom();
-  const row = state.rows.find((candidate) => candidate.nodes.includes(node));
-  const rowHeight = row ? row.bottom - row.top : node.mediaHeight;
-  const scale = clamp(
-    getRowFocusScale(getBaseScale(), rowHeight, {
-      emphasis: FOCUS_ROW_EMPHASIS,
-    }),
-    getBaseScale() * MIN_ZOOM,
-    getBaseScale() * MAX_ZOOM,
-  );
-  const displayHeight = node.mediaHeight + (node.isVideo ? VIDEO_CONTROLS_HEIGHT : 0);
-  const target = centerCameraAtPoint(
-    { ...state.camera, scale },
-    { x: node.x + node.width / 2, y: node.y + displayHeight / 2 },
-    { width: elements.viewport.clientWidth, height: elements.viewport.clientHeight },
-  );
-  animateCameraTo(target, {
-    duration: crossRow ? getCrossRowFocusDuration(state.camera, target) : CAMERA_FOCUS_DURATION,
-  });
+  cameraNavigation.focusSelectedNodeAtRowScale(node, { crossRow });
 }
 
 function fitSelectedRowInViewport() {
-  const selectedNode = state.selectedNode;
-  if (!selectedNode) return;
-  const row = state.rows.find((candidate) => candidate.nodes.includes(selectedNode));
-  if (!row?.nodes.length) return;
-
-  const bounds = row.nodes.reduce(
-    (result, node) => {
-      const displayHeight = node.mediaHeight + (node.isVideo ? VIDEO_CONTROLS_HEIGHT : 0);
-      return {
-        left: Math.min(result.left, node.x),
-        top: Math.min(result.top, node.y),
-        right: Math.max(result.right, node.x + node.width),
-        bottom: Math.max(result.bottom, node.y + displayHeight),
-      };
-    },
-    { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity },
-  );
-  const width = bounds.right - bounds.left;
-  const height = bounds.bottom - bounds.top;
-  if (!(width > 0 && height > 0)) return;
-
-  stopSmoothKeyboardPan();
-  stopSmoothKeyboardZoom();
-  const viewportWidth = elements.viewport.clientWidth;
-  const viewportHeight = elements.viewport.clientHeight;
-  const availableWidth = Math.max(viewportWidth - CAMERA_FIT_PADDING * 2, 1);
-  const availableHeight = Math.max(viewportHeight - CAMERA_FIT_PADDING * 2, 1);
-  const scale = clamp(
-    Math.min(availableWidth / width, availableHeight / height),
-    getBaseScale() * MIN_ZOOM,
-    getBaseScale() * MAX_ZOOM,
-  );
-  const target = centerCameraAtPoint(
-    { ...state.camera, scale },
-    {
-      x: (bounds.left + bounds.right) / 2,
-      y: (bounds.top + bounds.bottom) / 2,
-    },
-    { width: viewportWidth, height: viewportHeight },
-  );
-  animateCameraTo(target);
+  cameraNavigation.fitSelectedRowInViewport();
 }
 
 function cancelCameraFocus() {
-  if (state.cameraFocusFrame === null) return;
-  cancelAnimationFrame(state.cameraFocusFrame);
-  state.cameraFocusFrame = null;
+  cameraNavigation.cancelCameraFocus();
 }
 
 async function exploreNextRow() {
@@ -2390,17 +2217,7 @@ function rememberVideoVolume(volume) {
 }
 
 function zoomAtPoint(pointerX, pointerY, factor) {
-  cancelCameraFocus();
-  const baseScale = getBaseScale();
-  state.camera = zoomCameraAtPoint(
-    state.camera,
-    { x: pointerX, y: pointerY },
-    factor,
-    baseScale,
-    MIN_ZOOM,
-    MAX_ZOOM,
-  );
-  updateCamera();
+  cameraNavigation.zoomAtPoint(pointerX, pointerY, factor);
 }
 
 function isInteractiveTarget(target) {
