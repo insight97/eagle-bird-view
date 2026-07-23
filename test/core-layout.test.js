@@ -71,6 +71,21 @@ test("createJustifiedLayout supports an unlimited width single row", () => {
   assert.ok(layout.nodes.every(({ x, width }) => Number.isFinite(x) && width > 0));
 });
 
+test("createJustifiedLayout accepts compact spacing for seamless layouts", () => {
+  const items = Array.from({ length: 14 }, (_, index) => ({
+    id: `item-${index}`,
+    width: 1000,
+    height: 1000,
+    ext: "jpg",
+  }));
+  const layout = createJustifiedLayout(items, "ltr", 1200, { gap: 4, rowGap: 8 });
+
+  assert.equal(layout.gap, 4);
+  assert.equal(layout.rowGap, 8);
+  assert.equal(layout.nodes[1].x - layout.nodes[0].width, 4);
+  assert.equal(layout.rows[1].top - layout.rows[0].bottom, 8);
+});
+
 test("createJustifiedLayout justifies completed rows and reserves video controls", () => {
   const items = [
     { id: "video", width: 4000, height: 1000, ext: "MP4" },

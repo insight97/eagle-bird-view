@@ -39,6 +39,8 @@ test("auto exploration defaults off and a library change restarts selected item 
     "#empty-state",
     "#item-count",
     "#zoom-label",
+    "#seamless-mode-toggle",
+    "#seamless-mode-status",
     "#auto-explore-toggle",
     "#auto-explore-status",
     "#explore-button",
@@ -167,6 +169,24 @@ test("auto exploration defaults off and a library change restarts selected item 
 
   keyDown({ key: "Insert", repeat: false, target: null, preventDefault() {} });
   assert.equal(elements.get("#auto-explore-status").textContent, "關");
+
+  let deletePrevented = false;
+  keyDown({
+    key: "Delete",
+    repeat: false,
+    target: null,
+    preventDefault() {
+      deletePrevented = true;
+    },
+  });
+  assert.equal(deletePrevented, true);
+  assert.equal(elements.get("#seamless-mode-status").textContent, "開");
+
+  keyDown({ key: "Delete", repeat: true, target: null, preventDefault() {} });
+  assert.equal(elements.get("#seamless-mode-status").textContent, "開");
+
+  keyDown({ key: "Delete", repeat: false, target: null, preventDefault() {} });
+  assert.equal(elements.get("#seamless-mode-status").textContent, "關");
 
   elements.get("#auto-explore-toggle").click();
   await Promise.resolve();

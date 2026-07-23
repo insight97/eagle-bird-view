@@ -465,6 +465,12 @@ button {
   cursor: default;
 }
 
+.app.is-seamless .selection-rating,
+.app.is-seamless .selection-tags,
+.app.is-seamless #selection-tags-divider {
+  display: none;
+}
+
 .selection-divider {
   width: 1px;
   height: 13px;
@@ -644,6 +650,17 @@ button {
   border-color: #7971ed;
   outline: none;
   box-shadow: none;
+}
+
+.app.is-seamless .media-card {
+  border-width: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.app.is-seamless .media-card.is-selected {
+  outline: 1px solid #7971ed;
+  outline-offset: -1px;
 }
 
 .media-frame {
@@ -875,6 +892,25 @@ button {
   color: #e2e4e7;
   font-size: 14px;
   text-rendering: geometricPrecision;
+}
+
+.app.is-seamless .media-label {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.app.is-seamless .media-label.is-selected {
+  visibility: hidden;
+  opacity: 0;
+}
+
+.app.is-seamless .media-label .media-label-main {
+  display: none;
+}
+
+.app.is-seamless .media-label .media-metadata {
+  display: none;
 }
 
 .media-label-main {

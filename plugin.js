@@ -2,11 +2,13 @@
 
 const {
   DEFAULT_MAX_EXPLORATION_ITEMS,
+  LAYOUT_GAP,
   LAYOUT_WIDTH,
   MAX_LAYOUT_WIDTH,
   MAX_EXPLORATION_ITEMS,
   MIN_LAYOUT_WIDTH,
   MIN_EXPLORATION_ITEMS,
+  ROW_GAP,
   TARGET_ROW_HEIGHT,
   VIDEO_CONTROLS_HEIGHT,
   VIDEO_EXTENSIONS,
@@ -55,6 +57,8 @@ const MIN_SMOOTH_ZOOM_SPEED = 1.05;
 const MAX_SMOOTH_ZOOM_SPEED = 12;
 const DEFAULT_LAYOUT_DIRECTION = "ltr";
 const DEFAULT_LAYOUT_WIDTH = LAYOUT_WIDTH;
+const SEAMLESS_LAYOUT_GAP = 0;
+const SEAMLESS_ROW_GAP = 0;
 const SETTINGS_STORAGE_KEY = "bird-view-settings";
 const VIEWPORT_PAN_FRACTION = 2 / 3;
 const KEYBOARD_ZOOM_FACTOR = 1.5;
@@ -118,6 +122,7 @@ const state = {
   layoutDirection: DEFAULT_LAYOUT_DIRECTION,
   layoutWidth: DEFAULT_LAYOUT_WIDTH,
   layoutWidthUnlimited: false,
+  seamlessMode: false,
   maxExplorationItems: DEFAULT_MAX_EXPLORATION_ITEMS,
   videoVolume: 1,
   smoothPanKeys: new Set(),
@@ -174,6 +179,7 @@ if (typeof eagle !== "undefined" && typeof eagle.onPluginCreate === "function") 
 document.addEventListener("DOMContentLoaded", setup);
 
 function setup() {
+  elements.app = document.querySelector(".app");
   elements.viewport = document.querySelector("#viewport");
   elements.world = document.querySelector("#world");
   elements.grid = document.querySelector("#grid");
@@ -194,6 +200,8 @@ function setup() {
   elements.selectionFolders = document.querySelector("#selection-folders");
   elements.autoExploreToggle = document.querySelector("#auto-explore-toggle");
   elements.autoExploreStatus = document.querySelector("#auto-explore-status");
+  elements.seamlessModeToggle = document.querySelector("#seamless-mode-toggle");
+  elements.seamlessModeStatus = document.querySelector("#seamless-mode-status");
   elements.autoExploreSettingsButton = document.querySelector("#auto-explore-settings-button");
   elements.autoExploreSettingsPanel = document.querySelector("#auto-explore-settings-panel");
   elements.layoutDirection = document.querySelector("#board-layout-direction");
@@ -231,6 +239,7 @@ function setup() {
   window.addEventListener("resize", handleResize);
   document.addEventListener("pointerdown", handleAutoExploreOutsidePointerDown);
   elements.autoExploreToggle.addEventListener("click", toggleUnratedExploration);
+  elements.seamlessModeToggle?.addEventListener("click", toggleSeamlessMode);
   elements.autoExploreSettingsButton?.addEventListener("click", toggleAutoExploreSettings);
   elements.autoExploreFileTypeImage?.addEventListener("change", updateDraftAutoExploreFileTypes);
   elements.autoExploreFileTypeVideo?.addEventListener("change", updateDraftAutoExploreFileTypes);
@@ -254,6 +263,7 @@ function setup() {
   elements.smoothZoomSpeed?.addEventListener("input", updateBoardSettings);
   elements.exploreButton.addEventListener("click", exploreNextRow);
   restoreSavedSettings();
+  updateSeamlessModeUI();
   updateAutoExploreToggle();
   updateAutoExploreSettingsUI();
   updateSelectionStatus();
@@ -365,12 +375,19 @@ function appendItemsToBoard(items) {
   }
 
   const layoutWidth = getBoardLayoutWidth();
-  const selectedLayout = createJustifiedLayout(items, state.layoutDirection, layoutWidth);
+  const layoutOptions = getBoardLayoutOptions();
+  const selectedLayout = createJustifiedLayout(
+    items,
+    state.layoutDirection,
+    layoutWidth,
+    layoutOptions,
+  );
   let layout = {
     nodes: state.nodes,
     rows: state.rows,
     direction: state.layoutDirection,
     layoutWidth,
+    ...layoutOptions,
   };
   for (const row of selectedLayout.rows) {
     layout = insertExplorationRow(
@@ -379,6 +396,7 @@ function appendItemsToBoard(items) {
       row.nodes.map(({ item }) => item),
       state.layoutDirection,
       layoutWidth,
+      layoutOptions,
     );
   }
   state.nodes = layout.nodes;
@@ -401,7 +419,12 @@ function renderItems(items) {
   state.labelCamera = null;
   elements.labels.style.transform = "none";
   state.mountedNodes.clear();
-  const layout = createJustifiedLayout(items, state.layoutDirection, getBoardLayoutWidth());
+  const layout = createJustifiedLayout(
+    items,
+    state.layoutDirection,
+    getBoardLayoutWidth(),
+    getBoardLayoutOptions(),
+  );
   state.nodes = layout.nodes;
   state.rows = layout.rows;
   state.lastUnratedTriggerRow = null;
@@ -431,7 +454,12 @@ function relayoutBoard() {
   state.labelCamera = null;
   elements.labels.style.transform = "none";
 
-  const layout = createJustifiedLayout(items, state.layoutDirection, getBoardLayoutWidth());
+  const layout = createJustifiedLayout(
+    items,
+    state.layoutDirection,
+    getBoardLayoutWidth(),
+    getBoardLayoutOptions(),
+  );
   for (const node of layout.nodes) {
     node.rotation = rotations.get(node.item.id) || 0;
   }
@@ -1169,6 +1197,19 @@ function handleKeyDown(event) {
   }
   if (isInteractiveTarget(event.target)) return;
 
+  if (
+    event.key === "Delete" &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    !event.shiftKey
+  ) {
+    event.preventDefault();
+    if (event.repeat) return;
+    toggleSeamlessMode();
+    return;
+  }
+
   if (!event.ctrlKey && !event.metaKey && !event.altKey && /^[1-5]$/.test(event.key)) {
     event.preventDefault();
     if (event.repeat) return;
@@ -1393,7 +1434,9 @@ function stopSmoothKeyboardZoom() {
 function openSelectedTagEditor() {
   const node = state.selectedNode;
   if (!node || node.isSaving) return;
-  const anchor = node.label?.querySelector(".media-tag-edit") || node.element;
+  const anchor = state.seamlessMode
+    ? node.element
+    : node.label?.querySelector(".media-tag-edit") || node.element;
   tagEditor.open(node, anchor);
 }
 
@@ -1616,17 +1659,20 @@ async function exploreNextRow() {
     const pivotRow = state.rows.find((row) => row.nodes.includes(pivotNode));
     if (!pivotRow) return;
     const layoutWidth = getBoardLayoutWidth();
+    const layoutOptions = getBoardLayoutOptions();
     const layout = insertExplorationRow(
       {
         nodes: state.nodes,
         rows: state.rows,
         direction: state.layoutDirection,
         layoutWidth,
+        ...layoutOptions,
       },
       pivotRow,
       items,
       state.layoutDirection,
       layoutWidth,
+      layoutOptions,
     );
     state.nodes = layout.nodes;
     state.rows = layout.rows;
@@ -1678,21 +1724,29 @@ async function loadNextUnratedRow({ focus = false } = {}) {
     }
 
     if (!state.rows.length) {
-      const layout = createJustifiedLayout(items, state.layoutDirection, layoutWidth);
+      const layout = createJustifiedLayout(
+        items,
+        state.layoutDirection,
+        layoutWidth,
+        getBoardLayoutOptions(),
+      );
       state.nodes = layout.nodes;
       state.rows = layout.rows;
     } else {
+      const layoutOptions = getBoardLayoutOptions();
       const layout = insertExplorationRow(
         {
           nodes: state.nodes,
           rows: state.rows,
           direction: state.layoutDirection,
           layoutWidth,
+          ...layoutOptions,
         },
         state.rows.at(-1),
         items,
         state.layoutDirection,
         layoutWidth,
+        layoutOptions,
       );
       state.nodes = layout.nodes;
       state.rows = layout.rows;
@@ -1868,6 +1922,32 @@ function updateBoardSettingsUI() {
   }
 }
 
+function toggleSeamlessMode() {
+  setSeamlessMode(!state.seamlessMode);
+}
+
+function setSeamlessMode(enabled) {
+  const nextValue = Boolean(enabled);
+  const changed = nextValue !== state.seamlessMode;
+  state.seamlessMode = nextValue;
+  updateSeamlessModeUI();
+  saveSettings();
+  if (changed) relayoutBoard();
+}
+
+function updateSeamlessModeUI() {
+  elements.app?.classList.toggle("is-seamless", state.seamlessMode);
+  if (!elements.seamlessModeToggle) return;
+  elements.seamlessModeToggle.classList.toggle("is-active", state.seamlessMode);
+  elements.seamlessModeToggle.setAttribute("aria-checked", String(state.seamlessMode));
+  elements.seamlessModeToggle.title = state.seamlessMode
+    ? "關閉無縫模式（Del）"
+    : "開啟無縫模式（Del）";
+  if (elements.seamlessModeStatus) {
+    elements.seamlessModeStatus.textContent = state.seamlessMode ? "開" : "關";
+  }
+}
+
 function restoreSavedSettings() {
   try {
     if (typeof localStorage === "undefined") return;
@@ -1893,6 +1973,7 @@ function restoreSavedSettings() {
       state.layoutDirection = normalizeLayoutDirection(board.layoutDirection);
       state.layoutWidth = normalizeBoardLayoutWidth(board.layoutWidth);
       state.layoutWidthUnlimited = Boolean(board.layoutWidthUnlimited);
+      state.seamlessMode = Boolean(board.seamlessMode);
       state.maxExplorationItems = normalizeMaxExplorationItems(board.maxExplorationItems);
     }
     if (saved?.autoExploreFilter && typeof saved.autoExploreFilter === "object") {
@@ -1914,6 +1995,7 @@ function saveSettings() {
           layoutDirection: state.layoutDirection,
           layoutWidth: state.layoutWidth,
           layoutWidthUnlimited: state.layoutWidthUnlimited,
+          seamlessMode: state.seamlessMode,
           maxExplorationItems: state.maxExplorationItems,
           smoothPanEnabled: state.smoothPanEnabled,
           smoothPanSpeed: state.smoothPanSpeed,
@@ -1948,6 +2030,12 @@ function normalizeBoardLayoutWidth(width) {
 
 function getBoardLayoutWidth() {
   return state.layoutWidthUnlimited ? Infinity : state.layoutWidth;
+}
+
+function getBoardLayoutOptions() {
+  return state.seamlessMode
+    ? { gap: SEAMLESS_LAYOUT_GAP, rowGap: SEAMLESS_ROW_GAP }
+    : { gap: LAYOUT_GAP, rowGap: ROW_GAP };
 }
 
 function normalizeMaxExplorationItems(value) {
@@ -2303,6 +2391,7 @@ function zoomAtPoint(pointerX, pointerY, factor) {
 
 function isInteractiveTarget(target) {
   return (
+    typeof Element !== "undefined" &&
     target instanceof Element &&
     Boolean(target.closest("button, input, textarea, select, [contenteditable='true']"))
   );
