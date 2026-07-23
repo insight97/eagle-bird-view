@@ -1450,7 +1450,10 @@ function moveSelection(direction) {
   }
 
   state.verticalNavigation = null;
-  const node = findDirectionalNeighbor(state.rows, state.selectedNode, direction);
+  const node = findDirectionalNeighbor(state.rows, state.selectedNode, direction, {
+    wrapRows: true,
+    layoutDirection: state.layoutDirection,
+  });
   if (node) setSelectedNode(node);
   return node || null;
 }

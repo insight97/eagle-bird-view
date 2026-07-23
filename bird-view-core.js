@@ -166,7 +166,15 @@
     if (dx) {
       const horizontalNodes = [...rows[rowIndex].nodes].sort((first, second) => first.x - second.x);
       const nodeIndex = horizontalNodes.indexOf(node);
-      return horizontalNodes[nodeIndex + dx] || null;
+      const neighbor = horizontalNodes[nodeIndex + dx];
+      if (neighbor || !options.wrapRows) return neighbor || null;
+
+      const layoutDirection = normalizeLayoutDirection(options.layoutDirection);
+      const movesInLayoutOrder = layoutDirection === "ltr" ? dx > 0 : dx < 0;
+      const targetRow = rows[rowIndex + (movesInLayoutOrder ? 1 : -1)];
+      if (!targetRow) return null;
+      const targetNodes = [...targetRow.nodes].sort((first, second) => first.x - second.x);
+      return targetNodes[dx > 0 ? 0 : targetNodes.length - 1] || null;
     }
     if (!dy) return null;
     const currentRow = rows[rowIndex];

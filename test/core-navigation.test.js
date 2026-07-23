@@ -264,6 +264,51 @@ test("horizontal navigation follows visual order for right-to-left rows", () => 
   assert.equal(findDirectionalNeighbor(rows, left, [1, 0]), right);
 });
 
+test("horizontal navigation can wrap between rows in layout order", () => {
+  const topLeft = { x: 0, y: 0, width: 100, height: 100 };
+  const topRight = { x: 200, y: 0, width: 100, height: 100 };
+  const bottomLeft = { x: 0, y: 132, width: 100, height: 100 };
+  const bottomRight = { x: 200, y: 132, width: 100, height: 100 };
+  const ltrRows = [
+    { top: 0, bottom: 100, nodes: [topLeft, topRight] },
+    { top: 132, bottom: 232, nodes: [bottomLeft, bottomRight] },
+  ];
+
+  assert.equal(
+    findDirectionalNeighbor(ltrRows, topRight, [1, 0], {
+      wrapRows: true,
+      layoutDirection: "ltr",
+    }),
+    bottomLeft,
+  );
+  assert.equal(
+    findDirectionalNeighbor(ltrRows, bottomLeft, [-1, 0], {
+      wrapRows: true,
+      layoutDirection: "ltr",
+    }),
+    topRight,
+  );
+
+  const rtlRows = [
+    { top: 0, bottom: 100, nodes: [topRight, topLeft] },
+    { top: 132, bottom: 232, nodes: [bottomRight, bottomLeft] },
+  ];
+  assert.equal(
+    findDirectionalNeighbor(rtlRows, bottomRight, [1, 0], {
+      wrapRows: true,
+      layoutDirection: "rtl",
+    }),
+    topLeft,
+  );
+  assert.equal(
+    findDirectionalNeighbor(rtlRows, topLeft, [-1, 0], {
+      wrapRows: true,
+      layoutDirection: "rtl",
+    }),
+    bottomRight,
+  );
+});
+
 test("vertical navigation can preserve a horizontal anchor across rows", () => {
   const topMiddle = { x: 114, y: 0, width: 100, height: 100 };
   const bottomMiddle = { x: 114, y: 132, width: 220, height: 100 };
