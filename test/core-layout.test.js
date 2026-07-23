@@ -30,6 +30,19 @@ test("createJustifiedLayout keeps the final row at target height", () => {
   assert.equal(layout.nodes[0].item, item);
 });
 
+test("createJustifiedLayout can place items from right to left", () => {
+  const items = [
+    { id: "first", width: 1000, height: 1000, ext: "jpg" },
+    { id: "second", width: 1000, height: 1000, ext: "jpg" },
+  ];
+  const layout = createJustifiedLayout(items, "rtl");
+
+  assert.equal(layout.direction, "rtl");
+  assert.equal(layout.nodes[0].item.id, "first");
+  assert.equal(layout.nodes[0].x, 1020);
+  assert.equal(layout.nodes[1].x, 826);
+});
+
 test("createJustifiedLayout justifies completed rows and reserves video controls", () => {
   const items = [
     { id: "video", width: 4000, height: 1000, ext: "MP4" },

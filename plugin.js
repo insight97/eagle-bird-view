@@ -47,6 +47,7 @@ const MAX_SMOOTH_PAN_SPEED = 3000;
 const DEFAULT_SMOOTH_ZOOM_SPEED = 1.5;
 const MIN_SMOOTH_ZOOM_SPEED = 1.05;
 const MAX_SMOOTH_ZOOM_SPEED = 12;
+const DEFAULT_LAYOUT_DIRECTION = "ltr";
 const SETTINGS_STORAGE_KEY = "bird-view-settings";
 const VIEWPORT_PAN_FRACTION = 2 / 3;
 const KEYBOARD_ZOOM_FACTOR = 1.5;
@@ -107,6 +108,7 @@ const state = {
   smoothPanSpeed: DEFAULT_SMOOTH_PAN_SPEED,
   smoothZoomEnabled: false,
   smoothZoomSpeed: DEFAULT_SMOOTH_ZOOM_SPEED,
+  layoutDirection: DEFAULT_LAYOUT_DIRECTION,
   videoVolume: 1,
   smoothPanKeys: new Set(),
   smoothPanFrame: null,
@@ -184,6 +186,7 @@ function setup() {
   elements.autoExploreStatus = document.querySelector("#auto-explore-status");
   elements.autoExploreSettingsButton = document.querySelector("#auto-explore-settings-button");
   elements.autoExploreSettingsPanel = document.querySelector("#auto-explore-settings-panel");
+  elements.layoutDirection = document.querySelector("#board-layout-direction");
   elements.smoothPanToggle = document.querySelector("#smooth-pan-toggle");
   elements.smoothPanSpeed = document.querySelector("#smooth-pan-speed");
   elements.smoothPanSpeedValue = document.querySelector("#smooth-pan-speed-value");
@@ -228,6 +231,7 @@ function setup() {
     handleAutoExploreExcludedTagSearchKeyDown,
   );
   elements.autoExploreSettingsReset?.addEventListener("click", resetAutoExploreSettings);
+  elements.layoutDirection?.addEventListener("change", updateBoardSettings);
   elements.smoothPanToggle?.addEventListener("change", updateBoardSettings);
   elements.smoothPanSpeed?.addEventListener("input", updateBoardSettings);
   elements.smoothZoomToggle?.addEventListener("change", updateBoardSettings);
@@ -344,13 +348,18 @@ function appendItemsToBoard(items) {
     return;
   }
 
-  const selectedLayout = createJustifiedLayout(items);
-  let layout = { nodes: state.nodes, rows: state.rows };
+  const selectedLayout = createJustifiedLayout(items, state.layoutDirection);
+  let layout = {
+    nodes: state.nodes,
+    rows: state.rows,
+    direction: state.layoutDirection,
+  };
   for (const row of selectedLayout.rows) {
     layout = insertExplorationRow(
       layout,
       layout.rows.at(-1),
       row.nodes.map(({ item }) => item),
+      state.layoutDirection,
     );
   }
   state.nodes = layout.nodes;
@@ -373,7 +382,7 @@ function renderItems(items) {
   state.labelCamera = null;
   elements.labels.style.transform = "none";
   state.mountedNodes.clear();
-  const layout = createJustifiedLayout(items);
+  const layout = createJustifiedLayout(items, state.layoutDirection);
   state.nodes = layout.nodes;
   state.rows = layout.rows;
   state.lastUnratedTriggerRow = null;
@@ -382,6 +391,40 @@ function renderItems(items) {
   refreshBaseScale();
 
   updateBoardMeta();
+  updateLabels();
+}
+
+function relayoutBoard() {
+  if (!state.nodes.length) return;
+
+  const selectedItemId = state.selectedNode?.item?.id;
+  const rotations = new Map(
+    state.nodes.map((node) => [node.item.id, node.rotation || 0]),
+  );
+  const items = state.nodes.map(({ item }) => item);
+
+  clearSelection();
+  releaseAllMediaCards();
+  releaseAllMediaLabels();
+  elements.world.replaceChildren();
+  elements.labels.replaceChildren();
+  state.mountedNodes.clear();
+  state.labelCamera = null;
+  elements.labels.style.transform = "none";
+
+  const layout = createJustifiedLayout(items, state.layoutDirection);
+  for (const node of layout.nodes) {
+    node.rotation = rotations.get(node.item.id) || 0;
+  }
+  state.nodes = layout.nodes;
+  state.rows = layout.rows;
+
+  refreshBaseScale();
+  updateBoardMeta();
+  const selectedNode = state.nodes.find(({ item }) => item.id === selectedItemId);
+  if (selectedNode) setSelectedNode(selectedNode);
+  updateCamera();
+  updateMediaVisibility();
   updateLabels();
 }
 
@@ -1545,9 +1588,10 @@ async function exploreNextRow() {
     const pivotRow = state.rows.find((row) => row.nodes.includes(pivotNode));
     if (!pivotRow) return;
     const layout = insertExplorationRow(
-      { nodes: state.nodes, rows: state.rows },
+      { nodes: state.nodes, rows: state.rows, direction: state.layoutDirection },
       pivotRow,
       items,
+      state.layoutDirection,
     );
     state.nodes = layout.nodes;
     state.rows = layout.rows;
@@ -1593,14 +1637,15 @@ async function loadNextUnratedRow({ focus = false } = {}) {
     }
 
     if (!state.rows.length) {
-      const layout = createJustifiedLayout(items);
+      const layout = createJustifiedLayout(items, state.layoutDirection);
       state.nodes = layout.nodes;
       state.rows = layout.rows;
     } else {
       const layout = insertExplorationRow(
-        { nodes: state.nodes, rows: state.rows },
+        { nodes: state.nodes, rows: state.rows, direction: state.layoutDirection },
         state.rows.at(-1),
         items,
+        state.layoutDirection,
       );
       state.nodes = layout.nodes;
       state.rows = layout.rows;
@@ -1700,6 +1745,11 @@ function handleAutoExploreOutsidePointerDown(event) {
 }
 
 function updateBoardSettings() {
+  const nextLayoutDirection = elements.layoutDirection
+    ? normalizeLayoutDirection(elements.layoutDirection.value)
+    : state.layoutDirection;
+  const layoutDirectionChanged = nextLayoutDirection !== state.layoutDirection;
+  state.layoutDirection = nextLayoutDirection;
   state.smoothPanEnabled = Boolean(elements.smoothPanToggle?.checked);
   const speed = Number(elements.smoothPanSpeed?.value);
   if (Number.isFinite(speed)) {
@@ -1718,9 +1768,11 @@ function updateBoardSettings() {
   if (!state.smoothZoomEnabled) stopSmoothKeyboardZoom();
   saveSettings();
   updateBoardSettingsUI();
+  if (layoutDirectionChanged) relayoutBoard();
 }
 
 function updateBoardSettingsUI() {
+  if (elements.layoutDirection) elements.layoutDirection.value = state.layoutDirection;
   if (elements.smoothPanToggle) elements.smoothPanToggle.checked = state.smoothPanEnabled;
   if (elements.smoothPanSpeed) elements.smoothPanSpeed.value = String(state.smoothPanSpeed);
   if (elements.smoothPanSpeedValue) {
@@ -1756,6 +1808,7 @@ function restoreSavedSettings() {
         MAX_SMOOTH_ZOOM_SPEED,
         DEFAULT_SMOOTH_ZOOM_SPEED,
       );
+      state.layoutDirection = normalizeLayoutDirection(board.layoutDirection);
     }
     if (saved?.autoExploreFilter && typeof saved.autoExploreFilter === "object") {
       state.unratedFilter = cloneAutoExploreFilter(saved.autoExploreFilter);
@@ -1773,6 +1826,7 @@ function saveSettings() {
       JSON.stringify({
         version: 1,
         board: {
+          layoutDirection: state.layoutDirection,
           smoothPanEnabled: state.smoothPanEnabled,
           smoothPanSpeed: state.smoothPanSpeed,
           smoothZoomEnabled: state.smoothZoomEnabled,
@@ -1789,6 +1843,10 @@ function saveSettings() {
 function normalizeStoredSettingNumber(value, minimum, maximum, fallback) {
   const number = Number(value);
   return Number.isFinite(number) ? clamp(number, minimum, maximum) : fallback;
+}
+
+function normalizeLayoutDirection(direction) {
+  return direction === "rtl" ? "rtl" : DEFAULT_LAYOUT_DIRECTION;
 }
 
 function updateDraftAutoExploreFileTypes(event) {

@@ -254,6 +254,16 @@ test("directional navigation stays in rows and stops at their edges", () => {
   assert.equal(findDirectionalNeighbor(rows, bottomRight, [0, 1]), null);
 });
 
+test("horizontal navigation follows visual order for right-to-left rows", () => {
+  const right = { x: 900, y: 0, width: 100, height: 100 };
+  const left = { x: 786, y: 0, width: 100, height: 100 };
+  const rows = [{ top: 0, bottom: 100, nodes: [right, left] }];
+
+  assert.equal(findDirectionalNeighbor(rows, right, [-1, 0]), left);
+  assert.equal(findDirectionalNeighbor(rows, right, [1, 0]), null);
+  assert.equal(findDirectionalNeighbor(rows, left, [1, 0]), right);
+});
+
 test("vertical navigation can preserve a horizontal anchor across rows", () => {
   const topMiddle = { x: 114, y: 0, width: 100, height: 100 };
   const bottomMiddle = { x: 114, y: 132, width: 220, height: 100 };

@@ -13,6 +13,7 @@
   const MAX_ROW_HEIGHT = 220;
   const LAYOUT_GAP = 14;
   const ROW_GAP = 32;
+  const DEFAULT_LAYOUT_DIRECTION = "ltr";
   const LABEL_MIN_ZOOM = 0.3;
   const LABEL_MIN_SCALE = 1;
   const LABEL_DETAILS_MIN_ZOOM = 0.5;
@@ -163,8 +164,9 @@
     if (rowIndex < 0) return null;
     const [dx, dy] = direction;
     if (dx) {
-      const nodeIndex = rows[rowIndex].nodes.indexOf(node);
-      return rows[rowIndex].nodes[nodeIndex + dx] || null;
+      const horizontalNodes = [...rows[rowIndex].nodes].sort((first, second) => first.x - second.x);
+      const nodeIndex = horizontalNodes.indexOf(node);
+      return horizontalNodes[nodeIndex + dx] || null;
     }
     if (!dy) return null;
     const currentRow = rows[rowIndex];
@@ -481,7 +483,12 @@
     };
   }
 
-  function createJustifiedLayout(items) {
+  function normalizeLayoutDirection(direction) {
+    return direction === "rtl" ? "rtl" : DEFAULT_LAYOUT_DIRECTION;
+  }
+
+  function createJustifiedLayout(items, direction = DEFAULT_LAYOUT_DIRECTION) {
+    const normalizedDirection = normalizeLayoutDirection(direction);
     const nodes = [];
     const rows = [];
     let row = [];
@@ -490,7 +497,12 @@
 
     const commitRow = (justify) => {
       if (!row.length) return;
-      const layoutRow = createLayoutRow(row.map(({ item }) => item), y, justify);
+      const layoutRow = createLayoutRow(
+        row.map(({ item }) => item),
+        y,
+        justify,
+        normalizedDirection,
+      );
       nodes.push(...layoutRow.nodes);
       rows.push(layoutRow);
       y += getRowAdvance(layoutRow);
@@ -513,16 +525,29 @@
     }
 
     commitRow(false);
-    return { nodes, rows };
+    return { nodes, rows, direction: normalizedDirection };
   }
 
-  function insertExplorationRow(layout, afterRow, items) {
+  function insertExplorationRow(
+    layout,
+    afterRow,
+    items,
+    direction = layout.direction || DEFAULT_LAYOUT_DIRECTION,
+  ) {
+    const normalizedDirection = normalizeLayoutDirection(direction);
     const rowIndex = layout.rows.indexOf(afterRow);
     if (rowIndex < 0) throw new Error("Exploration anchor row is not part of the layout");
-    if (!items.length) return { ...layout, insertedRow: null, shift: 0 };
+    if (!items.length) {
+      return { ...layout, direction: normalizedDirection, insertedRow: null, shift: 0 };
+    }
 
     const top = afterRow.bottom + getRowControlsHeight(afterRow) + ROW_GAP;
-    const insertedRow = createLayoutRow(items, top, isFilledRow(items));
+    const insertedRow = createLayoutRow(
+      items,
+      top,
+      isFilledRow(items),
+      normalizedDirection,
+    );
     const shift = getRowAdvance(insertedRow);
     for (let index = rowIndex + 1; index < layout.rows.length; index += 1) {
       const row = layout.rows[index];
@@ -532,10 +557,10 @@
     }
     layout.rows.splice(rowIndex + 1, 0, insertedRow);
     layout.nodes = layout.rows.flatMap((row) => row.nodes);
-    return { ...layout, insertedRow, shift };
+    return { ...layout, direction: normalizedDirection, insertedRow, shift };
   }
 
-  function createLayoutRow(items, y, justify) {
+  function createLayoutRow(items, y, justify, direction = DEFAULT_LAYOUT_DIRECTION) {
     const entries = items.map((item) => ({
       item,
       aspectRatio: getAspectRatio(item),
@@ -552,10 +577,11 @@
       if (widthAtMinimumHeight <= LAYOUT_WIDTH) rowHeight = MIN_ROW_HEIGHT;
     }
 
-    let x = 0;
+    let x = direction === "rtl" ? LAYOUT_WIDTH : 0;
     const layoutRow = { top: y, bottom: y + rowHeight, nodes: [] };
     for (const entry of entries) {
       const width = entry.aspectRatio * rowHeight;
+      if (direction === "rtl") x -= width;
       layoutRow.nodes.push({
         item: entry.item,
         x,
@@ -566,7 +592,7 @@
         isVideo: entry.isVideo,
         rotation: 0,
       });
-      x += width + LAYOUT_GAP;
+      x += direction === "rtl" ? -LAYOUT_GAP : width + LAYOUT_GAP;
     }
     return layoutRow;
   }
