@@ -71,6 +71,23 @@ const DEFAULT_AUTO_EXPLORE_FILTER = Object.freeze({
   tagMatch: "any",
   maxTagCount: null,
 });
+const MEDIA_DEBUG_STORAGE_KEY = "bird-view-debug";
+
+function isMediaDebugEnabled() {
+  try {
+    return typeof localStorage !== "undefined" && localStorage.getItem(MEDIA_DEBUG_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function debugLogMedia(item, event, details = {}) {
+  if (!isMediaDebugEnabled()) return;
+  console.log(
+    `[bird-view] ${new Date().toISOString()} ${event}`,
+    { name: item?.name, id: item?.id, ...details },
+  );
+}
 
 const state = {
   camera: { x: 0, y: 0, scale: 1 },
@@ -437,6 +454,9 @@ function createMediaCard(node) {
   frame.style.height = `${node.mediaHeight}px`;
   const originalImageURL = !isVideo ? item.fileURL : null;
   const fallbackURL = item.thumbnailURL || item.fileURL;
+  if (!isVideo && !originalImageURL) {
+    debugLogMedia(item, "card-created-without-fileURL", { fileURL: item.fileURL });
+  }
   image.alt = item.name || "Eagle 素材";
   image.decoding = "async";
   image.draggable = false;
@@ -472,6 +492,7 @@ function createMediaCard(node) {
     }
     if (!mediaLoadQueue.fail(node, "original")) return;
     card.dataset.mediaQuality = "original-failed";
+    debugLogMedia(item, "original-load-failed", { reason, fileURL: originalImageURL });
   };
   const failOriginalLoad = (reason = "error", originalImage) => {
     if (
@@ -500,6 +521,12 @@ function createMediaCard(node) {
         clearOriginalLoadTimeout();
         return;
       }
+      debugLogMedia(item, "original-load-watchdog-fired", {
+        pendingQuality: latest.pendingQuality,
+        queuedQuality: latest.queuedQuality,
+        loadingQuality: latest.loadingQuality,
+        fileURL: originalImageURL,
+      });
       if (latest.loadingQuality === "original" && node.preloadImage) {
         failOriginalLoad("timeout", node.preloadImage);
       } else {
@@ -532,6 +559,7 @@ function createMediaCard(node) {
       originalImage.removeAttribute("src");
       originalImage.remove();
       card.dataset.mediaQuality = mediaLoadQueue.snapshot(node)?.readyQuality || "idle";
+      debugLogMedia(item, "original-load-canceled");
     },
     start: (quality) => {
       const mediaURL = quality === "original" ? originalImageURL : fallbackURL;
@@ -542,6 +570,7 @@ function createMediaCard(node) {
       card.dataset.mediaQuality =
         quality === "original" ? "loading-original" : "loading-thumbnail";
       if (quality === "original") {
+        debugLogMedia(item, "original-load-started", { fileURL: mediaURL });
         const originalImage = document.createElement("img");
         originalImage.alt = image.alt;
         originalImage.decoding = "async";
@@ -569,6 +598,7 @@ function createMediaCard(node) {
           card.dataset.mediaQuality = "original";
           applyMediaRotation(node);
           mediaLoadQueue.complete(node, "original", true);
+          debugLogMedia(item, "original-load-succeeded", { fileURL: mediaURL });
         });
         originalImage.addEventListener("error", () => {
           failOriginalLoad("error", originalImage);
@@ -984,6 +1014,7 @@ function retryOriginalImage(node) {
   const requested = node.retryOriginal?.();
   if (!requested) return;
   node.element?.setAttribute("data-media-quality", "loading-original");
+  debugLogMedia(node.item, "original-load-retry-requested", { fileURL: node.item.fileURL });
   showToast("正在重新載入原圖。", false, 1000);
 }
 

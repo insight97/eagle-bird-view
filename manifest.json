@@ -6,7 +6,7 @@
   "name": "Bird View",
   "logo": "/logo.png",
   "keywords": ["whiteboard", "canvas", "media", "browser"],
-  "devTools": false,
+  "devTools": true,
   "main": {
     "url": "index.html",
     "width": 1200,
