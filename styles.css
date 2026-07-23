@@ -465,12 +465,6 @@ button {
   cursor: default;
 }
 
-.app.is-seamless .selection-rating,
-.app.is-seamless .selection-tags,
-.app.is-seamless #selection-tags-divider {
-  display: none;
-}
-
 .selection-divider {
   width: 1px;
   height: 13px;
