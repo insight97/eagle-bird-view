@@ -43,6 +43,7 @@
       now = () => root.performance.now(),
       viewportPanFraction = DEFAULT_VIEWPORT_PAN_FRACTION,
       focusRowEmphasis = DEFAULT_FOCUS_ROW_EMPHASIS,
+      getFocusRowEmphasis = () => focusRowEmphasis,
       cameraFitPadding = DEFAULT_CAMERA_FIT_PADDING,
       videoControlsHeight = DEFAULT_VIDEO_CONTROLS_HEIGHT,
       minZoom = MIN_ZOOM,
@@ -95,7 +96,7 @@
       const row = state.rows.find((candidate) => candidate.nodes.includes(node));
       const rowHeight = row ? row.bottom - row.top : node.mediaHeight;
       const scale = clamp(
-        getRowFocusScale(getBaseScale(), rowHeight, { emphasis: focusRowEmphasis }),
+        getRowFocusScale(getBaseScale(), rowHeight, { emphasis: getFocusRowEmphasis() }),
         getBaseScale() * minZoom,
         getBaseScale() * maxZoom,
       );

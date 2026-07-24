@@ -51,6 +51,7 @@ const DEFAULT_LAYOUT_DIRECTION = "ltr";
 const DEFAULT_LAYOUT_WIDTH = LAYOUT_WIDTH;
 const SEAMLESS_LAYOUT_GAP = 0;
 const SEAMLESS_ROW_GAP = 0;
+const TIGHT_FOCUS_ROW_EMPHASIS = 1.1;
 const SETTINGS_STORAGE_KEY = "bird-view-settings";
 const KEYBOARD_ZOOM_FACTOR = 1.5;
 const KEYBOARD_SEEK_STEP = 5;
@@ -233,6 +234,8 @@ function setup() {
     getBaseScale,
     updateCamera,
     selectNodeAtViewportCenter,
+    getFocusRowEmphasis: () =>
+      state.seamlessMode ? TIGHT_FOCUS_ROW_EMPHASIS : undefined,
   });
 
   elements.viewport.addEventListener("pointerdown", beginPan);
@@ -1729,8 +1732,8 @@ function updateSeamlessModeUI() {
   elements.seamlessModeToggle.classList.toggle("is-active", state.seamlessMode);
   elements.seamlessModeToggle.setAttribute("aria-checked", String(state.seamlessMode));
   elements.seamlessModeToggle.title = state.seamlessMode
-    ? "關閉無縫模式（Del）"
-    : "開啟無縫模式（Del）";
+    ? "關閉緊鄰模式（Del）"
+    : "開啟緊鄰模式（Del）";
   if (elements.seamlessModeStatus) {
     elements.seamlessModeStatus.textContent = state.seamlessMode ? "開" : "關";
   }

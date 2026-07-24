@@ -13,6 +13,7 @@ function createHarness() {
   const state = {
     camera: { x: 0, y: 0, scale: 1 },
     cameraFocusFrame: null,
+    seamlessMode: false,
     rows: [],
     selectedNode: null,
     smoothPanEnabled: false,
@@ -35,6 +36,7 @@ function createHarness() {
     getBaseScale: () => 1,
     updateCamera: () => updates.push({ ...state.camera }),
     selectNodeAtViewportCenter: () => { centeredSelections += 1; },
+    getFocusRowEmphasis: () => (state.seamlessMode ? 1.1 : undefined),
     requestAnimationFrame(callback) {
       const id = nextFrame++;
       frames.set(id, callback);
@@ -90,6 +92,20 @@ test("camera navigation animates a selected node and cancels the pending focus",
   harness.navigation.cancelCameraFocus();
   assert.equal(harness.state.cameraFocusFrame, null);
   assert.equal(harness.frames.has(nextFocusFrame), false);
+});
+
+test("camera navigation enlarges focus scale in seamless mode", () => {
+  const harness = createHarness();
+  const node = { x: 100, y: 120, width: 200, mediaHeight: 100, isVideo: false };
+  harness.state.rows = [{ top: 120, bottom: 220, nodes: [node] }];
+  harness.state.selectedNode = node;
+  harness.state.seamlessMode = true;
+
+  harness.navigation.focusSelectedNodeAtRowScale(node);
+  const focusFrame = harness.state.cameraFocusFrame;
+  harness.frames.get(focusFrame)(180);
+
+  assert.ok(Math.abs(harness.state.camera.scale - 1.98) < Number.EPSILON * 10);
 });
 
 test("smooth keyboard pan keeps moving until the key is released", () => {
