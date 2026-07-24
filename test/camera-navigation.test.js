@@ -4,7 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createCameraNavigation } = require("../camera-navigation.js");
 
-function createHarness() {
+function createHarness(focusTargetHeight = 180) {
   const frames = new Map();
   let nextFrame = 1;
   let currentTime = 0;
@@ -37,6 +37,7 @@ function createHarness() {
     updateCamera: () => updates.push({ ...state.camera }),
     selectNodeAtViewportCenter: () => { centeredSelections += 1; },
     getFocusRowEmphasis: () => (state.seamlessMode ? 1.1 : undefined),
+    getFocusTargetHeight: () => focusTargetHeight,
     requestAnimationFrame(callback) {
       const id = nextFrame++;
       frames.set(id, callback);
@@ -106,6 +107,18 @@ test("camera navigation enlarges focus scale in seamless mode", () => {
   harness.frames.get(focusFrame)(180);
 
   assert.ok(Math.abs(harness.state.camera.scale - 1.98) < Number.EPSILON * 10);
+});
+
+test("camera navigation uses the configured focus media size", () => {
+  const harness = createHarness(240);
+  const node = { x: 100, y: 120, width: 200, mediaHeight: 100, isVideo: false };
+  harness.state.rows = [{ top: 120, bottom: 220, nodes: [node] }];
+  harness.state.selectedNode = node;
+
+  harness.navigation.focusSelectedNodeAtRowScale(node);
+  harness.frames.get(harness.state.cameraFocusFrame)(180);
+
+  assert.ok(Math.abs(harness.state.camera.scale - 2.16) < Number.EPSILON * 10);
 });
 
 test("smooth keyboard pan keeps moving until the key is released", () => {

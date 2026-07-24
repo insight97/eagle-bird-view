@@ -48,6 +48,9 @@ const MAX_SMOOTH_PAN_SPEED = 3000;
 const DEFAULT_SMOOTH_ZOOM_SPEED = 1.5;
 const MIN_SMOOTH_ZOOM_SPEED = 1.05;
 const MAX_SMOOTH_ZOOM_SPEED = 12;
+const DEFAULT_FOCUS_MEDIA_SIZE = TARGET_ROW_HEIGHT;
+const MIN_FOCUS_MEDIA_SIZE = 80;
+const MAX_FOCUS_MEDIA_SIZE = 400;
 const DEFAULT_LAYOUT_DIRECTION = "ltr";
 const DEFAULT_LAYOUT_WIDTH = LAYOUT_WIDTH;
 const SEAMLESS_LAYOUT_GAP = 0;
@@ -110,6 +113,7 @@ const state = {
   smoothPanSpeed: DEFAULT_SMOOTH_PAN_SPEED,
   smoothZoomEnabled: false,
   smoothZoomSpeed: DEFAULT_SMOOTH_ZOOM_SPEED,
+  focusMediaSize: DEFAULT_FOCUS_MEDIA_SIZE,
   layoutDirection: DEFAULT_LAYOUT_DIRECTION,
   layoutWidth: DEFAULT_LAYOUT_WIDTH,
   layoutWidthUnlimited: false,
@@ -213,6 +217,8 @@ function setup() {
   elements.smoothZoomToggle = document.querySelector("#smooth-zoom-toggle");
   elements.smoothZoomSpeed = document.querySelector("#smooth-zoom-speed");
   elements.smoothZoomSpeedValue = document.querySelector("#smooth-zoom-speed-value");
+  elements.focusMediaSize = document.querySelector("#focus-media-size");
+  elements.focusMediaSizeValue = document.querySelector("#focus-media-size-value");
   elements.autoExploreFileTypeImage = document.querySelector("#auto-explore-file-type-image");
   elements.autoExploreFileTypeVideo = document.querySelector("#auto-explore-file-type-video");
   elements.autoExploreRating = document.querySelector("#auto-explore-rating");
@@ -244,6 +250,7 @@ function setup() {
     selectNodeAtViewportCenter,
     getFocusRowEmphasis: () =>
       state.seamlessMode ? TIGHT_FOCUS_ROW_EMPHASIS : undefined,
+    getFocusTargetHeight: () => state.focusMediaSize,
   });
 
   elements.viewport.addEventListener("pointerdown", beginPan);
@@ -279,6 +286,7 @@ function setup() {
   elements.smoothPanSpeed?.addEventListener("input", updateBoardSettings);
   elements.smoothZoomToggle?.addEventListener("change", updateBoardSettings);
   elements.smoothZoomSpeed?.addEventListener("input", updateBoardSettings);
+  elements.focusMediaSize?.addEventListener("input", updateBoardSettings);
   elements.exploreButton.addEventListener("click", exploreNextRow);
   restoreSavedSettings();
   updateSeamlessModeUI();
@@ -1793,6 +1801,9 @@ function updateBoardSettings() {
       MAX_SMOOTH_ZOOM_SPEED,
     );
   }
+  if (elements.focusMediaSize) {
+    state.focusMediaSize = normalizeFocusMediaSize(elements.focusMediaSize.value);
+  }
   if (!state.smoothPanEnabled) stopSmoothKeyboardPan();
   if (!state.smoothZoomEnabled) stopSmoothKeyboardZoom();
   saveSettings();
@@ -1832,6 +1843,12 @@ function updateBoardSettingsUI() {
   if (elements.smoothZoomSpeed) elements.smoothZoomSpeed.value = String(state.smoothZoomSpeed);
   if (elements.smoothZoomSpeedValue) {
     elements.smoothZoomSpeedValue.textContent = `${state.smoothZoomSpeed.toFixed(2)}×/秒`;
+  }
+  if (elements.focusMediaSize) {
+    elements.focusMediaSize.value = String(state.focusMediaSize);
+  }
+  if (elements.focusMediaSizeValue) {
+    elements.focusMediaSizeValue.textContent = `${state.focusMediaSize} px`;
   }
 }
 
@@ -1883,6 +1900,7 @@ function restoreSavedSettings() {
         MAX_SMOOTH_ZOOM_SPEED,
         DEFAULT_SMOOTH_ZOOM_SPEED,
       );
+      state.focusMediaSize = normalizeFocusMediaSize(board.focusMediaSize);
       state.layoutDirection = normalizeLayoutDirection(board.layoutDirection);
       state.layoutWidth = normalizeBoardLayoutWidth(board.layoutWidth);
       state.layoutWidthUnlimited = Boolean(board.layoutWidthUnlimited);
@@ -1914,6 +1932,7 @@ function saveSettings() {
           smoothPanSpeed: state.smoothPanSpeed,
           smoothZoomEnabled: state.smoothZoomEnabled,
           smoothZoomSpeed: state.smoothZoomSpeed,
+          focusMediaSize: state.focusMediaSize,
         },
         autoExploreFilter: state.unratedFilter,
       }),
@@ -1939,6 +1958,13 @@ function normalizeBoardLayoutWidth(width) {
     MAX_LAYOUT_WIDTH,
     DEFAULT_LAYOUT_WIDTH,
   );
+}
+
+function normalizeFocusMediaSize(size) {
+  const value = Number(size);
+  return Number.isFinite(value)
+    ? clamp(Math.round(value / 10) * 10, MIN_FOCUS_MEDIA_SIZE, MAX_FOCUS_MEDIA_SIZE)
+    : DEFAULT_FOCUS_MEDIA_SIZE;
 }
 
 function getBoardLayoutWidth() {

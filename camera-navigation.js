@@ -18,6 +18,7 @@
     getRowFocusScale,
     getViewportPanDelta,
     interpolateCamera,
+    TARGET_ROW_HEIGHT,
     zoomCameraAtPoint,
   } = core;
 
@@ -44,6 +45,7 @@
       viewportPanFraction = DEFAULT_VIEWPORT_PAN_FRACTION,
       focusRowEmphasis = DEFAULT_FOCUS_ROW_EMPHASIS,
       getFocusRowEmphasis = () => focusRowEmphasis,
+      getFocusTargetHeight = () => TARGET_ROW_HEIGHT,
       cameraFitPadding = DEFAULT_CAMERA_FIT_PADDING,
       videoControlsHeight = DEFAULT_VIDEO_CONTROLS_HEIGHT,
       minZoom = MIN_ZOOM,
@@ -96,7 +98,10 @@
       const row = state.rows.find((candidate) => candidate.nodes.includes(node));
       const rowHeight = row ? row.bottom - row.top : node.mediaHeight;
       const scale = clamp(
-        getRowFocusScale(getBaseScale(), rowHeight, { emphasis: getFocusRowEmphasis() }),
+        getRowFocusScale(getBaseScale(), rowHeight, {
+          targetHeight: getFocusTargetHeight(),
+          emphasis: getFocusRowEmphasis(),
+        }),
         getBaseScale() * minZoom,
         getBaseScale() * maxZoom,
       );

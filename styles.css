@@ -255,6 +255,14 @@ button {
   white-space: nowrap;
 }
 
+.auto-explore-focus-size-value {
+  min-width: 58px;
+  color: #b8bbc2;
+  font-size: 10px;
+  text-align: right;
+  white-space: nowrap;
+}
+
 .auto-explore-layout-width-value {
   min-width: 58px;
   color: #b8bbc2;
