@@ -37,6 +37,7 @@ const {
 } = BirdViewCore;
 const { MediaLoadQueue, waitForImageDecode } = BirdViewMedia;
 const { RelatedItemSource, UnratedItemSource } = BirdViewExploration;
+const { FolderItemSource } = BirdViewFolder;
 const { startVideoPlayer } = BirdViewVideo;
 const { TagEditor } = BirdViewTagEditor;
 const { createCameraNavigation } = BirdViewCamera;
@@ -63,6 +64,7 @@ const MAX_CONCURRENT_IMAGE_LOADS = 4;
 const RESOURCE_RELEASE_VIEWPORTS = 3;
 const GRID_LAYER_OVERFLOW = 768;
 const METADATA_SUCCESS_TOAST_MS = 1200;
+const FOLDER_LOAD_BATCH_SIZE = 120;
 const AUTO_EXPLORE_FILE_TYPES = Object.freeze(["image", "video"]);
 const DEFAULT_AUTO_EXPLORE_FILTER = Object.freeze({
   fileTypes: Object.freeze(["image", "video"]),
@@ -128,6 +130,11 @@ const state = {
   isPanning: false,
   explorationSource: null,
   explorationLoading: false,
+  folderItemSource: null,
+  folderItems: [],
+  folderItemOffset: 0,
+  folderItemGeneration: 0,
+  folderItemLoading: false,
   unratedSource: null,
   unratedEnabled: false,
   unratedLoading: false,
@@ -220,6 +227,7 @@ function setup() {
   elements.autoExploreControls = document.querySelector(".auto-explore-controls");
   elements.autoExploreSettingsReset = document.querySelector("#auto-explore-settings-reset");
   elements.exploreButton = document.querySelector("#explore-button");
+  elements.folderLoadMoreButton = document.querySelector("#folder-load-more-button");
   elements.toast = document.querySelector("#toast");
 
   selectionNavigation = createSelectionNavigation({
@@ -261,6 +269,9 @@ function setup() {
     handleAutoExploreExcludedTagSearchKeyDown,
   );
   elements.autoExploreSettingsReset?.addEventListener("click", resetAutoExploreSettings);
+  elements.folderLoadMoreButton?.addEventListener("click", () => {
+    void loadMoreFolderItems();
+  });
   elements.layoutDirection?.addEventListener("change", updateBoardSettings);
   elements.layoutWidth?.addEventListener("input", updateBoardSettings);
   elements.maxExplorationItems?.addEventListener("input", updateBoardSettings);
@@ -299,6 +310,10 @@ function startEagleIntegration() {
 
   state.explorationSource = new RelatedItemSource(eagle.item);
   state.unratedSource = new UnratedItemSource(eagle.item);
+  state.folderItemSource =
+    typeof eagle.folder?.getSelected === "function" || typeof eagle.folder?.get === "function"
+      ? new FolderItemSource(eagle.item, eagle.folder)
+      : null;
   if (typeof eagle.onLibraryChanged === "function") {
     eagle.onLibraryChanged(handleLibraryChanged);
   }
@@ -317,6 +332,7 @@ function handlePluginRun() {
 }
 
 function handleLibraryChanged() {
+  resetFolderItemLoad();
   clearBoard();
   state.folderNames.clear();
   state.explorationSource.clear();
@@ -342,35 +358,141 @@ async function loadSelectedItems({ append = false } = {}) {
     const items = await eagle.item.getSelected();
     if (generation !== state.selectedItemsGeneration) return;
 
-    if (!items.length) {
-      if (append) return;
-      clearBoard();
-      if (state.unratedEnabled) {
-        showToast("Eagle 目前沒有選取素材，正在探索符合條件的素材。", false);
-        await loadNextUnratedRow({ focus: true });
-      } else {
-        showToast("Eagle 目前沒有選取素材，可開啟自動探索。", false);
+    if (items.length) {
+      if (append) {
+        resetFolderItemLoad();
+        const existingIds = new Set(state.nodes.map(({ item }) => item.id));
+        const newItems = items.filter(({ id }) => id && !existingIds.has(id));
+        if (!newItems.length) return;
+        appendItemsToBoard(newItems);
+        showToast(`已加入 ${newItems.length} 個新素材。`);
+        return;
       }
+
+      resetFolderItemLoad();
+      renderItems(items);
+      requestAnimationFrame(focusFirstItem);
+      showToast(`已載入 ${items.length} 個素材。`);
       return;
     }
 
-    if (append) {
-      const existingIds = new Set(state.nodes.map(({ item }) => item.id));
-      const newItems = items.filter(({ id }) => id && !existingIds.has(id));
-      if (!newItems.length) return;
-      appendItemsToBoard(newItems);
-      showToast(`已加入 ${newItems.length} 個新素材。`);
+    let selectedFolderItems = null;
+    if (state.folderItemSource) {
+      try {
+        selectedFolderItems = await state.folderItemSource.loadSelected();
+      } catch (error) {
+        console.warn("Failed to inspect selected Eagle folders", error);
+      }
+    }
+    if (generation !== state.selectedItemsGeneration) return;
+    if (selectedFolderItems?.folders?.length) {
+      await startFolderItemLoad(selectedFolderItems);
       return;
     }
 
-    renderItems(items);
-    requestAnimationFrame(focusFirstItem);
-    showToast(`已載入 ${items.length} 個素材。`);
+    if (append) return;
+
+    resetFolderItemLoad();
+    clearBoard();
+    if (state.unratedEnabled) {
+      showToast("Eagle 目前沒有選取素材，正在探索符合條件的素材。", false);
+      await loadNextUnratedRow({ focus: true });
+    } else {
+      showToast("Eagle 目前沒有選取素材，可開啟自動探索。", false);
+    }
   } catch (error) {
     if (generation !== state.selectedItemsGeneration) return;
     console.error("Failed to load selected Eagle items", error);
     showToast(`無法讀取 Eagle 素材：${error.message || error}`, true);
   }
+}
+
+async function startFolderItemLoad({ folders, items }) {
+  resetFolderItemLoad();
+  clearBoard();
+  state.folderItems = items || [];
+  updateFolderLoadMoreUI();
+
+  if (!state.folderItems.length) {
+    showToast(`選取的資料夾${describeSelectedFolders(folders)}沒有可載入的素材。`, false);
+    return;
+  }
+
+  await loadMoreFolderItems({ focus: true });
+  const progressMessage = `已載入資料夾${describeSelectedFolders(folders)}的 ${state.folderItemOffset} / ${state.folderItems.length} 個素材`;
+  showToast(
+    state.folderItems.length > state.folderItemOffset
+      ? `${progressMessage}，可按「載入更多」繼續。`
+      : `${progressMessage}。`,
+    false,
+  );
+}
+
+async function loadMoreFolderItems({ focus = false } = {}) {
+  if (state.folderItemLoading || state.folderItemOffset >= state.folderItems.length) return;
+  const source = state.folderItemSource;
+  if (!source) return;
+
+  const generation = state.folderItemGeneration;
+  const start = state.folderItemOffset;
+  const batch = state.folderItems.slice(start, start + FOLDER_LOAD_BATCH_SIZE);
+  state.folderItemLoading = true;
+  updateFolderLoadMoreUI();
+  try {
+    const items = await source.hydrate(batch);
+    if (generation !== state.folderItemGeneration) return;
+    if (items.length) {
+      if (start === 0) {
+        renderItems(items);
+        if (focus) requestAnimationFrame(focusFirstItem);
+      } else {
+        appendItemsToBoard(items);
+      }
+    }
+    state.folderItemOffset = start + batch.length;
+    updateFolderLoadMoreUI();
+    if (!focus && items.length) {
+      showToast(`已載入 ${state.folderItemOffset} / ${state.folderItems.length} 個資料夾素材。`);
+    }
+  } catch (error) {
+    if (generation !== state.folderItemGeneration) return;
+    console.error("Failed to load folder items", error);
+    showToast(`無法載入資料夾素材：${error.message || error}`, true);
+  } finally {
+    if (generation === state.folderItemGeneration) {
+      state.folderItemLoading = false;
+      updateFolderLoadMoreUI();
+    }
+  }
+}
+
+function resetFolderItemLoad() {
+  state.folderItemGeneration += 1;
+  state.folderItems = [];
+  state.folderItemOffset = 0;
+  state.folderItemLoading = false;
+  updateFolderLoadMoreUI();
+}
+
+function updateFolderLoadMoreUI() {
+  const button = elements.folderLoadMoreButton;
+  if (!button) return;
+  const remaining = Math.max(state.folderItems.length - state.folderItemOffset, 0);
+  button.hidden = remaining === 0;
+  button.disabled = state.folderItemLoading;
+  button.textContent = state.folderItemLoading ? "載入中…" : `載入更多（${remaining}）`;
+  button.title = state.folderItemLoading
+    ? "正在載入資料夾素材"
+    : `載入剩餘 ${remaining} 個資料夾素材`;
+}
+
+function describeSelectedFolders(folders) {
+  const names = (folders || [])
+    .map((folder) => String(folder?.name || "").trim())
+    .filter(Boolean);
+  if (names.length === 1) return `「${names[0]}」`;
+  if (names.length > 1) return `${names.length} 個資料夾`;
+  return "選取資料夾";
 }
 
 function appendItemsToBoard(items) {

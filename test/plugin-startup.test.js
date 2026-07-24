@@ -14,6 +14,9 @@ test("auto exploration defaults off and a library change restarts selected item 
   let selectedRequests = 0;
   let unratedRequests = 0;
   const selectedResolvers = [];
+  let pluginRun;
+  let folderLoadRequests = 0;
+  let folderSourceResult = { folders: [], items: [] };
   let keyDown;
   let fullScreen = false;
   let fullScreenCalls = 0;
@@ -44,6 +47,7 @@ test("auto exploration defaults off and a library change restarts selected item 
     "#auto-explore-toggle",
     "#auto-explore-status",
     "#explore-button",
+    "#folder-load-more-button",
     "#toast",
   ]) {
     elements.set(id, createElementStub());
@@ -67,6 +71,15 @@ test("auto exploration defaults off and a library change restarts selected item 
     BirdViewCore,
     BirdViewMedia: { MediaLoadQueue, waitForImageDecode() {} },
     BirdViewExploration: { RelatedItemSource, UnratedItemSource },
+    BirdViewFolder: {
+      FolderItemSource: class {
+        async loadSelected() {
+          folderLoadRequests += 1;
+          return folderSourceResult;
+        }
+        async hydrate(items) { return items; }
+      },
+    },
     BirdViewVideo: { startVideoPlayer() {} },
     BirdViewTagEditor: { TagEditor },
     BirdViewCamera: {
@@ -114,8 +127,14 @@ test("auto exploration defaults off and a library change restarts selected item 
           return new Promise((resolve) => selectedResolvers.push(resolve));
         },
       },
+      folder: {
+        async getSelected() { return []; },
+      },
       onPluginCreate(callback) {
         pluginCreate = callback;
+      },
+      onPluginRun(callback) {
+        pluginRun = callback;
       },
       onLibraryChanged(callback) {
         libraryChanged = callback;
@@ -223,6 +242,27 @@ test("auto exploration defaults off and a library change restarts selected item 
   assert.equal(unratedRequests, 2);
   assert.equal(elements.get("#auto-explore-status").textContent, "開");
 
-  libraryChanged();
+  folderSourceResult = {
+    folders: [{ id: "selected-folder", name: "Folder" }],
+    items: [{ id: "folder-item" }],
+  };
+  pluginRun();
   assert.equal(selectedRequests, 2);
+  selectedResolvers[1]([
+    {
+      id: "selected-item",
+      name: "selected.jpg",
+      ext: "jpg",
+      width: 100,
+      height: 100,
+      fileURL: "file:///selected.jpg",
+      thumbnailURL: "file:///selected-thumb.jpg",
+    },
+  ]);
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(folderLoadRequests, 1);
+
+  libraryChanged();
+  assert.equal(selectedRequests, 3);
 });

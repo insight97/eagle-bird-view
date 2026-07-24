@@ -134,6 +134,12 @@ function buildPlugin(item) {
         }
       },
     },
+    BirdViewFolder: {
+      FolderItemSource: class {
+        async loadSelected() { return { folders: [], items: [] }; }
+        async hydrate(items) { return items; }
+      },
+    },
     BirdViewVideo: { startVideoPlayer() {} },
     BirdViewTagEditor: {
       TagEditor: class {
