@@ -6,6 +6,47 @@
   root.BirdViewVideo = videoPlayer;
 })(typeof globalThis === "object" ? globalThis : this, () => {
   const VIDEO_CONTROLS_HIDE_DELAY = 1600;
+  const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+  const CONTROL_ICONS = Object.freeze({
+    play: [{ d: "M4.5 3.25v9.5L12.5 8l-8-4.75Z" }],
+    pause: [{ d: "M3.5 3h3v10h-3zM9.5 3h3v10h-3z" }],
+    volume: [
+      { d: "M2.5 6.25v3.5h2.25L8 12.5v-9L4.75 6.25H2.5Z" },
+      {
+        d: "M10 5.5a3.55 3.55 0 0 1 0 5",
+        fill: "none",
+        stroke: "currentColor",
+        "stroke-linecap": "round",
+        "stroke-width": "1.25",
+      },
+    ],
+    muted: [
+      { d: "M2.5 6.25v3.5h2.25L8 12.5v-9L4.75 6.25H2.5Z" },
+      {
+        d: "m10 6 3 4m0-4-3 4",
+        fill: "none",
+        stroke: "currentColor",
+        "stroke-linecap": "round",
+        "stroke-width": "1.25",
+      },
+    ],
+  });
+
+  function setControlIcon(button, iconName) {
+    const svg = document.createElementNS(SVG_NAMESPACE, "svg");
+    svg.classList.add("video-control-icon");
+    svg.setAttribute("viewBox", "0 0 16 16");
+    svg.setAttribute("aria-hidden", "true");
+    for (const attributes of CONTROL_ICONS[iconName]) {
+      const path = document.createElementNS(SVG_NAMESPACE, "path");
+      path.setAttribute("d", attributes.d);
+      for (const [name, value] of Object.entries(attributes)) {
+        if (name !== "d") path.setAttribute(name, value);
+      }
+      svg.append(path);
+    }
+    button.replaceChildren(svg);
+  }
 
   function formatVideoTime(value) {
     const rawSeconds = Number(value);
@@ -66,7 +107,7 @@
     controls.className = "video-controls";
     toggleButton.className = "video-toggle";
     toggleButton.type = "button";
-    toggleButton.textContent = "❚❚";
+    setControlIcon(toggleButton, "pause");
     toggleButton.setAttribute("aria-label", "暫停");
     progress.className = "video-progress";
     progress.type = "range";
@@ -81,8 +122,9 @@
     volumeControl.className = "volume-control";
     volumeButton.className = "volume-toggle";
     volumeButton.type = "button";
-    volumeButton.textContent = "🔊";
+    setControlIcon(volumeButton, "volume");
     volumeButton.setAttribute("aria-label", "靜音");
+    volumeButton.setAttribute("aria-pressed", "false");
     volumeButton.title = "靜音";
     volumePopover.className = "volume-popover";
     volume.className = "volume-slider";
@@ -165,12 +207,12 @@
 
     toggleButton.addEventListener("click", togglePlayback);
     video.addEventListener("play", () => {
-      toggleButton.textContent = "❚❚";
+      setControlIcon(toggleButton, "pause");
       toggleButton.setAttribute("aria-label", "暫停");
       revealControls();
     });
     video.addEventListener("pause", () => {
-      toggleButton.textContent = "▶";
+      setControlIcon(toggleButton, "play");
       toggleButton.setAttribute("aria-label", "播放");
       clearControlsHideTimer();
       setControlsVisibility(true);
@@ -208,8 +250,9 @@
       const isMuted = audibleVolume === 0;
       volume.value = String(audibleVolume);
       volumeValue.textContent = `${Math.round(audibleVolume * 100)}%`;
-      volumeButton.textContent = isMuted ? "🔇" : "🔊";
+      setControlIcon(volumeButton, isMuted ? "muted" : "volume");
       volumeButton.setAttribute("aria-label", isMuted ? "取消靜音" : "靜音");
+      volumeButton.setAttribute("aria-pressed", String(isMuted));
       volumeButton.title = isMuted ? "取消靜音" : "靜音";
       onVolumeChange?.(video.volume);
     });
