@@ -86,6 +86,24 @@ test("createJustifiedLayout accepts compact spacing for seamless layouts", () =>
   assert.equal(layout.rows[1].top - layout.rows[0].bottom, 8);
 });
 
+test("createJustifiedLayout can remove video control height for seamless layouts", () => {
+  const items = [
+    { id: "video", width: 4000, height: 1000, ext: "mp4" },
+    { id: "image", width: 4000, height: 1000, ext: "jpg" },
+    { id: "next", width: 1000, height: 1000, ext: "jpg" },
+  ];
+  const layout = createJustifiedLayout(items, "ltr", 1200, {
+    gap: 0,
+    rowGap: 0,
+    videoControlsHeight: 0,
+  });
+  const firstRowHeight = 1200 / 8;
+
+  assert.equal(layout.videoControlsHeight, 0);
+  assert.equal(layout.rows[0].videoControlsHeight, 0);
+  assert.equal(layout.rows[1].top, firstRowHeight);
+});
+
 test("createJustifiedLayout justifies completed rows and reserves video controls", () => {
   const items = [
     { id: "video", width: 4000, height: 1000, ext: "MP4" },

@@ -248,6 +248,7 @@ function setup() {
     getBaseScale,
     updateCamera,
     selectNodeAtViewportCenter,
+    getVideoControlsHeight: () => getVideoControlsHeight(),
     getFocusRowEmphasis: () =>
       state.seamlessMode ? TIGHT_FOCUS_ROW_EMPHASIS : undefined,
     getFocusTargetHeight: () => state.focusMediaSize,
@@ -611,6 +612,7 @@ function unmountMediaCard(node) {
 function releaseMediaCard(node) {
   node.mediaGeneration = (node.mediaGeneration || 0) + 1;
   mediaLoadQueue.dispose(node);
+  node.stopVideoControls?.();
 
   if (node.videoElement) {
     node.videoElement.pause();
@@ -630,6 +632,8 @@ function releaseMediaCard(node) {
   node.retryOriginal = null;
   node.videoElement = null;
   node.togglePlayback = null;
+  node.stopVideoControls = null;
+  node.revealVideoControls = null;
   node.mediaElement = null;
   node.loadMedia = null;
   node.height = node.mediaHeight;
@@ -1204,7 +1208,7 @@ function startVideo(frame, image, playButton, item, node) {
     playButton,
     item,
     node,
-    controlsHeight: VIDEO_CONTROLS_HEIGHT,
+    controlsHeight: getVideoControlsHeight(),
     initialVolume: state.videoVolume,
     onVolumeChange: rememberVideoVolume,
     applyRotation: () => applyMediaRotation(node),
@@ -1973,8 +1977,20 @@ function getBoardLayoutWidth() {
 
 function getBoardLayoutOptions() {
   return state.seamlessMode
-    ? { gap: SEAMLESS_LAYOUT_GAP, rowGap: SEAMLESS_ROW_GAP }
-    : { gap: LAYOUT_GAP, rowGap: ROW_GAP };
+    ? {
+        gap: SEAMLESS_LAYOUT_GAP,
+        rowGap: SEAMLESS_ROW_GAP,
+        videoControlsHeight: 0,
+      }
+    : {
+        gap: LAYOUT_GAP,
+        rowGap: ROW_GAP,
+        videoControlsHeight: VIDEO_CONTROLS_HEIGHT,
+      };
+}
+
+function getVideoControlsHeight() {
+  return state.seamlessMode ? 0 : VIDEO_CONTROLS_HEIGHT;
 }
 
 function getBoardLayoutConfig() {
@@ -2306,8 +2322,10 @@ function activateSelectedNode() {
 }
 
 function controlSelectedVideo(key) {
-  const video = state.selectedNode?.videoElement;
+  const node = state.selectedNode;
+  const video = node?.videoElement;
   if (!video) return;
+  node.revealVideoControls?.();
 
   if (key === "ArrowLeft" || key === "ArrowRight") {
     if (!Number.isFinite(video.duration)) return;
@@ -2356,7 +2374,7 @@ function focusFirstItem() {
   const viewportHeight = elements.viewport.clientHeight;
   refreshBaseScale();
   const scale = getBaseScale();
-  const displayHeight = node.mediaHeight + (node.isVideo ? VIDEO_CONTROLS_HEIGHT : 0);
+  const displayHeight = node.mediaHeight + (node.isVideo ? getVideoControlsHeight() : 0);
 
   state.camera.scale = scale;
   state.camera.x = viewportWidth / 2 - (node.x + node.width / 2) * scale;
@@ -2697,8 +2715,8 @@ function refreshBaseScale() {
   const viewportHeight = Math.max(elements.viewport?.clientHeight || 0, 1);
   const referenceHeight = state.nodes.length
     ? state.nodes[0].mediaHeight +
-      (state.nodes[0].isVideo ? VIDEO_CONTROLS_HEIGHT : 0)
-    : TARGET_ROW_HEIGHT + VIDEO_CONTROLS_HEIGHT;
+      (state.nodes[0].isVideo ? getVideoControlsHeight() : 0)
+    : TARGET_ROW_HEIGHT + getVideoControlsHeight();
   const referenceWidth = state.nodes[0]?.width || TARGET_ROW_HEIGHT * (16 / 10);
   const widthScale = (viewportWidth - padding * 2) / referenceWidth;
   const heightScale = (viewportHeight - padding * 2) / referenceHeight;

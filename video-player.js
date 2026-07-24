@@ -5,6 +5,21 @@
   if (typeof module === "object" && module.exports) module.exports = videoPlayer;
   root.BirdViewVideo = videoPlayer;
 })(typeof globalThis === "object" ? globalThis : this, () => {
+  const VIDEO_CONTROLS_HIDE_DELAY = 1600;
+
+  function formatVideoTime(value) {
+    const rawSeconds = Number(value);
+    if (!Number.isFinite(rawSeconds)) return "--:--";
+    const totalSeconds = Math.max(0, Math.floor(rawSeconds));
+    const seconds = totalSeconds % 60;
+    const totalMinutes = Math.floor(totalSeconds / 60);
+    const minutes = totalMinutes % 60;
+    const hours = Math.floor(totalMinutes / 60);
+    return hours > 0
+      ? `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+      : `${minutes}:${String(seconds).padStart(2, "0")}`;
+  }
+
   function startVideoPlayer(options) {
     const {
       frame,
@@ -27,11 +42,15 @@
     const controls = document.createElement("div");
     const toggleButton = document.createElement("button");
     const progress = document.createElement("input");
+    const timeLabel = document.createElement("span");
     const volumeControl = document.createElement("div");
     const volumeButton = document.createElement("button");
     const volumePopover = document.createElement("div");
     const volume = document.createElement("input");
     const volumeValue = document.createElement("span");
+    let controlsHideTimer = null;
+    let controlsPointerInside = false;
+    let controlsFocused = false;
 
     video.src = item.fileURL;
     video.autoplay = true;
@@ -55,6 +74,10 @@
     progress.max = "1000";
     progress.value = "0";
     progress.setAttribute("aria-label", "影片播放進度");
+    timeLabel.className = "video-time";
+    timeLabel.textContent = "0:00 / --:--";
+    timeLabel.setAttribute("aria-label", "影片播放時間");
+    timeLabel.title = "目前播放時間 / 影片長度";
     volumeControl.className = "volume-control";
     volumeButton.className = "volume-toggle";
     volumeButton.type = "button";
@@ -73,10 +96,62 @@
     volumeValue.textContent = "100%";
     volumePopover.append(volume, volumeValue);
     volumeControl.append(volumeButton, volumePopover);
-    controls.append(toggleButton, progress, volumeControl);
+    controls.append(toggleButton, progress, timeLabel, volumeControl);
     let lastAudibleVolume = video.volume || 1;
 
+    const clearControlsHideTimer = () => {
+      if (controlsHideTimer === null) return;
+      clearTimeout(controlsHideTimer);
+      controlsHideTimer = null;
+    };
+    const setControlsVisibility = (visible) => {
+      if (visible) node.element?.setAttribute("data-video-controls-visible", "true");
+      else node.element?.removeAttribute("data-video-controls-visible");
+    };
+    const updateTimeLabel = () => {
+      timeLabel.textContent = `${formatVideoTime(video.currentTime)} / ${formatVideoTime(video.duration)}`;
+    };
+    const scheduleControlsHide = () => {
+      clearControlsHideTimer();
+      if (video.paused || controlsPointerInside || controlsFocused) return;
+      controlsHideTimer = setTimeout(() => {
+        controlsHideTimer = null;
+        if (video.paused || controlsPointerInside || controlsFocused) return;
+        setControlsVisibility(false);
+      }, VIDEO_CONTROLS_HIDE_DELAY);
+    };
+    const revealControls = () => {
+      setControlsVisibility(true);
+      scheduleControlsHide();
+    };
+    node.stopVideoControls = () => {
+      clearControlsHideTimer();
+      setControlsVisibility(false);
+    };
+    node.revealVideoControls = revealControls;
+
     controls.addEventListener("dblclick", (event) => event.stopPropagation());
+    controls.addEventListener("pointerenter", () => {
+      controlsPointerInside = true;
+      setControlsVisibility(true);
+    });
+    controls.addEventListener("pointerleave", () => {
+      controlsPointerInside = false;
+      scheduleControlsHide();
+    });
+    controls.addEventListener("pointerdown", revealControls);
+    controls.addEventListener("focusin", () => {
+      controlsFocused = true;
+      setControlsVisibility(true);
+    });
+    controls.addEventListener("focusout", (event) => {
+      if (event.relatedTarget && controls.contains(event.relatedTarget)) return;
+      controlsFocused = false;
+      scheduleControlsHide();
+    });
+    frame.addEventListener("pointerenter", revealControls);
+    frame.addEventListener("pointermove", revealControls);
+    frame.addEventListener("pointerdown", revealControls);
 
     const togglePlayback = () => {
       if (video.paused) {
@@ -92,20 +167,27 @@
     video.addEventListener("play", () => {
       toggleButton.textContent = "❚❚";
       toggleButton.setAttribute("aria-label", "暫停");
+      revealControls();
     });
     video.addEventListener("pause", () => {
       toggleButton.textContent = "▶";
       toggleButton.setAttribute("aria-label", "播放");
+      clearControlsHideTimer();
+      setControlsVisibility(true);
     });
     video.addEventListener("timeupdate", () => {
       if (Number.isFinite(video.duration) && !progress.matches(":active")) {
         progress.value = String(Math.round((video.currentTime / video.duration) * 1000));
       }
+      updateTimeLabel();
     });
+    video.addEventListener("durationchange", updateTimeLabel);
+    video.addEventListener("loadedmetadata", updateTimeLabel);
     progress.addEventListener("input", () => {
       if (Number.isFinite(video.duration)) {
         video.currentTime = (Number(progress.value) / 1000) * video.duration;
       }
+      updateTimeLabel();
     });
     volumeButton.addEventListener("click", () => {
       if (video.muted || video.volume === 0) {
@@ -133,11 +215,14 @@
     });
     video.addEventListener("error", () => {
       if (node.videoElement !== video) return;
+      node.stopVideoControls?.();
       showToast("這個影片的容器或編碼無法由外掛播放器解碼。", true);
       video.remove();
       controls.remove();
       node.videoElement = null;
       node.togglePlayback = null;
+      node.stopVideoControls = null;
+      node.revealVideoControls = null;
       node.mediaElement = image;
       applyRotation();
       frame.prepend(image);
@@ -152,6 +237,8 @@
     frame.after(controls);
     node.height = node.mediaHeight + controlsHeight;
     onLayoutChange();
+    updateTimeLabel();
+    setControlsVisibility(true);
     video.play().catch(() => {
       showToast("瀏覽器阻擋自動播放，請按影片上的播放鍵。", false);
     });

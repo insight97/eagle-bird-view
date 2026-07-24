@@ -28,7 +28,7 @@
   const DEFAULT_VIEWPORT_PAN_FRACTION = 2 / 3;
   const DEFAULT_FOCUS_ROW_EMPHASIS = 0.9;
   const DEFAULT_CAMERA_FIT_PADDING = 64;
-  const DEFAULT_VIDEO_CONTROLS_HEIGHT = 10;
+  const DEFAULT_VIDEO_CONTROLS_HEIGHT = 8;
   const DEFAULT_SMOOTH_PAN_SPEED = 480;
   const DEFAULT_SMOOTH_ZOOM_SPEED = 1.5;
 
@@ -48,6 +48,7 @@
       getFocusTargetHeight = () => TARGET_ROW_HEIGHT,
       cameraFitPadding = DEFAULT_CAMERA_FIT_PADDING,
       videoControlsHeight = DEFAULT_VIDEO_CONTROLS_HEIGHT,
+      getVideoControlsHeight = () => videoControlsHeight,
       minZoom = MIN_ZOOM,
       maxZoom = MAX_ZOOM,
     } = options;
@@ -105,7 +106,8 @@
         getBaseScale() * minZoom,
         getBaseScale() * maxZoom,
       );
-      const displayHeight = node.mediaHeight + (node.isVideo ? videoControlsHeight : 0);
+      const displayHeight =
+        node.mediaHeight + (node.isVideo ? getVideoControlsHeight() : 0);
       const target = centerCameraAtPoint(
         { ...state.camera, scale },
         { x: node.x + node.width / 2, y: node.y + displayHeight / 2 },
@@ -126,7 +128,8 @@
 
       const bounds = row.nodes.reduce(
         (result, node) => {
-          const displayHeight = node.mediaHeight + (node.isVideo ? videoControlsHeight : 0);
+          const displayHeight =
+            node.mediaHeight + (node.isVideo ? getVideoControlsHeight() : 0);
           return {
             left: Math.min(result.left, node.x),
             top: Math.min(result.top, node.y),

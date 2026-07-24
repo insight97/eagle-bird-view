@@ -6,7 +6,7 @@
   root.BirdViewCore = core;
 })(typeof globalThis === "object" ? globalThis : this, () => {
   const VIDEO_EXTENSIONS = new Set(["mp4", "m4v", "mov", "webm", "mkv"]);
-  const VIDEO_CONTROLS_HEIGHT = 10;
+  const VIDEO_CONTROLS_HEIGHT = 8;
   const LAYOUT_WIDTH = 1200;
   const MIN_LAYOUT_WIDTH = 240;
   const MAX_LAYOUT_WIDTH = 2400;
@@ -572,7 +572,7 @@
   ) {
     const normalizedDirection = normalizeLayoutDirection(direction);
     const normalizedLayoutWidth = normalizeLayoutWidth(layoutWidth);
-    const { gap, rowGap } = normalizeLayoutOptions(layoutOptions);
+    const { gap, rowGap, videoControlsHeight } = normalizeLayoutOptions(layoutOptions);
     const nodes = [];
     const rows = [];
     let row = [];
@@ -587,7 +587,7 @@
         justify,
         normalizedDirection,
         normalizedLayoutWidth,
-        { gap },
+        { gap, videoControlsHeight },
       );
       nodes.push(...layoutRow.nodes);
       rows.push(layoutRow);
@@ -620,6 +620,7 @@
       layoutWidth: normalizedLayoutWidth,
       gap,
       rowGap,
+      videoControlsHeight,
     };
   }
 
@@ -633,9 +634,10 @@
   ) {
     const normalizedDirection = normalizeLayoutDirection(direction);
     const normalizedLayoutWidth = normalizeLayoutWidth(layoutWidth);
-    const { gap, rowGap } = normalizeLayoutOptions({
+    const { gap, rowGap, videoControlsHeight } = normalizeLayoutOptions({
       gap: layout.gap,
       rowGap: layout.rowGap,
+      videoControlsHeight: layout.videoControlsHeight,
       ...layoutOptions,
     });
     const rowIndex = layout.rows.indexOf(afterRow);
@@ -664,7 +666,7 @@
         isFilledRow(group, normalizedLayoutWidth, { gap }),
         normalizedDirection,
         normalizedLayoutWidth,
-        { gap },
+        { gap, videoControlsHeight },
       );
       insertedRows.push(insertedRow);
       nextTop += getRowAdvance(insertedRow, rowGap);
@@ -684,6 +686,7 @@
       layoutWidth: normalizedLayoutWidth,
       gap,
       rowGap,
+      videoControlsHeight,
       insertedRow: insertedRows[0],
       insertedRows,
       shift,
@@ -699,7 +702,7 @@
     layoutOptions = {},
   ) {
     const normalizedLayoutWidth = normalizeLayoutWidth(layoutWidth);
-    const { gap } = normalizeLayoutOptions(layoutOptions);
+    const { gap, videoControlsHeight } = normalizeLayoutOptions(layoutOptions);
     const entries = items.map((item) => ({
       item,
       aspectRatio: getAspectRatio(item),
@@ -722,7 +725,12 @@
         ? normalizedLayoutWidth
         : rowWidth
       : 0;
-    const layoutRow = { top: y, bottom: y + rowHeight, nodes: [] };
+    const layoutRow = {
+      top: y,
+      bottom: y + rowHeight,
+      nodes: [],
+      videoControlsHeight,
+    };
     for (const entry of entries) {
       const width = entry.aspectRatio * rowHeight;
       if (direction === "rtl") x -= width;
@@ -762,11 +770,16 @@
     return {
       gap: normalizeLayoutSpacing(options.gap, LAYOUT_GAP),
       rowGap: normalizeLayoutSpacing(options.rowGap, ROW_GAP),
+      videoControlsHeight: normalizeLayoutSpacing(
+        options.videoControlsHeight,
+        VIDEO_CONTROLS_HEIGHT,
+      ),
     };
   }
 
   function getRowControlsHeight(row) {
-    return row.nodes.some(({ isVideo }) => isVideo) ? VIDEO_CONTROLS_HEIGHT : 0;
+    if (!row.nodes.some(({ isVideo }) => isVideo)) return 0;
+    return normalizeLayoutSpacing(row.videoControlsHeight, VIDEO_CONTROLS_HEIGHT);
   }
 
   function getRowFocusScale(
