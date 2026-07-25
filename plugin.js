@@ -219,6 +219,13 @@ function setup() {
   elements.seamlessModeStatus = document.querySelector("#seamless-mode-status");
   elements.autoExploreSettingsButton = document.querySelector("#auto-explore-settings-button");
   elements.autoExploreSettingsPanel = document.querySelector("#auto-explore-settings-panel");
+  elements.autoExploreSettingsClose = document.querySelector("#auto-explore-settings-close");
+  elements.autoExploreSettingsTabs = Array.from(
+    document.querySelectorAll?.("[data-settings-tab]") || [],
+  );
+  elements.autoExploreSettingsPanels = Array.from(
+    document.querySelectorAll?.("[data-settings-panel]") || [],
+  );
   elements.layoutDirection = document.querySelector("#board-layout-direction");
   elements.layoutWidth = document.querySelector("#board-layout-width");
   elements.layoutWidthValue = document.querySelector("#board-layout-width-value");
@@ -277,6 +284,11 @@ function setup() {
   elements.autoExploreToggle.addEventListener("click", toggleUnratedExploration);
   elements.seamlessModeToggle?.addEventListener("click", toggleSeamlessMode);
   elements.autoExploreSettingsButton?.addEventListener("click", toggleAutoExploreSettings);
+  elements.autoExploreSettingsClose?.addEventListener("click", closeAutoExploreSettings);
+  for (const tab of elements.autoExploreSettingsTabs) {
+    tab.addEventListener("click", () => setActiveSettingsTab(tab.dataset.settingsTab));
+    tab.addEventListener("keydown", handleSettingsTabKeyDown);
+  }
   elements.autoExploreFileTypeImage?.addEventListener("change", updateDraftAutoExploreFileTypes);
   elements.autoExploreFileTypeVideo?.addEventListener("change", updateDraftAutoExploreFileTypes);
   elements.autoExploreRating?.addEventListener("change", updateDraftAutoExploreRating);
@@ -305,6 +317,7 @@ function setup() {
   restoreSavedSettings();
   updateSeamlessModeUI();
   updateAutoExploreToggle();
+  setActiveSettingsTab("exploration");
   updateAutoExploreSettingsUI();
   updateSelectionStatus();
 
@@ -1748,6 +1761,51 @@ function maybeLoadNextUnratedRow() {
   }
   state.lastUnratedTriggerRow = lastRow;
   void loadNextUnratedRow();
+}
+
+function setActiveSettingsTab(tabName, { focus = false } = {}) {
+  const tabs = elements.autoExploreSettingsTabs || [];
+  const panels = elements.autoExploreSettingsPanels || [];
+  if (!tabs.length || !panels.length) return;
+
+  const activeTab =
+    tabs.find((tab) => tab.dataset.settingsTab === tabName) || tabs[0];
+  const activeName = activeTab.dataset.settingsTab;
+
+  for (const tab of tabs) {
+    const isActive = tab === activeTab;
+    tab.classList.toggle("is-active", isActive);
+    tab.setAttribute("aria-selected", String(isActive));
+    tab.setAttribute("tabindex", isActive ? "0" : "-1");
+  }
+  for (const panel of panels) {
+    const isActive = panel.dataset.settingsPanel === activeName;
+    panel.hidden = !isActive;
+    panel.setAttribute("aria-hidden", String(!isActive));
+  }
+  if (focus) activeTab.focus();
+}
+
+function handleSettingsTabKeyDown(event) {
+  const tabs = elements.autoExploreSettingsTabs || [];
+  const currentIndex = tabs.indexOf(event.currentTarget);
+  if (currentIndex === -1) return;
+
+  let nextIndex = currentIndex;
+  if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+    nextIndex = (currentIndex + 1) % tabs.length;
+  } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+    nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+  } else if (event.key === "Home") {
+    nextIndex = 0;
+  } else if (event.key === "End") {
+    nextIndex = tabs.length - 1;
+  } else {
+    return;
+  }
+
+  event.preventDefault();
+  setActiveSettingsTab(tabs[nextIndex].dataset.settingsTab, { focus: true });
 }
 
 function toggleAutoExploreSettings() {

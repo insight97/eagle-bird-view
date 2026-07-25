@@ -119,18 +119,18 @@ button {
 
 .auto-explore-settings {
   position: absolute;
-  top: calc(100% + 8px);
+  top: calc(100% + 9px);
   right: 0;
   z-index: 40;
   display: flex;
-  width: min(340px, calc(100vw - 24px));
-  max-height: calc(100vh - 58px);
+  width: min(390px, calc(100vw - 20px));
+  max-height: calc(100vh - 54px);
   flex-direction: column;
-  gap: 9px;
-  padding: 12px;
+  overflow: hidden;
+  padding: 0;
   border: 1px solid #484c54;
-  border-radius: 8px;
-  background: #202328;
+  border-radius: 10px;
+  background: #1e2126;
   box-shadow: 0 14px 38px rgb(0 0 0 / 42%);
   color: #dfe1e5;
   cursor: default;
@@ -141,26 +141,166 @@ button {
   display: none;
 }
 
+.auto-explore-settings-header {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px 8px;
+}
+
 .auto-explore-settings-heading {
   color: #eef0f3;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
+  letter-spacing: 0.01em;
 }
 
-.auto-explore-settings-section-heading {
-  margin-top: 3px;
-  border-top: 1px solid #363a40;
-  padding-top: 9px;
-  color: #eef0f3;
+.settings-close {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  place-items: center;
+  padding: 0 0 2px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: #9da2ac;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.settings-close:hover,
+.settings-close:focus-visible {
+  border-color: #484c54;
+  background: #292d33;
+  color: #f3f4f6;
+}
+
+.settings-close:focus-visible {
+  outline: 1px solid #9d96ff;
+  outline-offset: 1px;
+}
+
+.auto-explore-settings-tabs {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  padding: 0 10px;
+  border-bottom: 1px solid #383c43;
+  scrollbar-width: none;
+}
+
+.auto-explore-settings-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.settings-tab {
+  position: relative;
+  min-width: max-content;
+  padding: 9px 9px 8px;
+  border: 0;
+  background: transparent;
+  color: #8f949e;
   font-size: 11px;
+  cursor: pointer;
+}
+
+.settings-tab::after {
+  position: absolute;
+  right: 8px;
+  bottom: -1px;
+  left: 8px;
+  height: 2px;
+  border-radius: 999px 999px 0 0;
+  background: transparent;
+  content: "";
+}
+
+.settings-tab:hover,
+.settings-tab:focus-visible {
+  color: #e8e9ed;
+}
+
+.settings-tab:focus-visible {
+  outline: 1px solid #9d96ff;
+  outline-offset: -2px;
+}
+
+.settings-tab.is-active {
+  color: #f3f1ff;
   font-weight: 700;
 }
 
-.auto-explore-settings-subheading {
-  margin-top: 2px;
-  color: #aeb2ba;
+.settings-tab.is-active::after {
+  background: #8178f1;
+}
+
+.auto-explore-settings-content {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: #4a4e57 transparent;
+}
+
+.settings-tab-panel {
+  padding: 12px 14px 4px;
+}
+
+.settings-tab-panel[hidden] {
+  display: none;
+}
+
+.settings-intro {
+  margin: 0 0 10px;
+  color: #9298a4;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.settings-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 10px;
+  border: 1px solid #343840;
+  border-radius: 8px;
+  background: #24272c;
+}
+
+.settings-card-title {
+  margin-bottom: 1px;
+  color: #c8c4ff;
   font-size: 10px;
   font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.settings-control-label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.settings-control-label small {
+  color: #858b96;
+  font-size: 9px;
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+.settings-toggle-row input {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  margin: 0;
+  accent-color: #7971ed;
 }
 
 .auto-explore-setting-row,
@@ -174,7 +314,7 @@ button {
 }
 
 .auto-explore-count-row {
-  justify-content: flex-start;
+  justify-content: space-between;
 }
 
 .auto-explore-select,
@@ -193,7 +333,7 @@ button {
 }
 
 .auto-explore-select {
-  width: 140px;
+  width: 150px;
 }
 
 .auto-explore-file-type-options {
@@ -228,13 +368,17 @@ button {
 
 .auto-explore-speed-control {
   display: flex;
+  flex: 1 1 auto;
   min-width: 0;
   align-items: center;
+  justify-content: flex-end;
   gap: 7px;
 }
 
 .auto-explore-range {
-  width: 132px;
+  min-width: 60px;
+  width: 142px;
+  flex: 1 1 142px;
   accent-color: #7971ed;
   cursor: pointer;
 }
@@ -403,10 +547,18 @@ button {
 
 .auto-explore-settings-footer {
   display: flex;
+  min-height: 47px;
   justify-content: flex-end;
+  align-items: center;
   gap: 6px;
   border-top: 1px solid #363a40;
-  padding-top: 9px;
+  padding: 9px 14px;
+}
+
+.settings-footer-note {
+  margin-right: auto;
+  color: #858b96;
+  font-size: 9px;
 }
 
 .selection-status {

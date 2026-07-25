@@ -77,7 +77,7 @@
               id="auto-explore-settings-button"
               class="settings-button"
               type="button"
-              aria-label="設定自動探索與白板選項"
+              aria-label="開啟 Bird View 設定"
               aria-expanded="false"
               disabled
             >
@@ -87,213 +87,316 @@
               id="auto-explore-settings-panel"
               class="auto-explore-settings"
               role="dialog"
-              aria-label="自動探索條件"
+              aria-labelledby="auto-explore-settings-title"
               hidden
             >
-              <div class="auto-explore-settings-heading">自動探索條件</div>
-              <div class="auto-explore-setting-row">
-                <span>檔案類型</span>
-                <div class="auto-explore-file-type-options" role="group" aria-label="檔案類型">
-                  <label class="auto-explore-file-type-option">
-                    <input id="auto-explore-file-type-image" type="checkbox" value="image" checked />
-                    <span>圖片</span>
-                  </label>
-                  <label class="auto-explore-file-type-option">
-                    <input id="auto-explore-file-type-video" type="checkbox" value="video" checked />
-                    <span>影片</span>
-                  </label>
+              <div class="auto-explore-settings-header">
+                <div>
+                  <div id="auto-explore-settings-title" class="auto-explore-settings-heading">
+                    設定
+                  </div>
                 </div>
+                <button
+                  id="auto-explore-settings-close"
+                  class="settings-close"
+                  type="button"
+                  aria-label="關閉設定"
+                >
+                  ×
+                </button>
               </div>
-              <label class="auto-explore-setting-row">
-                <span>評分</span>
-                <select id="auto-explore-rating" class="auto-explore-select">
-                  <option value="unrated">未評分</option>
-                  <option value="any">不限</option>
-                  <option value="1">1 星</option>
-                  <option value="2">2 星</option>
-                  <option value="3">3 星</option>
-                  <option value="4">4 星</option>
-                  <option value="5">5 星</option>
-                </select>
-              </label>
-              <label class="auto-explore-setting-row">
-                <span>Tag 匹配</span>
-                <select id="auto-explore-tag-match" class="auto-explore-select">
-                  <option value="any">符合任一個</option>
-                  <option value="all">全部符合</option>
-                </select>
-              </label>
-              <label class="auto-explore-setting-row auto-explore-count-row">
-                <span>Tag 數量小於</span>
-                <input
-                  id="auto-explore-max-tag-count"
-                  class="auto-explore-number"
-                  type="number"
-                  min="1"
-                  step="1"
-                  inputmode="numeric"
-                  placeholder="不限"
-                />
-              </label>
-              <div class="auto-explore-tag-search-label">
-                <span>指定 Tag</span>
-                <div class="auto-explore-tag-picker">
-                  <input
-                    id="auto-explore-tag-search"
-                    class="auto-explore-tag-search"
-                    type="search"
-                    placeholder="搜尋 Tag"
-                  />
-                  <div id="auto-explore-tag-options" class="auto-explore-tag-options" hidden></div>
-                </div>
+              <div class="auto-explore-settings-tabs" role="tablist" aria-label="設定分類">
+                <button
+                  id="settings-tab-exploration"
+                  class="settings-tab is-active"
+                  type="button"
+                  role="tab"
+                  aria-selected="true"
+                  aria-controls="settings-panel-exploration"
+                  data-settings-tab="exploration"
+                >
+                  探索條件
+                </button>
+                <button
+                  id="settings-tab-board"
+                  class="settings-tab"
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="settings-panel-board"
+                  data-settings-tab="board"
+                  tabindex="-1"
+                >
+                  白板佈局
+                </button>
+                <button
+                  id="settings-tab-interaction"
+                  class="settings-tab"
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="settings-panel-interaction"
+                  data-settings-tab="interaction"
+                  tabindex="-1"
+                >
+                  操作體驗
+                </button>
               </div>
-              <div class="auto-explore-tag-hint">不選任何 Tag 代表不限 Tag</div>
-              <div id="auto-explore-selected-tags" class="auto-explore-selected-tags" hidden></div>
-              <div class="auto-explore-tag-search-label">
-                <span>排除 Tag</span>
-                <div class="auto-explore-tag-picker">
-                  <input
-                    id="auto-explore-excluded-tag-search"
-                    class="auto-explore-tag-search"
-                    type="search"
-                    placeholder="搜尋要排除的 Tag"
-                  />
-                  <div
-                    id="auto-explore-excluded-tag-options"
-                    class="auto-explore-tag-options"
-                    hidden
-                  ></div>
-                </div>
-              </div>
-              <div class="auto-explore-tag-hint">含有任一排除 Tag 的素材不會被探索</div>
-              <div
-                id="auto-explore-selected-excluded-tags"
-                class="auto-explore-selected-tags"
-                hidden
-              ></div>
-              <div class="auto-explore-settings-section-heading">白板選項</div>
-              <label class="auto-explore-setting-row">
-                <span>排列方向</span>
-                <select id="board-layout-direction" class="auto-explore-select">
-                  <option value="ltr">由左至右</option>
-                  <option value="rtl">由右至左</option>
-                </select>
-              </label>
-              <div class="auto-explore-setting-row auto-explore-speed-row">
-                <span>每列最大寬度</span>
-                <div class="auto-explore-speed-control">
-                  <input
-                    id="board-layout-width"
-                    class="auto-explore-range"
-                    type="range"
-                    min="240"
-                    max="2400"
-                    step="40"
-                    value="1200"
-                  />
-                  <output
-                    id="board-layout-width-value"
-                    class="auto-explore-layout-width-value"
-                    for="board-layout-width"
-                  >
-                    1200 px
-                  </output>
-                </div>
-              </div>
-              <div class="auto-explore-setting-row auto-explore-speed-row">
-                <span>每次探索最多</span>
-                <div class="auto-explore-speed-control">
-                  <input
-                    id="board-exploration-max-items"
-                    class="auto-explore-range"
-                    type="range"
-                    min="3"
-                    max="50"
-                    step="1"
-                    value="12"
-                  />
-                  <output
-                    id="board-exploration-max-items-value"
-                    class="auto-explore-exploration-limit-value"
-                    for="board-exploration-max-items"
-                  >
-                    12 個
-                  </output>
-                </div>
-              </div>
-              <div class="auto-explore-settings-subheading">移動</div>
-              <label class="auto-explore-setting-row">
-                <span>平滑移動</span>
-                <input id="smooth-pan-toggle" type="checkbox" />
-              </label>
-              <div class="auto-explore-setting-row auto-explore-speed-row">
-                <span>移動速度</span>
-                <div class="auto-explore-speed-control">
-                  <input
-                    id="smooth-pan-speed"
-                    class="auto-explore-range"
-                    type="range"
-                    min="120"
-                    max="3000"
-                    step="20"
-                    value="480"
-                  />
-                  <output id="smooth-pan-speed-value" class="auto-explore-speed-value" for="smooth-pan-speed">
-                    480
-                  </output>
-                </div>
-              </div>
-              <div class="auto-explore-settings-subheading">縮放</div>
-              <label class="auto-explore-setting-row">
-                <span>平滑縮放</span>
-                <input id="smooth-zoom-toggle" type="checkbox" />
-              </label>
-              <div class="auto-explore-setting-row auto-explore-speed-row">
-                <span>縮放速度</span>
-                <div class="auto-explore-speed-control">
-                  <input
-                    id="smooth-zoom-speed"
-                    class="auto-explore-range"
-                    type="range"
-                    min="1.05"
-                    max="12"
-                    step="0.05"
-                    value="1.5"
-                  />
-                  <output
-                    id="smooth-zoom-speed-value"
-                    class="auto-explore-zoom-speed-value"
-                    for="smooth-zoom-speed"
-                  >
-                    1.50×/秒
-                  </output>
-                </div>
-              </div>
-              <div class="auto-explore-settings-subheading">聚焦</div>
-              <div class="auto-explore-setting-row auto-explore-speed-row">
-                <span>聚焦素材大小</span>
-                <div class="auto-explore-speed-control">
-                  <input
-                    id="focus-media-size"
-                    class="auto-explore-range"
-                    type="range"
-                    min="80"
-                    max="400"
-                    step="10"
-                    value="180"
-                  />
-                  <output
-                    id="focus-media-size-value"
-                    class="auto-explore-focus-size-value"
-                    for="focus-media-size"
-                  >
-                    180 px
-                  </output>
-                </div>
+              <div class="auto-explore-settings-content">
+                <section
+                  id="settings-panel-exploration"
+                  class="settings-tab-panel"
+                  role="tabpanel"
+                  aria-labelledby="settings-tab-exploration"
+                  data-settings-panel="exploration"
+                >
+                  <p class="settings-intro">設定自動探索要載入哪些素材。</p>
+                  <div class="settings-card">
+                    <div class="settings-card-title">素材類型</div>
+                    <div class="auto-explore-setting-row">
+                      <span>檔案類型</span>
+                      <div class="auto-explore-file-type-options" role="group" aria-label="檔案類型">
+                        <label class="auto-explore-file-type-option">
+                          <input id="auto-explore-file-type-image" type="checkbox" value="image" checked />
+                          <span>圖片</span>
+                        </label>
+                        <label class="auto-explore-file-type-option">
+                          <input id="auto-explore-file-type-video" type="checkbox" value="video" checked />
+                          <span>影片</span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="settings-card">
+                    <div class="settings-card-title">篩選條件</div>
+                    <label class="auto-explore-setting-row">
+                      <span>評分</span>
+                      <select id="auto-explore-rating" class="auto-explore-select">
+                        <option value="unrated">未評分</option>
+                        <option value="any">不限</option>
+                        <option value="1">1 星</option>
+                        <option value="2">2 星</option>
+                        <option value="3">3 星</option>
+                        <option value="4">4 星</option>
+                        <option value="5">5 星</option>
+                      </select>
+                    </label>
+                    <label class="auto-explore-setting-row">
+                      <span>Tag 匹配</span>
+                      <select id="auto-explore-tag-match" class="auto-explore-select">
+                        <option value="any">符合任一個</option>
+                        <option value="all">全部符合</option>
+                      </select>
+                    </label>
+                    <label class="auto-explore-setting-row auto-explore-count-row">
+                      <span>Tag 數量小於</span>
+                      <input
+                        id="auto-explore-max-tag-count"
+                        class="auto-explore-number"
+                        type="number"
+                        min="1"
+                        step="1"
+                        inputmode="numeric"
+                        placeholder="不限"
+                      />
+                    </label>
+                    <div class="auto-explore-tag-search-label">
+                      <span>指定 Tag</span>
+                      <div class="auto-explore-tag-picker">
+                        <input
+                          id="auto-explore-tag-search"
+                          class="auto-explore-tag-search"
+                          type="search"
+                          placeholder="搜尋 Tag"
+                        />
+                        <div id="auto-explore-tag-options" class="auto-explore-tag-options" hidden></div>
+                      </div>
+                    </div>
+                    <div class="auto-explore-tag-hint">不選任何 Tag 代表不限 Tag</div>
+                    <div id="auto-explore-selected-tags" class="auto-explore-selected-tags" hidden></div>
+                    <div class="auto-explore-tag-search-label">
+                      <span>排除 Tag</span>
+                      <div class="auto-explore-tag-picker">
+                        <input
+                          id="auto-explore-excluded-tag-search"
+                          class="auto-explore-tag-search"
+                          type="search"
+                          placeholder="搜尋要排除的 Tag"
+                        />
+                        <div
+                          id="auto-explore-excluded-tag-options"
+                          class="auto-explore-tag-options"
+                          hidden
+                        ></div>
+                      </div>
+                    </div>
+                    <div class="auto-explore-tag-hint">含有任一排除 Tag 的素材不會被探索</div>
+                    <div
+                      id="auto-explore-selected-excluded-tags"
+                      class="auto-explore-selected-tags"
+                      hidden
+                    ></div>
+                  </div>
+                </section>
+                <section
+                  id="settings-panel-board"
+                  class="settings-tab-panel"
+                  role="tabpanel"
+                  aria-labelledby="settings-tab-board"
+                  data-settings-panel="board"
+                  hidden
+                >
+                  <p class="settings-intro">調整素材在白板上的排列方式。</p>
+                  <div class="settings-card">
+                    <div class="settings-card-title">排列</div>
+                    <label class="auto-explore-setting-row">
+                      <span>排列方向</span>
+                      <select id="board-layout-direction" class="auto-explore-select">
+                        <option value="ltr">由左至右</option>
+                        <option value="rtl">由右至左</option>
+                      </select>
+                    </label>
+                    <div class="auto-explore-setting-row auto-explore-speed-row">
+                      <span>每列最大寬度</span>
+                      <div class="auto-explore-speed-control">
+                        <input
+                          id="board-layout-width"
+                          class="auto-explore-range"
+                          type="range"
+                          min="240"
+                          max="2400"
+                          step="40"
+                          value="1200"
+                        />
+                        <output
+                          id="board-layout-width-value"
+                          class="auto-explore-layout-width-value"
+                          for="board-layout-width"
+                        >
+                          1200 px
+                        </output>
+                      </div>
+                    </div>
+                    <div class="auto-explore-setting-row auto-explore-speed-row">
+                      <span>每次探索最多</span>
+                      <div class="auto-explore-speed-control">
+                        <input
+                          id="board-exploration-max-items"
+                          class="auto-explore-range"
+                          type="range"
+                          min="3"
+                          max="50"
+                          step="1"
+                          value="12"
+                        />
+                        <output
+                          id="board-exploration-max-items-value"
+                          class="auto-explore-exploration-limit-value"
+                          for="board-exploration-max-items"
+                        >
+                          12 個
+                        </output>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+                <section
+                  id="settings-panel-interaction"
+                  class="settings-tab-panel"
+                  role="tabpanel"
+                  aria-labelledby="settings-tab-interaction"
+                  data-settings-panel="interaction"
+                  hidden
+                >
+                  <p class="settings-intro">控制鍵盤操作與聚焦時的手感。</p>
+                  <div class="settings-card">
+                    <div class="settings-card-title">移動</div>
+                    <label class="auto-explore-setting-row settings-toggle-row">
+                      <span class="settings-control-label">
+                        <span>平滑移動</span>
+                        <small>只控制移動動畫，不影響移動速度。</small>
+                      </span>
+                      <input id="smooth-pan-toggle" type="checkbox" />
+                    </label>
+                    <div class="auto-explore-setting-row auto-explore-speed-row">
+                      <span>移動速度</span>
+                      <div class="auto-explore-speed-control">
+                        <input
+                          id="smooth-pan-speed"
+                          class="auto-explore-range"
+                          type="range"
+                          min="120"
+                          max="3000"
+                          step="20"
+                          value="480"
+                        />
+                        <output id="smooth-pan-speed-value" class="auto-explore-speed-value" for="smooth-pan-speed">
+                          480
+                        </output>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="settings-card">
+                    <div class="settings-card-title">縮放</div>
+                    <label class="auto-explore-setting-row settings-toggle-row">
+                      <span class="settings-control-label">
+                        <span>平滑縮放</span>
+                        <small>只控制縮放動畫，不影響縮放速度。</small>
+                      </span>
+                      <input id="smooth-zoom-toggle" type="checkbox" />
+                    </label>
+                    <div class="auto-explore-setting-row auto-explore-speed-row">
+                      <span>縮放速度</span>
+                      <div class="auto-explore-speed-control">
+                        <input
+                          id="smooth-zoom-speed"
+                          class="auto-explore-range"
+                          type="range"
+                          min="1.05"
+                          max="12"
+                          step="0.05"
+                          value="1.5"
+                        />
+                        <output
+                          id="smooth-zoom-speed-value"
+                          class="auto-explore-zoom-speed-value"
+                          for="smooth-zoom-speed"
+                        >
+                          1.50×/秒
+                        </output>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="settings-card">
+                    <div class="settings-card-title">聚焦</div>
+                    <div class="auto-explore-setting-row auto-explore-speed-row">
+                      <span>聚焦素材大小</span>
+                      <div class="auto-explore-speed-control">
+                        <input
+                          id="focus-media-size"
+                          class="auto-explore-range"
+                          type="range"
+                          min="80"
+                          max="400"
+                          step="10"
+                          value="180"
+                        />
+                        <output
+                          id="focus-media-size-value"
+                          class="auto-explore-focus-size-value"
+                          for="focus-media-size"
+                        >
+                          180 px
+                        </output>
+                      </div>
+                    </div>
+                  </div>
+                </section>
               </div>
               <div class="auto-explore-settings-footer">
+                <span class="settings-footer-note">設定會自動儲存</span>
                 <button id="auto-explore-settings-reset" class="tag-editor-button" type="button">
-                  預設
+                  恢復預設值
                 </button>
               </div>
             </div>
