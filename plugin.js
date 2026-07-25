@@ -151,6 +151,7 @@ const state = {
   tagColors: new Map(),
   tagColorGeneration: 0,
   folderNames: new Map(),
+  folderNameGeneration: 0,
   selectedItemsGeneration: 0,
   viewportSize: null,
   started: false,
@@ -349,6 +350,7 @@ function handlePluginRun() {
 function handleLibraryChanged() {
   resetFolderItemLoad();
   clearBoard();
+  state.folderNameGeneration += 1;
   state.folderNames.clear();
   state.explorationSource.clear();
   state.unratedSource.clear();
@@ -2495,9 +2497,11 @@ async function loadFolderNames(items) {
 
   const missingFolderIds = folderIds.filter((id) => !state.folderNames.has(id));
   if (!missingFolderIds.length) return;
+  const generation = state.folderNameGeneration;
 
   try {
     const folders = await eagle.folder.getByIds(missingFolderIds);
+    if (generation !== state.folderNameGeneration) return;
     for (const folder of folders || []) {
       const id = String(folder?.id || "").trim();
       const name = String(folder?.name || "").trim();
