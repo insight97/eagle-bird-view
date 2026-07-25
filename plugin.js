@@ -68,6 +68,7 @@ const KEYBOARD_ZOOM_FACTOR = 1.5;
 const KEYBOARD_SEEK_STEP = 5;
 const KEYBOARD_VOLUME_STEP = 0.05;
 const PAN_START_THRESHOLD = 4;
+const CAMERA_SETTLE_DELAY = 200;
 // How tall a card has to paint on screen before Eagle's thumbnail stops being
 // enough. Measured in screen pixels so the decision does not depend on how the
 // row happened to be laid out: a lone selection lands on an unjustified row at
@@ -133,6 +134,7 @@ const state = {
   toastTimer: null,
   cameraFrame: null,
   cameraFocusFrame: null,
+  cameraSettleTimer: null,
   viewportWorkTimer: null,
   lastViewportWork: -Infinity,
   isPanning: false,
@@ -2514,6 +2516,7 @@ function renderCamera() {
     state.renderedScale = state.camera.scale;
   }
   elements.world.style.transform = `translate(${state.camera.x}px, ${state.camera.y}px) scale(${state.camera.scale})`;
+  keepCameraLayerPromoted();
   if (scaleChanged || baseScaleChanged) {
     elements.zoomLabel.textContent = `${Math.round((state.camera.scale / getBaseScale()) * 100)}%`;
     state.renderedBaseScale = state.baseScale;
@@ -2527,6 +2530,20 @@ function renderCamera() {
   if (scaleChanged) updateMountedLabelPositions();
   else updateLabelLayerTransform();
   scheduleViewportWork();
+}
+
+// A standing will-change hint keeps the board on its own compositor layer, but
+// it also pins the raster scale: after zooming in, the layer keeps painting the
+// bitmap it rastered at the old scale, so even a fully loaded original looks
+// soft. Hold the hint only while the camera is moving and drop it once it
+// settles, which lets the compositor re-raster at the scale actually on screen.
+function keepCameraLayerPromoted() {
+  elements.world.classList.add("is-moving");
+  window.clearTimeout(state.cameraSettleTimer);
+  state.cameraSettleTimer = window.setTimeout(() => {
+    state.cameraSettleTimer = null;
+    elements.world.classList.remove("is-moving");
+  }, CAMERA_SETTLE_DELAY);
 }
 
 function scheduleViewportWork() {
