@@ -1127,9 +1127,13 @@ async function commitNodeTags(node, nextTags, previousTags) {
       node.item.tags = previousTags;
       const currentTags = node.label?.querySelector(".media-tags");
       if (currentTags) renderTagChips(currentTags, previousTags);
+      updateSelectionStatus();
     },
   });
-  if (saved) void loadTagColors();
+  if (saved) {
+    updateSelectionStatus();
+    void loadTagColors();
+  }
 }
 
 async function addSelectedItemToFolder(node, folder) {
