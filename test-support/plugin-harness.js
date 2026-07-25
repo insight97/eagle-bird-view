@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const BirdViewCore = require("../bird-view-core.js");
+const BirdViewMedia = require("../media-load-queue.js");
 
 const PLUGIN_SOURCE = fs.readFileSync(path.resolve(__dirname, "../plugin.js"), "utf8");
 const SELECTORS = [
@@ -63,9 +64,54 @@ const SELECTORS = [
   "#toast",
 ];
 
-function createElementStub() {
-  const handlers = new Map();
+function toDataAttributeName(key) {
+  return `data-${String(key).replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
+}
+
+// Supports the selector shapes plugin.js actually uses: tag names, ".class",
+// "#id", "[attribute]", "[attribute='value']" and comma separated groups.
+function matchesSelector(element, selector) {
+  return selector
+    .split(",")
+    .some((candidate) => matchesSimpleSelector(element, candidate.trim()));
+}
+
+function matchesSimpleSelector(element, selector) {
+  if (!selector) return false;
+  if (selector.startsWith(".")) return element.classList.contains(selector.slice(1));
+  if (selector.startsWith("#")) return element.id === selector.slice(1);
+  if (selector.startsWith("[")) {
+    const match = /^\[([^=\]]+)(?:=['"]?([^'"\]]*)['"]?)?\]$/.exec(selector);
+    if (!match) return false;
+    const value = element.getAttribute(match[1]);
+    return match[2] === undefined ? value !== null : value === match[2];
+  }
+  return element.tagName === selector.toUpperCase();
+}
+
+function collectDescendants(element, found = []) {
+  for (const child of element.children) {
+    found.push(child);
+    collectDescendants(child, found);
+  }
+  return found;
+}
+
+function createElementStub(tag = "div") {
+  const listeners = new Map();
+  const attributes = new Map();
+  const classNames = new Set();
+  const style = {
+    setProperty(name, value) {
+      style[name] = value;
+    },
+    removeProperty(name) {
+      delete style[name];
+    },
+  };
   const element = {
+    tagName: String(tag).toUpperCase(),
+    id: "",
     children: [],
     parentNode: null,
     isConnected: false,
@@ -77,10 +123,75 @@ function createElementStub() {
     disabled: false,
     clientWidth: 1200,
     clientHeight: 800,
-    style: { setProperty() {} },
-    classList: { add() {}, remove() {}, toggle() {} },
+    style,
+    dataset: new Proxy(
+      {},
+      {
+        get: (_, key) => attributes.get(toDataAttributeName(key)),
+        set: (_, key, value) => {
+          attributes.set(toDataAttributeName(key), String(value));
+          return true;
+        },
+        has: (_, key) => attributes.has(toDataAttributeName(key)),
+        deleteProperty: (_, key) => attributes.delete(toDataAttributeName(key)),
+      },
+    ),
+    classList: {
+      add(...names) {
+        for (const name of names) classNames.add(name);
+      },
+      remove(...names) {
+        for (const name of names) classNames.delete(name);
+      },
+      toggle(name, force) {
+        const shouldAdd = force ?? !classNames.has(name);
+        if (shouldAdd) classNames.add(name);
+        else classNames.delete(name);
+        return shouldAdd;
+      },
+      contains(name) {
+        return classNames.has(name);
+      },
+    },
+    get className() {
+      return [...classNames].join(" ");
+    },
+    set className(value) {
+      classNames.clear();
+      for (const name of String(value).split(/\s+/).filter(Boolean)) classNames.add(name);
+    },
+    get childElementCount() {
+      return element.children.length;
+    },
     addEventListener(type, callback) {
-      handlers.set(type, callback);
+      if (!listeners.has(type)) listeners.set(type, new Set());
+      listeners.get(type).add(callback);
+    },
+    removeEventListener(type, callback) {
+      listeners.get(type)?.delete(callback);
+    },
+    emit(type, eventLike = {}) {
+      const event = {
+        type,
+        target: element,
+        preventDefault() {},
+        stopPropagation() {},
+        ...eventLike,
+      };
+      for (const callback of [...(listeners.get(type) || [])]) callback(event);
+      return event;
+    },
+    click() {
+      element.emit("click");
+    },
+    setAttribute(name, value) {
+      attributes.set(name, String(value));
+    },
+    getAttribute(name) {
+      return attributes.has(name) ? attributes.get(name) : null;
+    },
+    removeAttribute(name) {
+      attributes.delete(name);
     },
     append(...nodes) {
       for (const node of nodes) {
@@ -89,10 +200,6 @@ function createElementStub() {
         element.children.push(node);
       }
     },
-    replaceChildren(...nodes) {
-      element.children.length = 0;
-      element.append(...nodes);
-    },
     remove() {
       if (!element.parentNode) return;
       const index = element.parentNode.children.indexOf(element);
@@ -100,45 +207,76 @@ function createElementStub() {
       element.parentNode = null;
       element.isConnected = false;
     },
-    querySelector() {
+    replaceWith(...nodes) {
+      const parent = element.parentNode;
+      if (!parent) return;
+      const index = parent.children.indexOf(element);
+      if (index === -1) return;
+      parent.children.splice(index, 1, ...nodes);
+      for (const node of nodes) {
+        node.parentNode = parent;
+        node.isConnected = true;
+      }
+      element.parentNode = null;
+      element.isConnected = false;
+    },
+    replaceChildren(...nodes) {
+      element.children.length = 0;
+      element.append(...nodes);
+    },
+    querySelector(selector) {
+      return (
+        collectDescendants(element).find((child) => matchesSelector(child, selector)) || null
+      );
+    },
+    querySelectorAll(selector) {
+      return collectDescendants(element).filter((child) => matchesSelector(child, selector));
+    },
+    closest(selector) {
+      for (let current = element; current; current = current.parentNode) {
+        if (matchesSelector(current, selector)) return current;
+      }
       return null;
     },
-    querySelectorAll() {
-      return [];
+    contains(other) {
+      return other === element || collectDescendants(element).includes(other);
     },
-    closest() {
-      return null;
+    getBoundingClientRect() {
+      return { left: 0, top: 0, width: element.clientWidth, height: element.clientHeight };
     },
-    setAttribute() {},
-    click() {
-      handlers.get("click")?.({ target: element, stopPropagation() {} });
-    },
+    scrollIntoView() {},
+    focus() {},
   };
   return element;
 }
 
-function createPluginHarness() {
+function createPluginHarness({
+  selectedItems = null,
+  runAnimationFrames = false,
+  // Tests that exercise plugin.js error paths can mute the expected logging so
+  // a passing run does not look like a failing one.
+  quiet = false,
+} = {}) {
   let domReady;
   let pluginCreate;
   let libraryChanged;
   let pluginRun;
-  let keyDown;
   let selectedRequests = 0;
   let unratedRequests = 0;
   let folderLoadRequests = 0;
   let folderSourceResult = { folders: [], items: [] };
   let fullScreen = false;
   let fullScreenCalls = 0;
+  let nextTimerId = 1;
+  const timers = [];
+  const createdElements = [];
+  const windowListeners = new Map();
+  const documentListeners = new Map();
   const selectedResolvers = [];
   const folderResolvers = [];
   const folderRequests = [];
   const elements = new Map(SELECTORS.map((selector) => [selector, createElementStub()]));
 
-  class MediaLoadQueue {
-    snapshot() { return null; }
-    register() {}
-    dispose() {}
-  }
   class RelatedItemSource {
     clear() {}
   }
@@ -161,7 +299,7 @@ function createPluginHarness() {
 
   const context = {
     BirdViewCore,
-    BirdViewMedia: { MediaLoadQueue, waitForImageDecode() {} },
+    BirdViewMedia,
     BirdViewExploration: { RelatedItemSource, UnratedItemSource },
     BirdViewFolder: {
       FolderItemSource: class {
@@ -210,20 +348,29 @@ function createPluginHarness() {
     document: {
       addEventListener(type, callback) {
         if (type === "DOMContentLoaded") domReady = callback;
+        else documentListeners.set(type, callback);
+      },
+      removeEventListener(type) {
+        documentListeners.delete(type);
       },
       querySelector(selector) {
+        if (!elements.has(selector)) elements.set(selector, createElementStub());
         return elements.get(selector);
       },
-      createElement() {
-        return createElementStub();
+      createElement(tag) {
+        const element = createElementStub(tag);
+        createdElements.push(element);
+        return element;
       },
     },
     eagle: {
       item: {
         getSelected() {
           selectedRequests += 1;
+          if (selectedItems) return Promise.resolve(selectedItems);
           return new Promise((resolve) => selectedResolvers.push(resolve));
         },
+        async open() {},
       },
       folder: {
         async getSelected() {
@@ -255,29 +402,59 @@ function createPluginHarness() {
     },
     window: {
       addEventListener(type, callback) {
-        if (type === "keydown") keyDown = callback;
+        windowListeners.set(type, callback);
       },
-      clearTimeout() {},
-      setTimeout() { return 1; },
+      removeEventListener(type) {
+        windowListeners.delete(type);
+      },
+      setTimeout(callback, delay) {
+        const id = nextTimerId++;
+        timers.push({ id, callback, delay });
+        return id;
+      },
+      clearTimeout(id) {
+        const index = timers.findIndex((timer) => timer.id === id);
+        if (index !== -1) timers.splice(index, 1);
+      },
     },
-    requestAnimationFrame() { return 1; },
+    requestAnimationFrame(callback) {
+      if (runAnimationFrames) callback(0);
+      return 1;
+    },
+    cancelAnimationFrame() {},
     performance: { now: () => 0 },
-    console,
+    console: quiet ? { ...console, error() {}, warn() {} } : console,
   };
 
   vm.runInNewContext(PLUGIN_SOURCE, context);
 
   return {
+    createdElements,
     elements,
     folderRequests,
     get folderLoadRequests() { return folderLoadRequests; },
     get fullScreen() { return fullScreen; },
     get fullScreenCalls() { return fullScreenCalls; },
-    get keyDown() { return keyDown; },
+    get keyDown() { return windowListeners.get("keydown"); },
     get selectedRequests() { return selectedRequests; },
     get unratedRequests() { return unratedRequests; },
     changeLibrary() {
       libraryChanged();
+    },
+    createdElementsOfTag(tag) {
+      const tagName = String(tag).toUpperCase();
+      return createdElements.filter((element) => element.tagName === tagName);
+    },
+    fireTimer(delay) {
+      const index = timers.findIndex((timer) => timer.delay === delay);
+      if (index === -1) throw new Error(`no timer scheduled with delay ${delay}`);
+      const [timer] = timers.splice(index, 1);
+      timer.callback();
+    },
+    // Runs the timers scheduled so far, which is what drives the deferred
+    // viewport work that mounts media cards and labels.
+    flushTimers() {
+      for (const timer of timers.splice(0, timers.length)) timer.callback();
     },
     pluginRun() {
       pluginRun();
@@ -298,4 +475,4 @@ function createPluginHarness() {
   };
 }
 
-module.exports = { createPluginHarness };
+module.exports = { createElementStub, createPluginHarness };
