@@ -8,6 +8,7 @@ const BirdViewCore = require("../bird-view-core.js");
 const BirdViewMedia = require("../media-load-queue.js");
 const BirdViewMaterializer = require("../media-materializer.js");
 const BirdViewExploration = require("../exploration-source.js");
+const BirdViewAutoExploreSettings = require("../auto-explore-settings.js");
 const BirdViewRowLoad = require("../row-load-coordinator.js");
 
 const PLUGIN_SOURCE = fs.readFileSync(path.resolve(__dirname, "../plugin.js"), "utf8");
@@ -309,6 +310,7 @@ function createPluginHarness({
     BirdViewCore,
     BirdViewMedia,
     BirdViewMaterializer,
+    BirdViewAutoExploreSettings,
     BirdViewRowLoad,
     // Real filter helpers, stubbed item sources.
     BirdViewExploration: { ...BirdViewExploration, RelatedItemSource, UnratedItemSource },

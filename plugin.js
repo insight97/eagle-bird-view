@@ -35,12 +35,10 @@ const {
 const { createBoardState } = BirdViewBoard;
 const { createRowLoadCoordinator } = BirdViewRowLoad;
 const { createMediaMaterializer } = BirdViewMaterializer;
+const { createAutoExploreSettings } = BirdViewAutoExploreSettings;
 const {
-  DEFAULT_UNRATED_FILTER,
   RelatedItemSource,
   UnratedItemSource,
-  normalizeUnratedFilter,
-  unratedFiltersEqual,
 } = BirdViewExploration;
 const { FolderItemSource } = BirdViewFolder;
 const { FolderPicker } = BirdViewFolderPicker;
@@ -125,8 +123,6 @@ const state = {
   unratedEnabled: false,
   unratedLoading: false,
   unratedExhausted: false,
-  unratedFilter: normalizeUnratedFilter(DEFAULT_UNRATED_FILTER),
-  unratedDraftFilter: null,
   lastUnratedTriggerRow: null,
   tagColors: new Map(),
   tagColorGeneration: 0,
@@ -142,6 +138,7 @@ const elements = {};
 let cameraNavigation = null;
 let selectionNavigation = null;
 let mediaMaterializer = null;
+let autoExploreSettings = null;
 const rowLoadCoordinator = createRowLoadCoordinator({
   onLoadingChange(channel, isLoading) {
     if (channel === "exploration") {
@@ -246,6 +243,14 @@ function setup() {
   elements.folderLoadMoreButton = document.querySelector("#folder-load-more-button");
   elements.toast = document.querySelector("#toast");
 
+  autoExploreSettings = createAutoExploreSettings({
+    document,
+    elements,
+    getKnownTags: getAutoExploreKnownTags,
+    createTagChip,
+    onFilterChange: handleAutoExploreFilterChange,
+  });
+
   mediaMaterializer = createMediaMaterializer({
     document,
     window,
@@ -287,28 +292,8 @@ function setup() {
   window.addEventListener("keyup", (event) => cameraNavigation.handleKeyUp(event.key));
   window.addEventListener("blur", () => cameraNavigation.handleWindowBlur());
   window.addEventListener("resize", handleResize);
-  document.addEventListener("pointerdown", handleAutoExploreOutsidePointerDown);
   elements.autoExploreToggle.addEventListener("click", toggleUnratedExploration);
   elements.seamlessModeToggle?.addEventListener("click", toggleSeamlessMode);
-  elements.autoExploreSettingsButton?.addEventListener("click", toggleAutoExploreSettings);
-  elements.autoExploreSettingsClose?.addEventListener("click", closeAutoExploreSettings);
-  for (const tab of elements.autoExploreSettingsTabs) {
-    tab.addEventListener("click", () => setActiveSettingsTab(tab.dataset.settingsTab));
-    tab.addEventListener("keydown", handleSettingsTabKeyDown);
-  }
-  elements.autoExploreFileTypeImage?.addEventListener("change", updateDraftAutoExploreFileTypes);
-  elements.autoExploreFileTypeVideo?.addEventListener("change", updateDraftAutoExploreFileTypes);
-  elements.autoExploreRating?.addEventListener("change", updateDraftAutoExploreRating);
-  elements.autoExploreTagMatch?.addEventListener("change", updateDraftAutoExploreTagMatch);
-  elements.autoExploreMaxTagCount?.addEventListener("input", updateDraftAutoExploreMaxTagCount);
-  elements.autoExploreTagSearch?.addEventListener("input", renderAutoExploreTagOptions);
-  elements.autoExploreTagSearch?.addEventListener("keydown", handleAutoExploreTagSearchKeyDown);
-  elements.autoExploreExcludedTagSearch?.addEventListener("input", renderAutoExploreTagOptions);
-  elements.autoExploreExcludedTagSearch?.addEventListener(
-    "keydown",
-    handleAutoExploreExcludedTagSearchKeyDown,
-  );
-  elements.autoExploreSettingsReset?.addEventListener("click", resetAutoExploreSettings);
   elements.folderLoadMoreButton?.addEventListener("click", () => {
     void loadMoreFolderItems();
   });
@@ -324,8 +309,8 @@ function setup() {
   restoreSavedSettings();
   updateSeamlessModeUI();
   updateAutoExploreToggle();
-  setActiveSettingsTab("exploration");
-  updateAutoExploreSettingsUI();
+  updateBoardSettingsUI();
+  autoExploreSettings.update();
   updateSelectionStatus();
 
   refreshBaseScale();
@@ -568,7 +553,7 @@ function renderItems(items) {
   board.replace(items, getBoardLayoutConfig());
   state.lastUnratedTriggerRow = null;
   void loadFolderNames(items);
-  renderAutoExploreTagOptions();
+  autoExploreSettings.update();
   refreshBaseScale();
 
   updateBoardMeta();
@@ -579,7 +564,7 @@ function refreshBoardAfterItems(items) {
   void loadFolderNames(items);
   mediaMaterializer.reposition();
   updateBoardMeta();
-  renderAutoExploreTagOptions();
+  autoExploreSettings.update();
   updateMediaVisibility();
   updateLabels();
 }
@@ -913,7 +898,7 @@ async function loadTagColors() {
   const generation = ++state.tagColorGeneration;
   if (typeof eagle === "undefined" || typeof eagle.tag?.get !== "function") {
     state.tagColors = new Map();
-    renderAutoExploreTagOptions();
+    autoExploreSettings.update();
     return;
   }
 
@@ -929,13 +914,13 @@ async function loadTagColors() {
       const tags = node.label?.querySelector(".media-tags");
       if (tags) renderTagChips(tags, node.item.tags);
     }
-    renderAutoExploreTagOptions();
+    autoExploreSettings.update();
     updateSelectionStatus();
     tagEditor.refresh();
   } catch (error) {
     if (generation !== state.tagColorGeneration) return;
     state.tagColors = new Map();
-    renderAutoExploreTagOptions();
+    autoExploreSettings.update();
     console.warn("Failed to load Eagle tag colors", error);
   }
 }
@@ -1047,7 +1032,7 @@ function handleKeyDown(event) {
     !elements.autoExploreSettingsPanel.hidden
   ) {
     event.preventDefault();
-    closeAutoExploreSettings();
+        autoExploreSettings.close();
     return;
   }
   if (event.key === "F11") {
@@ -1378,7 +1363,7 @@ async function loadNextUnratedRow({ focus = false } = {}) {
     find: () =>
       source.findNextRow(
         excludedIds,
-        state.unratedFilter,
+        autoExploreSettings.getFilter(),
         layoutConfig.layoutWidth,
         state.maxExplorationItems,
       ),
@@ -1431,81 +1416,6 @@ function maybeLoadNextUnratedRow() {
   }
   state.lastUnratedTriggerRow = lastRow;
   void loadNextUnratedRow();
-}
-
-function setActiveSettingsTab(tabName, { focus = false } = {}) {
-  const tabs = elements.autoExploreSettingsTabs || [];
-  const panels = elements.autoExploreSettingsPanels || [];
-  if (!tabs.length || !panels.length) return;
-
-  const activeTab =
-    tabs.find((tab) => tab.dataset.settingsTab === tabName) || tabs[0];
-  const activeName = activeTab.dataset.settingsTab;
-
-  for (const tab of tabs) {
-    const isActive = tab === activeTab;
-    tab.classList.toggle("is-active", isActive);
-    tab.setAttribute("aria-selected", String(isActive));
-    tab.setAttribute("tabindex", isActive ? "0" : "-1");
-  }
-  for (const panel of panels) {
-    const isActive = panel.dataset.settingsPanel === activeName;
-    panel.hidden = !isActive;
-    panel.setAttribute("aria-hidden", String(!isActive));
-  }
-  if (focus) activeTab.focus();
-}
-
-function handleSettingsTabKeyDown(event) {
-  const tabs = elements.autoExploreSettingsTabs || [];
-  const currentIndex = tabs.indexOf(event.currentTarget);
-  if (currentIndex === -1) return;
-
-  let nextIndex = currentIndex;
-  if (event.key === "ArrowRight" || event.key === "ArrowDown") {
-    nextIndex = (currentIndex + 1) % tabs.length;
-  } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
-    nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
-  } else if (event.key === "Home") {
-    nextIndex = 0;
-  } else if (event.key === "End") {
-    nextIndex = tabs.length - 1;
-  } else {
-    return;
-  }
-
-  event.preventDefault();
-  setActiveSettingsTab(tabs[nextIndex].dataset.settingsTab, { focus: true });
-}
-
-function toggleAutoExploreSettings() {
-  const panel = elements.autoExploreSettingsPanel;
-  if (!panel) return;
-  if (panel.hidden) {
-    state.unratedDraftFilter = normalizeUnratedFilter(state.unratedFilter);
-    if (elements.autoExploreTagSearch) elements.autoExploreTagSearch.value = "";
-    if (elements.autoExploreExcludedTagSearch) {
-      elements.autoExploreExcludedTagSearch.value = "";
-    }
-    updateAutoExploreSettingsUI();
-    panel.hidden = false;
-    elements.autoExploreSettingsButton?.setAttribute("aria-expanded", "true");
-    return;
-  }
-  closeAutoExploreSettings();
-}
-
-function closeAutoExploreSettings() {
-  state.unratedDraftFilter = null;
-  elements.autoExploreSettingsPanel?.setAttribute("hidden", "");
-  elements.autoExploreSettingsButton?.setAttribute("aria-expanded", "false");
-}
-
-function handleAutoExploreOutsidePointerDown(event) {
-  const panel = elements.autoExploreSettingsPanel;
-  if (!panel || panel.hidden) return;
-  if (elements.autoExploreControls?.contains(event.target)) return;
-  closeAutoExploreSettings();
 }
 
 function updateBoardSettings() {
@@ -1650,7 +1560,7 @@ function restoreSavedSettings() {
       state.maxExplorationItems = normalizeMaxExplorationItems(board.maxExplorationItems);
     }
     if (saved?.autoExploreFilter && typeof saved.autoExploreFilter === "object") {
-      state.unratedFilter = normalizeUnratedFilter(saved.autoExploreFilter);
+      autoExploreSettings.setFilter(saved.autoExploreFilter);
     }
   } catch (error) {
     console.warn("Failed to restore Bird View settings", error);
@@ -1676,12 +1586,26 @@ function saveSettings() {
           smoothZoomSpeed: state.smoothZoomSpeed,
           focusMediaSize: state.focusMediaSize,
         },
-        autoExploreFilter: state.unratedFilter,
+        autoExploreFilter: autoExploreSettings.getFilter(),
       }),
     );
   } catch (error) {
     console.warn("Failed to save Bird View settings", error);
   }
+}
+
+function handleAutoExploreFilterChange(nextFilter, { changed }) {
+  saveSettings();
+  if (!changed) return;
+  rowLoadCoordinator.invalidate("unrated");
+  state.unratedExhausted = false;
+  state.lastUnratedTriggerRow = null;
+  state.unratedSource?.clear();
+  updateAutoExploreToggle();
+  showToast("已更新自動探索條件。", false);
+  if (!state.unratedEnabled) return;
+  if (!board.rows.length) void loadNextUnratedRow({ focus: true });
+  else maybeLoadNextUnratedRow();
 }
 
 function normalizeStoredSettingNumber(value, minimum, maximum, fallback) {
@@ -1746,231 +1670,12 @@ function normalizeMaxExplorationItems(value) {
     : DEFAULT_MAX_EXPLORATION_ITEMS;
 }
 
-function updateDraftAutoExploreFileTypes(event) {
-  if (!state.unratedDraftFilter) return;
-  const fileTypes = [
-    ["image", elements.autoExploreFileTypeImage],
-    ["video", elements.autoExploreFileTypeVideo],
-  ]
-    .filter(([, input]) => input?.checked)
-    .map(([fileType]) => fileType);
-  if (!fileTypes.length) {
-    event.target.checked = true;
-    return;
-  }
-  state.unratedDraftFilter.fileTypes = fileTypes;
-  applyAutoExploreSettings({ close: false });
-}
-
-function updateDraftAutoExploreRating(event) {
-  if (!state.unratedDraftFilter) return;
-  state.unratedDraftFilter.rating = event.target.value;
-  applyAutoExploreSettings({ close: false });
-}
-
-function updateDraftAutoExploreTagMatch(event) {
-  if (!state.unratedDraftFilter) return;
-  state.unratedDraftFilter.tagMatch = event.target.value;
-  applyAutoExploreSettings({ close: false });
-}
-
-function updateDraftAutoExploreMaxTagCount(event) {
-  if (!state.unratedDraftFilter) return;
-  const value = Number(event.target.value);
-  state.unratedDraftFilter.maxTagCount =
-    Number.isInteger(value) && value >= 1 ? value : null;
-  applyAutoExploreSettings({ close: false });
-}
-
-function handleAutoExploreTagSearchKeyDown(event) {
-  selectFirstAutoExploreTagOption(event, elements.autoExploreTagOptions);
-}
-
-function handleAutoExploreExcludedTagSearchKeyDown(event) {
-  selectFirstAutoExploreTagOption(event, elements.autoExploreExcludedTagOptions);
-}
-
-function selectFirstAutoExploreTagOption(event, optionsElement) {
-  if (event.key !== "Enter") return;
-  const firstOption = optionsElement?.querySelector("button");
-  if (!firstOption) return;
-  event.preventDefault();
-  firstOption.click();
-}
-
-function resetAutoExploreSettings() {
-  state.unratedDraftFilter = normalizeUnratedFilter(DEFAULT_UNRATED_FILTER);
-  if (elements.autoExploreTagSearch) elements.autoExploreTagSearch.value = "";
-  if (elements.autoExploreExcludedTagSearch) elements.autoExploreExcludedTagSearch.value = "";
-  applyAutoExploreSettings({ close: false });
-}
-
-function applyAutoExploreSettings({ close = true } = {}) {
-  if (!state.unratedDraftFilter) return;
-  const nextFilter = normalizeUnratedFilter(state.unratedDraftFilter);
-  const changed = !unratedFiltersEqual(state.unratedFilter, nextFilter);
-  state.unratedFilter = nextFilter;
-  saveSettings();
-  if (close) closeAutoExploreSettings();
-  else state.unratedDraftFilter = normalizeUnratedFilter(nextFilter);
-  updateAutoExploreSettingsUI();
-  if (!changed) return;
-
-  rowLoadCoordinator.invalidate("unrated");
-  state.unratedExhausted = false;
-  state.lastUnratedTriggerRow = null;
-  state.unratedSource?.clear();
-  updateAutoExploreToggle();
-  showToast("已更新自動探索條件。", false);
-  if (!state.unratedEnabled) return;
-  if (!board.rows.length) void loadNextUnratedRow({ focus: true });
-  else maybeLoadNextUnratedRow();
-}
-
-function renderAutoExploreTagOptions() {
-  const filter = state.unratedDraftFilter || state.unratedFilter;
-  renderAutoExploreTagPicker({
-    searchElement: elements.autoExploreTagSearch,
-    optionsElement: elements.autoExploreTagOptions,
-    selectedElement: elements.autoExploreSelectedTags,
-    selectedTags: filter.tags,
-    oppositeTags: filter.excludedTags,
-    filterKey: "tags",
-  });
-  renderAutoExploreTagPicker({
-    searchElement: elements.autoExploreExcludedTagSearch,
-    optionsElement: elements.autoExploreExcludedTagOptions,
-    selectedElement: elements.autoExploreSelectedExcludedTags,
-    selectedTags: filter.excludedTags,
-    oppositeTags: filter.tags,
-    filterKey: "excludedTags",
-  });
-}
-
-function renderAutoExploreTagPicker({
-  searchElement,
-  optionsElement,
-  selectedElement,
-  selectedTags: rawSelectedTags,
-  oppositeTags: rawOppositeTags,
-  filterKey,
-}) {
-  const selectedTags = normalizeTags(rawSelectedTags);
-  const oppositeTags = normalizeTags(rawOppositeTags);
-  renderAutoExploreSelectedTags(selectedElement, selectedTags, filterKey);
-  if (!optionsElement) return;
-  const query = String(searchElement?.value || "")
-    .trim()
-    .toLocaleLowerCase();
-  const selectedSet = new Set(selectedTags);
-  const oppositeSet = new Set(oppositeTags);
-  const knownTags = getAutoExploreKnownTags();
-  const tags = query
-    ? knownTags
-        .filter(
-          (tag) =>
-            !selectedSet.has(tag) &&
-            !oppositeSet.has(tag) &&
-            tag.toLocaleLowerCase().includes(query),
-        )
-        .sort((first, second) => first.localeCompare(second))
-    : [];
-
-  if (!tags.length) {
-    optionsElement.hidden = true;
-    optionsElement.replaceChildren();
-    if (!query) return;
-    const empty = document.createElement("div");
-    empty.className = "auto-explore-tag-empty";
-    empty.textContent = "找不到符合的 Tag";
-    optionsElement.replaceChildren(empty);
-    optionsElement.hidden = false;
-    return;
-  }
-
-  optionsElement.hidden = false;
-  optionsElement.replaceChildren(
-    ...tags.map((tag) => {
-      const option = document.createElement("button");
-      const marker = document.createElement("span");
-      option.className = "auto-explore-tag-option";
-      option.type = "button";
-      option.setAttribute("aria-pressed", "false");
-      marker.className = "tag-editor-check";
-      marker.textContent = "+";
-      option.append(marker, createTagChip(tag));
-      option.addEventListener("click", () => {
-        const draft = state.unratedDraftFilter || normalizeUnratedFilter(state.unratedFilter);
-        const nextTags = new Set(normalizeTags(draft[filterKey]));
-        const oppositeKey = filterKey === "tags" ? "excludedTags" : "tags";
-        nextTags.add(tag);
-        state.unratedDraftFilter = {
-          ...draft,
-          [filterKey]: [...nextTags],
-          [oppositeKey]: normalizeTags(draft[oppositeKey]).filter((value) => value !== tag),
-        };
-        if (searchElement) searchElement.value = "";
-        applyAutoExploreSettings({ close: false });
-      });
-      return option;
-    }),
-  );
-}
-
-function renderAutoExploreSelectedTags(container, tags, filterKey) {
-  if (!container) return;
-  container.hidden = tags.length === 0;
-  container.replaceChildren(
-    ...tags.map((tag) => {
-      const remove = document.createElement("button");
-      const chip = createTagChip(tag);
-      const marker = document.createElement("span");
-      remove.className = "auto-explore-selected-tag";
-      remove.type = "button";
-      remove.title = `移除 ${tag}`;
-      remove.setAttribute("aria-label", `移除 Tag ${tag}`);
-      marker.className = "auto-explore-selected-tag-remove";
-      marker.textContent = "×";
-      remove.append(chip, marker);
-      remove.addEventListener("click", () => {
-        const draft = state.unratedDraftFilter || normalizeUnratedFilter(state.unratedFilter);
-        state.unratedDraftFilter = {
-          ...draft,
-          [filterKey]: normalizeTags(draft[filterKey]).filter((value) => value !== tag),
-        };
-        applyAutoExploreSettings({ close: false });
-      });
-      return remove;
-    }),
-  );
-}
-
 function getAutoExploreKnownTags() {
   const tags = new Set(state.tagColors.keys());
   for (const node of board.nodes) {
     for (const tag of normalizeTags(node.item.tags)) tags.add(tag);
   }
   return [...tags];
-}
-
-function updateAutoExploreSettingsUI() {
-  updateBoardSettingsUI();
-  const panel = elements.autoExploreSettingsPanel;
-  if (!panel) return;
-  const filter = state.unratedDraftFilter || state.unratedFilter;
-  const fileTypes = new Set(filter.fileTypes);
-  if (elements.autoExploreFileTypeImage) {
-    elements.autoExploreFileTypeImage.checked = fileTypes.has("image");
-  }
-  if (elements.autoExploreFileTypeVideo) {
-    elements.autoExploreFileTypeVideo.checked = fileTypes.has("video");
-  }
-  if (elements.autoExploreRating) elements.autoExploreRating.value = String(filter.rating);
-  if (elements.autoExploreTagMatch) elements.autoExploreTagMatch.value = filter.tagMatch;
-  if (elements.autoExploreMaxTagCount) {
-    elements.autoExploreMaxTagCount.value = filter.maxTagCount ?? "";
-  }
-  renderAutoExploreTagOptions();
 }
 
 function toggleUnratedExploration() {
