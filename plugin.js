@@ -134,6 +134,7 @@ const state = {
   lastViewportWork: -Infinity,
   isPanning: false,
   explorationSource: null,
+  explorationGeneration: 0,
   explorationLoading: false,
   folderItemSource: null,
   folderItems: [],
@@ -1084,11 +1085,18 @@ async function saveItemMetadata(node, { rollback, successMessage }) {
   if (node.isSaving) return false;
   node.isSaving = true;
   setLabelSaving(node, true);
+  state.explorationGeneration += 1;
+  state.explorationSource?.clear();
+  state.unratedGeneration += 1;
+  state.unratedLoading = false;
+  state.unratedExhausted = false;
+  state.lastUnratedTriggerRow = null;
+  state.unratedSource?.clear();
+  updateAutoExploreToggle();
   try {
     if (typeof node.item.save !== "function") throw new Error("素材不支援儲存");
     const result = await node.item.save();
     if (result === false) throw new Error("Eagle 拒絕儲存變更");
-    state.explorationSource?.clear();
     showToast(successMessage, false, METADATA_SUCCESS_TOAST_MS);
     return true;
   } catch (error) {
@@ -1644,12 +1652,13 @@ async function exploreNextRow() {
   }
 
   const boardNodes = state.nodes;
+  const generation = state.explorationGeneration;
   state.explorationLoading = true;
   updateExploreButton();
   try {
     const excludedIds = new Set(boardNodes.map(({ item }) => item.id));
     const candidates = await source.findCandidates(pivot, excludedIds);
-    if (state.nodes !== boardNodes) return;
+    if (generation !== state.explorationGeneration || state.nodes !== boardNodes) return;
     const selectedCandidates = selectDiverseExplorationRow(
       candidates,
       pivot,
@@ -1663,7 +1672,7 @@ async function exploreNextRow() {
     }
 
     const items = await source.hydrate(selectedCandidates);
-    if (state.nodes !== boardNodes) return;
+    if (generation !== state.explorationGeneration || state.nodes !== boardNodes) return;
     if (!items.length) {
       showToast("相關素材目前無法載入。", true);
       return;

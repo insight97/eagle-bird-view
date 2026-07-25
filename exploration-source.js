@@ -59,12 +59,14 @@
   class RelatedItemSource {
     #cache = new Map();
     #itemApi;
+    #generation = 0;
 
     constructor(itemApi) {
       this.#itemApi = itemApi;
     }
 
     async findCandidates(pivot, excludedIds = new Set()) {
+      const generation = this.#generation;
       const queries = interleave(
         uniqueValues(pivot.folders)
           .slice(0, MAX_FOLDER_QUERIES)
@@ -77,6 +79,7 @@
       const itemsById = new Map();
       for (const [cacheKey, conditions] of queries) {
         const items = await this.#query(cacheKey, conditions);
+        if (generation !== this.#generation) return [];
         for (const item of items) {
           if (
             !item?.id ||
@@ -102,6 +105,7 @@
     }
 
     clear() {
+      this.#generation += 1;
       this.#cache.clear();
     }
 

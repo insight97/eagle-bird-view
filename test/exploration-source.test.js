@@ -262,3 +262,17 @@ test("clearing an unrated source invalidates an in-flight query", async () => {
 
   assert.deepEqual(await pending, []);
 });
+
+test("clearing a related source invalidates an in-flight query", async () => {
+  let resolveItems;
+  const source = new RelatedItemSource({
+    get: () => new Promise((resolve) => { resolveItems = resolve; }),
+    getByIds: async () => [],
+  });
+
+  const pending = source.findCandidates({ folders: ["old-folder"], tags: [] });
+  source.clear();
+  resolveItems([{ id: "old-library", ext: "jpg" }]);
+
+  assert.deepEqual(await pending, []);
+});
