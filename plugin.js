@@ -1099,6 +1099,38 @@ function createTagChip(tag) {
   return chip;
 }
 
+function createSelectionExploreButton({ type, value, label }) {
+  const button = document.createElement("button");
+  button.className = `selection-explore-target selection-${type}-target`;
+  button.type = "button";
+  button.disabled = state.explorationLoading;
+  button.title = `從${type === "tag" ? "Tag" : "資料夾"}「${label}」探索素材`;
+  button.setAttribute(
+    "aria-label",
+    `從${type === "tag" ? "Tag" : "資料夾"}「${label}」探索素材`,
+  );
+
+  if (type === "tag") {
+    button.append(createTagChip(label));
+  } else {
+    const icon = document.createElement("span");
+    icon.className = "selection-folder-mark";
+    icon.textContent = "▰";
+    icon.setAttribute("aria-hidden", "true");
+    const text = document.createElement("span");
+    text.className = "selection-folder-label";
+    text.textContent = label;
+    button.append(icon, text);
+  }
+
+  button.addEventListener("pointerdown", (event) => event.stopPropagation());
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    void exploreFromSelectionTarget({ type, value, label });
+  });
+  return button;
+}
+
 async function saveItemMetadata(node, { rollback, successMessage }) {
   if (node.isSaving) return false;
   node.isSaving = true;
@@ -1603,6 +1635,32 @@ function preloadSelectedNode(node) {
   node.loadMedia?.("thumbnail");
 }
 
+function insertExplorationItemsAfterNode(pivotNode, items) {
+  const pivotRow = state.rows.find((row) => row.nodes.includes(pivotNode));
+  if (!pivotRow) return false;
+
+  const layoutConfig = getBoardLayoutConfig();
+  const layout = insertBoardRow(
+    {
+      nodes: state.nodes,
+      rows: state.rows,
+      ...layoutConfig,
+    },
+    pivotRow,
+    items,
+    layoutConfig,
+  );
+  state.nodes = layout.nodes;
+  state.rows = layout.rows;
+  void loadFolderNames(items);
+  for (const node of state.materializedNodes) positionNode(node);
+  updateBoardMeta();
+  renderAutoExploreTagOptions();
+  updateMediaVisibility();
+  updateLabels();
+  return true;
+}
+
 async function exploreNextRow() {
   const pivotNode = state.selectedNode;
   const source = state.explorationSource;
@@ -1640,31 +1698,69 @@ async function exploreNextRow() {
       return;
     }
 
-    const pivotRow = state.rows.find((row) => row.nodes.includes(pivotNode));
-    if (!pivotRow) return;
-    const layoutConfig = getBoardLayoutConfig();
-    const layout = insertBoardRow(
-      {
-        nodes: state.nodes,
-        rows: state.rows,
-        ...layoutConfig,
-      },
-      pivotRow,
-      items,
-      layoutConfig,
-    );
-    state.nodes = layout.nodes;
-    state.rows = layout.rows;
-    void loadFolderNames(items);
-    for (const node of state.materializedNodes) positionNode(node);
-    updateBoardMeta();
-    renderAutoExploreTagOptions();
-    updateMediaVisibility();
-    updateLabels();
+    if (state.selectedNode !== pivotNode) return;
+    if (!insertExplorationItemsAfterNode(pivotNode, items)) return;
     showToast(`已根據「${pivot.name || "目前素材"}」加入 ${items.length} 個相關素材。`);
   } catch (error) {
     console.error("Failed to explore related Eagle items", error);
     showToast(`探索失敗：${error.message || error}`, true);
+  } finally {
+    state.explorationLoading = false;
+    updateExploreButton();
+  }
+}
+
+async function exploreFromSelectionTarget({ type, value, label }) {
+  const pivotNode = state.selectedNode;
+  const source = state.explorationSource;
+  if (!pivotNode || !source || state.explorationLoading) return;
+
+  const criterion = type === "tag" ? { tags: [value] } : { folders: [value] };
+  const boardNodes = state.nodes;
+  const generation = state.explorationGeneration;
+  state.explorationLoading = true;
+  updateExploreButton();
+  try {
+    const excludedIds = new Set(boardNodes.map(({ item }) => item.id));
+    const candidates = await source.findCandidates(criterion, excludedIds);
+    if (
+      generation !== state.explorationGeneration ||
+      state.nodes !== boardNodes ||
+      state.selectedNode !== pivotNode
+    ) {
+      return;
+    }
+
+    const selectedCandidates = selectDiverseExplorationRow(
+      candidates,
+      criterion,
+      Math.random,
+      getBoardLayoutWidth(),
+      state.maxExplorationItems,
+    );
+    if (!selectedCandidates.length) {
+      showToast(`找不到更多包含「${label}」的素材。`, false);
+      return;
+    }
+
+    const items = await source.hydrate(selectedCandidates);
+    if (
+      generation !== state.explorationGeneration ||
+      state.nodes !== boardNodes ||
+      state.selectedNode !== pivotNode
+    ) {
+      return;
+    }
+    if (!items.length) {
+      showToast("目標素材目前無法載入。", true);
+      return;
+    }
+
+    if (!insertExplorationItemsAfterNode(pivotNode, items)) return;
+    showToast(`已根據${type === "tag" ? " Tag" : "資料夾"}「${label}」加入 ${items.length} 個素材。`);
+  } catch (error) {
+    console.error("Failed to explore selection target", error);
+    showToast(`探索「${label}」失敗：${error.message || error}`, true);
   } finally {
     state.explorationLoading = false;
     updateExploreButton();
@@ -2363,6 +2459,11 @@ function updateExploreButton() {
   elements.exploreButton.textContent = state.explorationLoading
     ? "探索中…"
     : "探索下一列";
+  for (const button of elements.selectionStatus?.querySelectorAll(
+    ".selection-explore-target",
+  ) || []) {
+    button.disabled = state.explorationLoading;
+  }
 }
 
 function activateSelectedNode() {
@@ -2503,8 +2604,11 @@ function updateSelectionStatus() {
   const rating = getItemRating(item);
   const tags = normalizeTags(item.tags);
   const folders = normalizeTags(item.folders)
-    .map((folderId) => state.folderNames.get(folderId))
-    .filter(Boolean);
+    .map((folderId) => ({
+      id: folderId,
+      name: state.folderNames.get(folderId),
+    }))
+    .filter(({ name }) => name);
 
   elements.selectionName.textContent = name;
   elements.selectionName.title = name;
@@ -2524,12 +2628,20 @@ function updateSelectionStatus() {
   elements.selectionRating.setAttribute("aria-label", `評分 ${rating} 顆星`);
   elements.selectionTags.hidden = tags.length === 0;
   elements.selectionTagsDivider.hidden = tags.length === 0;
-  elements.selectionTags.replaceChildren(...tags.map(createTagChip));
+  elements.selectionTags.replaceChildren(
+    ...tags.map((tag) =>
+      createSelectionExploreButton({ type: "tag", value: tag, label: tag }),
+    ),
+  );
   elements.selectionTags.title = tags.join(", ");
   elements.selectionFolders.hidden = folders.length === 0;
   elements.selectionFoldersDivider.hidden = folders.length === 0;
-  elements.selectionFolders.textContent = folders.join(" / ");
-  elements.selectionFolders.title = folders.join(" / ");
+  elements.selectionFolders.replaceChildren(
+    ...folders.map(({ id, name }) =>
+      createSelectionExploreButton({ type: "folder", value: id, label: name }),
+    ),
+  );
+  elements.selectionFolders.title = folders.map(({ name }) => name).join(" / ");
 }
 
 function updateCamera() {

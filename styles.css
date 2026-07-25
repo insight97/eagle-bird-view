@@ -602,7 +602,10 @@ button {
 .selection-rating,
 .selection-tags,
 .selection-folders {
+  display: flex;
   flex: none;
+  align-items: center;
+  gap: 4px;
   white-space: nowrap;
 }
 
@@ -618,6 +621,66 @@ button {
   max-width: min(280px, 24vw);
   overflow: hidden;
   color: #a8abb1;
+  text-overflow: ellipsis;
+}
+
+.selection-explore-target {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.selection-explore-target:hover .media-tag,
+.selection-explore-target:focus-visible .media-tag {
+  border-color: #c8c4ff;
+  box-shadow: 0 0 0 2px rgb(121 113 237 / 22%);
+}
+
+.selection-explore-target:focus-visible {
+  outline: 1px solid #9d96ff;
+  outline-offset: 2px;
+}
+
+.selection-explore-target:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.selection-folder-target {
+  max-width: 150px;
+  min-height: 18px;
+  gap: 4px;
+  overflow: hidden;
+  padding: 1px 5px;
+  border: 1px solid #4a4e57;
+  background: #292d33;
+  color: #b9bdc5;
+  font-size: 10px;
+}
+
+.selection-folder-target:hover,
+.selection-folder-target:focus-visible {
+  border-color: #8178f1;
+  background: #34333f;
+  color: #f1f0ff;
+}
+
+.selection-folder-mark {
+  color: #9d96ff;
+  font-size: 9px;
+  line-height: 1;
+}
+
+.selection-folder-label {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
 }
 
