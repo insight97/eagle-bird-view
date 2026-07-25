@@ -404,21 +404,29 @@
     random = Math.random,
     layoutWidth = LAYOUT_WIDTH,
     maxItems = DEFAULT_MAX_EXPLORATION_ITEMS,
+    { maxAiItems = Infinity } = {},
   ) {
     const normalizedLayoutWidth = normalizeLayoutWidth(layoutWidth);
     const normalizedMaxItems = normalizeExplorationItemLimit(maxItems);
+    const normalizedMaxAiItems = normalizeMaxAiExplorationItems(maxAiItems);
     const pivotFolders = new Set(pivot.folders || []);
     const pivotTags = new Set(pivot.tags || []);
     const eligible = candidates
       .map((item) => describeExplorationCandidate(item, pivotFolders, pivotTags))
-      .filter(({ sharedKeys }) => sharedKeys.length > 0);
+      .filter(({ sharedKeys, aiScore }) => sharedKeys.length > 0 || aiScore !== null);
     const selected = [];
+    const selectedCandidates = [];
     const representedNovelKeys = new Set();
     const connectionCounts = new Map();
     let aspectRatioSum = 0;
 
     while (eligible.length) {
       let pool = eligible;
+      const selectedAiCount = selectedCandidates.filter(({ aiScore }) => aiScore !== null).length;
+      if (selectedAiCount >= normalizedMaxAiItems) {
+        pool = pool.filter(({ aiScore }) => aiScore === null);
+      }
+      if (!pool.length) break;
       const bridgeCandidates = pool.filter(({ novelKeys }) => novelKeys.length > 0);
       if (bridgeCandidates.length) pool = bridgeCandidates;
       const underConnectionLimit = pool.filter(({ sharedKeys }) =>
@@ -441,6 +449,7 @@
         .map(({ candidate }) => candidate);
       const choice = shortlist[getWeightedRandomIndex(shortlist.length, random)];
       eligible.splice(eligible.indexOf(choice), 1);
+      selectedCandidates.push(choice);
       selected.push(choice.item);
       aspectRatioSum += getAspectRatio(choice.item);
       for (const key of choice.novelKeys) representedNovelKeys.add(key);
@@ -508,17 +517,24 @@
     return {
       gain:
         Number(unrepresentedKeys.some((key) => key.startsWith("folder:"))) +
-        Number(unrepresentedKeys.some((key) => key.startsWith("tag:"))),
+        Number(unrepresentedKeys.some((key) => key.startsWith("tag:"))) +
+        Number(unrepresentedKeys.includes("source:ai")),
       repeated: Math.max(
         0,
         ...candidate.sharedKeys.map((key) => connectionCounts.get(key) || 0),
       ),
       overlap: candidate.rowOverlap,
+      aiScore: candidate.aiScore || 0,
     };
   }
 
   function compareExplorationScores(a, b) {
-    return b.gain - a.gain || a.repeated - b.repeated || a.overlap - b.overlap;
+    return (
+      b.gain - a.gain ||
+      a.repeated - b.repeated ||
+      b.aiScore - a.aiScore ||
+      a.overlap - b.overlap
+    );
   }
 
   function getWeightedRandomIndex(length, random) {
@@ -533,8 +549,12 @@
   }
 
   function describeExplorationCandidate(item, pivotFolders, pivotTags) {
-    const folderKeys = (item.folders || []).map((value) => `folder:${value}`);
-    const tagKeys = (item.tags || []).map((value) => `tag:${value}`);
+    const candidateItem = item?.item?.id ? item.item : item;
+    const aiScore = Number.isFinite(Number(item?.aiScore))
+      ? clamp(Number(item.aiScore), 0, 1)
+      : null;
+    const folderKeys = (candidateItem.folders || []).map((value) => `folder:${value}`);
+    const tagKeys = (candidateItem.tags || []).map((value) => `tag:${value}`);
     const sharedKeys = [
       ...folderKeys.filter((key) => pivotFolders.has(key.slice(7))),
       ...tagKeys.filter((key) => pivotTags.has(key.slice(4))),
@@ -543,12 +563,20 @@
       ...folderKeys.filter((key) => !pivotFolders.has(key.slice(7))),
       ...tagKeys.filter((key) => !pivotTags.has(key.slice(4))),
     ];
+    if (aiScore !== null) novelKeys.push("source:ai");
     return {
-      item,
+      item: candidateItem,
+      aiScore,
       sharedKeys,
       novelKeys,
       rowOverlap: sharedKeys.length,
     };
+  }
+
+  function normalizeMaxAiExplorationItems(maxItems) {
+    if (maxItems === Infinity) return Infinity;
+    const value = Number(maxItems);
+    return Number.isFinite(value) ? clamp(Math.floor(value), 0, MAX_EXPLORATION_ITEMS) : Infinity;
   }
 
   function normalizeLayoutDirection(direction) {

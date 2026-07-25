@@ -11,6 +11,7 @@
 })(typeof globalThis === "object" ? globalThis : this, (core) => {
   const {
     VIDEO_EXTENSIONS,
+    clamp,
     getItemRating,
     normalizeTags,
     selectRandomExplorationRow,
@@ -19,6 +20,8 @@
   const MAX_TAG_QUERIES = 12;
   const MAX_CACHED_ITEMS_PER_QUERY = 240;
   const MAX_CANDIDATES = 600;
+  const DEFAULT_AI_SEARCH_LIMIT = 20;
+  const MAX_AI_SEARCH_LIMIT = 100;
   const FILE_TYPES = Object.freeze(["image", "video"]);
   const IMAGE_EXTENSIONS = new Set([
     "avif",
@@ -188,6 +191,103 @@
     }
   }
 
+  class AiSimilarItemSource {
+    #aiSearch;
+    #cache = new Map();
+    #generation = 0;
+
+    constructor(aiSearch) {
+      this.#aiSearch = aiSearch;
+    }
+
+    async findCandidates(pivot, excludedIds = new Set(), { limit } = {}) {
+      if (!pivot?.id || typeof this.#aiSearch?.searchByItemId !== "function") return [];
+      const normalizedLimit = normalizeAiSearchLimit(limit);
+      const generation = this.#generation;
+      const cacheKey = `${pivot.id}:${normalizedLimit}`;
+      let request = this.#cache.get(cacheKey);
+      if (!request) {
+        request = this.#load(pivot.id, normalizedLimit);
+        this.#cache.set(cacheKey, request);
+        request.catch(() => {
+          if (this.#cache.get(cacheKey) === request) this.#cache.delete(cacheKey);
+        });
+      }
+
+      const result = await request;
+      if (!result.cacheable) {
+        if (this.#cache.get(cacheKey) === request) this.#cache.delete(cacheKey);
+        return [];
+      }
+      if (generation !== this.#generation) return [];
+      return result.candidates.filter(({ item }) => !excludedIds.has(item.id));
+    }
+
+    clear() {
+      this.#generation += 1;
+      this.#cache.clear();
+    }
+
+    async #load(itemId, limit) {
+      if (typeof this.#aiSearch.isInstalled === "function" && !(await this.#aiSearch.isInstalled())) {
+        return { cacheable: false, candidates: [] };
+      }
+      if (typeof this.#aiSearch.isReady === "function" && !(await this.#aiSearch.isReady())) {
+        return { cacheable: false, candidates: [] };
+      }
+
+      const response = await this.#aiSearch.searchByItemId(itemId, { limit });
+      const candidates = (Array.isArray(response?.results) ? response.results : [])
+        .map(({ item, score }) => ({ item, aiScore: normalizeAiScore(score) }))
+        .filter(
+          ({ item, aiScore }) =>
+            item?.id &&
+            aiScore !== null &&
+            !item.isDeleted &&
+            isSupportedMediaItem(item),
+        );
+      return { cacheable: true, candidates };
+    }
+  }
+
+  class HybridExplorationSource {
+    #relatedSource;
+    #aiSource;
+
+    constructor(relatedSource, aiSource = null) {
+      this.#relatedSource = relatedSource;
+      this.#aiSource = aiSource;
+    }
+
+    async findCandidates(
+      pivot,
+      excludedIds = new Set(),
+      { aiEnabled = false, maxAiItems = 0 } = {},
+    ) {
+      const relatedPromise = this.#relatedSource.findCandidates(pivot, excludedIds);
+      if (!aiEnabled || !this.#aiSource || maxAiItems < 1) return relatedPromise;
+
+      const [relatedResult, aiResult] = await Promise.allSettled([
+        relatedPromise,
+        this.#aiSource.findCandidates(pivot, excludedIds, {
+          limit: Math.max(DEFAULT_AI_SEARCH_LIMIT, maxAiItems * 4),
+        }),
+      ]);
+      if (relatedResult.status === "rejected") throw relatedResult.reason;
+      if (aiResult.status === "rejected") return relatedResult.value;
+      return mergeExplorationCandidates(relatedResult.value, aiResult.value);
+    }
+
+    hydrate(candidates) {
+      return this.#relatedSource.hydrate(candidates.map(getExplorationCandidateItem));
+    }
+
+    clear() {
+      this.#relatedSource.clear();
+      this.#aiSource?.clear();
+    }
+  }
+
   function normalizeUnratedFilter(filter = DEFAULT_UNRATED_FILTER) {
     const maxTagCount = Number(filter.maxTagCount);
     return {
@@ -282,6 +382,44 @@
     return fileTypes.length ? fileTypes : [...DEFAULT_UNRATED_FILTER.fileTypes];
   }
 
+  function normalizeAiSearchLimit(limit) {
+    const value = Number(limit);
+    return Number.isFinite(value)
+      ? clamp(Math.floor(value), DEFAULT_AI_SEARCH_LIMIT, MAX_AI_SEARCH_LIMIT)
+      : DEFAULT_AI_SEARCH_LIMIT;
+  }
+
+  function normalizeAiScore(score) {
+    const value = Number(score);
+    return Number.isFinite(value) ? clamp(value, 0, 1) : null;
+  }
+
+  function getExplorationCandidateItem(candidate) {
+    return candidate?.item?.id ? candidate.item : candidate;
+  }
+
+  function mergeExplorationCandidates(relatedItems, aiCandidates) {
+    const candidatesById = new Map(
+      relatedItems
+        .filter((item) => item?.id)
+        .map((item) => [item.id, { item }]),
+    );
+    for (const candidate of aiCandidates) {
+      const item = getExplorationCandidateItem(candidate);
+      if (!item?.id) continue;
+      const existing = candidatesById.get(item.id);
+      if (!existing) {
+        candidatesById.set(item.id, { item, aiScore: candidate.aiScore });
+        continue;
+      }
+      candidatesById.set(item.id, {
+        ...existing,
+        aiScore: Math.max(existing.aiScore || 0, candidate.aiScore || 0),
+      });
+    }
+    return [...candidatesById.values()];
+  }
+
   function uniqueValues(values = []) {
     return [...new Set(values.filter(Boolean))];
   }
@@ -307,7 +445,9 @@
   }
 
   return Object.freeze({
+    AiSimilarItemSource,
     DEFAULT_UNRATED_FILTER,
+    HybridExplorationSource,
     RelatedItemSource,
     UnratedItemSource,
     normalizeUnratedFilter,

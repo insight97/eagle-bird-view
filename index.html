@@ -154,7 +154,38 @@
                   aria-labelledby="settings-tab-exploration"
                   data-settings-panel="exploration"
                 >
-                  <p class="settings-intro">設定自動探索要載入哪些素材。</p>
+                  <p class="settings-intro">設定探索來源與自動探索要載入哪些素材。</p>
+                  <div class="settings-card">
+                    <div class="settings-card-title">探索來源</div>
+                    <label class="auto-explore-setting-row settings-toggle-row">
+                      <span class="settings-control-label">
+                        <span>AI 探索</span>
+                        <small>使用 Eagle AI Search 找相似素材，套用於「探索下一列」。</small>
+                      </span>
+                      <input id="ai-exploration-toggle" type="checkbox" />
+                    </label>
+                    <div class="auto-explore-setting-row auto-explore-speed-row">
+                      <span>每列最多 AI 素材</span>
+                      <div class="auto-explore-speed-control">
+                        <input
+                          id="ai-exploration-max-items"
+                          class="auto-explore-range"
+                          type="range"
+                          min="1"
+                          max="12"
+                          step="1"
+                          value="3"
+                        />
+                        <output
+                          id="ai-exploration-max-items-value"
+                          class="auto-explore-exploration-limit-value"
+                          for="ai-exploration-max-items"
+                        >
+                          3 個
+                        </output>
+                      </div>
+                    </div>
+                  </div>
                   <div class="settings-card">
                     <div class="settings-card-title">素材類型</div>
                     <div class="auto-explore-setting-row">

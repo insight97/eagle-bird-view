@@ -37,6 +37,8 @@ const { createRowLoadCoordinator } = BirdViewRowLoad;
 const { createMediaMaterializer } = BirdViewMaterializer;
 const { createAutoExploreSettings } = BirdViewAutoExploreSettings;
 const {
+  AiSimilarItemSource,
+  HybridExplorationSource,
   RelatedItemSource,
   UnratedItemSource,
 } = BirdViewExploration;
@@ -56,6 +58,9 @@ const MIN_FOCUS_MEDIA_SIZE = 80;
 const MAX_FOCUS_MEDIA_SIZE = 400;
 const DEFAULT_LAYOUT_DIRECTION = "ltr";
 const DEFAULT_LAYOUT_WIDTH = LAYOUT_WIDTH;
+const DEFAULT_MAX_AI_EXPLORATION_ITEMS = 3;
+const MIN_AI_EXPLORATION_ITEMS = 1;
+const MAX_AI_EXPLORATION_ITEMS = 12;
 const SEAMLESS_LAYOUT_GAP = 0;
 const SEAMLESS_ROW_GAP = 0;
 const TIGHT_FOCUS_ROW_EMPHASIS = 1.1;
@@ -99,6 +104,9 @@ const state = {
   layoutWidthUnlimited: false,
   seamlessMode: false,
   maxExplorationItems: DEFAULT_MAX_EXPLORATION_ITEMS,
+  aiExplorationEnabled: false,
+  maxAiExplorationItems: DEFAULT_MAX_AI_EXPLORATION_ITEMS,
+  aiExplorationAvailable: false,
   videoVolume: 1,
   smoothPanKeys: new Set(),
   smoothPanFrame: null,
@@ -239,6 +247,11 @@ function setup() {
   elements.autoExploreSelectedExcludedTags = document.querySelector("#auto-explore-selected-excluded-tags");
   elements.autoExploreControls = document.querySelector(".auto-explore-controls");
   elements.autoExploreSettingsReset = document.querySelector("#auto-explore-settings-reset");
+  elements.aiExplorationToggle = document.querySelector("#ai-exploration-toggle");
+  elements.maxAiExplorationItems = document.querySelector("#ai-exploration-max-items");
+  elements.maxAiExplorationItemsValue = document.querySelector(
+    "#ai-exploration-max-items-value",
+  );
   elements.exploreButton = document.querySelector("#explore-button");
   elements.folderLoadMoreButton = document.querySelector("#folder-load-more-button");
   elements.toast = document.querySelector("#toast");
@@ -249,6 +262,7 @@ function setup() {
     getKnownTags: getAutoExploreKnownTags,
     createTagChip,
     onFilterChange: handleAutoExploreFilterChange,
+    onReset: resetAiExplorationSettings,
   });
 
   mediaMaterializer = createMediaMaterializer({
@@ -300,6 +314,8 @@ function setup() {
   elements.layoutDirection?.addEventListener("change", updateBoardSettings);
   elements.layoutWidth?.addEventListener("input", updateBoardSettings);
   elements.maxExplorationItems?.addEventListener("input", updateBoardSettings);
+  elements.aiExplorationToggle?.addEventListener("change", updateBoardSettings);
+  elements.maxAiExplorationItems?.addEventListener("input", updateBoardSettings);
   elements.smoothPanToggle?.addEventListener("change", updateBoardSettings);
   elements.smoothPanSpeed?.addEventListener("input", updateBoardSettings);
   elements.smoothZoomToggle?.addEventListener("change", updateBoardSettings);
@@ -335,7 +351,12 @@ function startEagleIntegration() {
     return;
   }
 
-  state.explorationSource = new RelatedItemSource(eagle.item);
+  const aiSearch = eagle.extraModule?.aiSearch;
+  state.aiExplorationAvailable = typeof aiSearch?.searchByItemId === "function";
+  state.explorationSource = new HybridExplorationSource(
+    new RelatedItemSource(eagle.item),
+    new AiSimilarItemSource(aiSearch),
+  );
   state.unratedSource = new UnratedItemSource(eagle.item);
   state.folderItemSource =
     typeof eagle.folder?.getSelected === "function" || typeof eagle.folder?.get === "function"
@@ -345,6 +366,7 @@ function startEagleIntegration() {
     eagle.onLibraryChanged(handleLibraryChanged);
   }
   updateExploreButton();
+  updateBoardSettingsUI();
   updateAutoExploreToggle();
   void loadTagColors();
   void loadSelectedItems();
@@ -1274,7 +1296,11 @@ async function exploreNextRow() {
   const boardNodes = board.nodes;
   const excludedIds = new Set(boardNodes.map(({ item }) => item.id));
   const result = await rowLoadCoordinator.load("exploration", {
-    find: () => source.findCandidates(pivot, excludedIds),
+    find: () =>
+      source.findCandidates(pivot, excludedIds, {
+        aiEnabled: state.aiExplorationEnabled,
+        maxAiItems: state.maxAiExplorationItems,
+      }),
     select: (candidates) =>
       selectDiverseExplorationRow(
         candidates,
@@ -1282,6 +1308,7 @@ async function exploreNextRow() {
         Math.random,
         getBoardLayoutWidth(),
         state.maxExplorationItems,
+        { maxAiItems: state.maxAiExplorationItems },
       ),
     hydrate: (candidates) => source.hydrate(candidates),
     isRelevant: () => board.nodes === boardNodes && state.selectedNode === pivotNode,
@@ -1318,7 +1345,11 @@ async function exploreFromSelectionTarget({ type, value, label }) {
   const boardNodes = board.nodes;
   const excludedIds = new Set(boardNodes.map(({ item }) => item.id));
   const result = await rowLoadCoordinator.load("exploration", {
-    find: () => source.findCandidates(criterion, excludedIds),
+    find: () =>
+      source.findCandidates(criterion, excludedIds, {
+        aiEnabled: state.aiExplorationEnabled,
+        maxAiItems: state.maxAiExplorationItems,
+      }),
     select: (candidates) =>
       selectDiverseExplorationRow(
         candidates,
@@ -1326,6 +1357,7 @@ async function exploreFromSelectionTarget({ type, value, label }) {
         Math.random,
         getBoardLayoutWidth(),
         state.maxExplorationItems,
+        { maxAiItems: state.maxAiExplorationItems },
       ),
     hydrate: (candidates) => source.hydrate(candidates),
     isRelevant: () => board.nodes === boardNodes && state.selectedNode === pivotNode,
@@ -1439,6 +1471,17 @@ function updateBoardSettings() {
     ? normalizeMaxExplorationItems(elements.maxExplorationItems.value)
     : state.maxExplorationItems;
   state.maxExplorationItems = nextMaxExplorationItems;
+  const nextAiExplorationEnabled = elements.aiExplorationToggle
+    ? Boolean(elements.aiExplorationToggle.checked)
+    : state.aiExplorationEnabled;
+  const nextMaxAiExplorationItems = elements.maxAiExplorationItems
+    ? normalizeMaxAiExplorationItems(elements.maxAiExplorationItems.value)
+    : state.maxAiExplorationItems;
+  const aiExplorationSettingsChanged =
+    nextAiExplorationEnabled !== state.aiExplorationEnabled ||
+    nextMaxAiExplorationItems !== state.maxAiExplorationItems;
+  state.aiExplorationEnabled = nextAiExplorationEnabled;
+  state.maxAiExplorationItems = nextMaxAiExplorationItems;
   state.smoothPanEnabled = Boolean(elements.smoothPanToggle?.checked);
   const speed = Number(elements.smoothPanSpeed?.value);
   if (Number.isFinite(speed)) {
@@ -1460,6 +1503,10 @@ function updateBoardSettings() {
   if (!state.smoothZoomEnabled) cameraNavigation.stopSmoothKeyboardZoom();
   saveSettings();
   updateBoardSettingsUI();
+  if (aiExplorationSettingsChanged) {
+    rowLoadCoordinator.invalidate("exploration");
+    state.explorationSource?.clear();
+  }
   if (layoutDirectionChanged || layoutWidthChanged) relayoutBoard();
 }
 
@@ -1484,6 +1531,20 @@ function updateBoardSettingsUI() {
   }
   if (elements.maxExplorationItemsValue) {
     elements.maxExplorationItemsValue.textContent = `${state.maxExplorationItems} 個`;
+  }
+  if (elements.aiExplorationToggle) {
+    elements.aiExplorationToggle.checked = state.aiExplorationEnabled;
+    elements.aiExplorationToggle.disabled = !state.aiExplorationAvailable;
+    elements.aiExplorationToggle.title = state.aiExplorationAvailable
+      ? "使用 Eagle AI Search 參與手動探索"
+      : "需要 Eagle AI Search 才能使用";
+  }
+  if (elements.maxAiExplorationItems) {
+    elements.maxAiExplorationItems.value = String(state.maxAiExplorationItems);
+    elements.maxAiExplorationItems.disabled = !state.aiExplorationAvailable;
+  }
+  if (elements.maxAiExplorationItemsValue) {
+    elements.maxAiExplorationItemsValue.textContent = `${state.maxAiExplorationItems} 個`;
   }
   if (elements.smoothPanToggle) elements.smoothPanToggle.checked = state.smoothPanEnabled;
   if (elements.smoothPanSpeed) elements.smoothPanSpeed.value = String(state.smoothPanSpeed);
@@ -1558,6 +1619,8 @@ function restoreSavedSettings() {
       state.layoutWidthUnlimited = Boolean(board.layoutWidthUnlimited);
       state.seamlessMode = Boolean(board.seamlessMode);
       state.maxExplorationItems = normalizeMaxExplorationItems(board.maxExplorationItems);
+      state.aiExplorationEnabled = Boolean(board.aiExplorationEnabled);
+      state.maxAiExplorationItems = normalizeMaxAiExplorationItems(board.maxAiExplorationItems);
     }
     if (saved?.autoExploreFilter && typeof saved.autoExploreFilter === "object") {
       autoExploreSettings.setFilter(saved.autoExploreFilter);
@@ -1580,6 +1643,8 @@ function saveSettings() {
           layoutWidthUnlimited: state.layoutWidthUnlimited,
           seamlessMode: state.seamlessMode,
           maxExplorationItems: state.maxExplorationItems,
+          aiExplorationEnabled: state.aiExplorationEnabled,
+          maxAiExplorationItems: state.maxAiExplorationItems,
           smoothPanEnabled: state.smoothPanEnabled,
           smoothPanSpeed: state.smoothPanSpeed,
           smoothZoomEnabled: state.smoothZoomEnabled,
@@ -1606,6 +1671,15 @@ function handleAutoExploreFilterChange(nextFilter, { changed }) {
   if (!state.unratedEnabled) return;
   if (!board.rows.length) void loadNextUnratedRow({ focus: true });
   else maybeLoadNextUnratedRow();
+}
+
+function resetAiExplorationSettings() {
+  state.aiExplorationEnabled = false;
+  state.maxAiExplorationItems = DEFAULT_MAX_AI_EXPLORATION_ITEMS;
+  rowLoadCoordinator.invalidate("exploration");
+  state.explorationSource?.clear();
+  updateBoardSettingsUI();
+  saveSettings();
 }
 
 function normalizeStoredSettingNumber(value, minimum, maximum, fallback) {
@@ -1668,6 +1742,13 @@ function normalizeMaxExplorationItems(value) {
   return Number.isFinite(number)
     ? clamp(Math.floor(number), MIN_EXPLORATION_ITEMS, MAX_EXPLORATION_ITEMS)
     : DEFAULT_MAX_EXPLORATION_ITEMS;
+}
+
+function normalizeMaxAiExplorationItems(value) {
+  const number = Number(value);
+  return Number.isFinite(number)
+    ? clamp(Math.floor(number), MIN_AI_EXPLORATION_ITEMS, MAX_AI_EXPLORATION_ITEMS)
+    : DEFAULT_MAX_AI_EXPLORATION_ITEMS;
 }
 
 function getAutoExploreKnownTags() {

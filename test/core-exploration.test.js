@@ -119,6 +119,26 @@ test("exploration randomizes candidates with equal relevance scores", () => {
   assert.equal(selected[0].id, "old");
 });
 
+test("exploration respects the maximum number of AI candidates", () => {
+  const pivot = item("pivot", ["ui"], []);
+  const candidates = [
+    item("related", ["ui", "web"], []),
+    { item: item("ai-1", [], []), aiScore: 0.9 },
+    { item: item("ai-2", [], []), aiScore: 0.8 },
+  ];
+
+  const selected = selectDiverseExplorationRow(
+    candidates,
+    pivot,
+    () => 0,
+    1200,
+    3,
+    { maxAiItems: 1 },
+  );
+
+  assert.equal(selected.filter(({ id }) => id.startsWith("ai-")).length, 1);
+});
+
 test("exploration can select a lower-ranked candidate from the weighted shortlist", () => {
   const pivot = item("pivot", ["ui"], []);
   const stronger = item("stronger", ["ui", "web"], ["bold", "dark"], 400, 100);

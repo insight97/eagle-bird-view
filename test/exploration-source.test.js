@@ -3,12 +3,26 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
+  AiSimilarItemSource,
   DEFAULT_UNRATED_FILTER,
+  HybridExplorationSource,
   RelatedItemSource,
   UnratedItemSource,
   normalizeUnratedFilter,
   unratedFiltersEqual,
 } = require("../exploration-source.js");
+
+function mediaItem(id, overrides = {}) {
+  return {
+    id,
+    ext: "jpg",
+    width: 200,
+    height: 100,
+    folders: [],
+    tags: [],
+    ...overrides,
+  };
+}
 
 test("normalizeUnratedFilter repairs every field of a stored filter", () => {
   assert.deepEqual(normalizeUnratedFilter(), {
@@ -176,6 +190,86 @@ test("hydrate preserves the selected exploration order", async () => {
 
   const result = await source.hydrate([{ id: "first" }, { id: "second" }]);
   assert.deepEqual(result.map(({ id }) => id), ["first", "second"]);
+});
+
+test("AI source searches by pivot, caches ready results, and filters unsupported items", async () => {
+  const calls = [];
+  const source = new AiSimilarItemSource({
+    isInstalled: async () => true,
+    isReady: async () => true,
+    searchByItemId: async (itemId, options) => {
+      calls.push({ itemId, options });
+      return {
+        results: [
+          { item: mediaItem("similar", { ext: "jpg" }), score: 0.82 },
+          { item: mediaItem("excluded", { ext: "jpg" }), score: 0.7 },
+          { item: mediaItem("text", { ext: "txt" }), score: 0.99 },
+          { item: mediaItem("deleted", { ext: "jpg", isDeleted: true }), score: 0.95 },
+        ],
+      };
+    },
+  });
+
+  const first = await source.findCandidates(
+    { id: "pivot" },
+    new Set(["excluded"]),
+    { limit: 32 },
+  );
+  const second = await source.findCandidates({ id: "pivot" }, new Set(), { limit: 32 });
+
+  assert.deepEqual(first.map(({ item, aiScore }) => [item.id, aiScore]), [["similar", 0.82]]);
+  assert.deepEqual(second.map(({ item }) => item.id), ["similar", "excluded"]);
+  assert.deepEqual(calls, [{ itemId: "pivot", options: { limit: 32 } }]);
+});
+
+test("AI source retries after the service becomes ready", async () => {
+  let ready = false;
+  let searches = 0;
+  const source = new AiSimilarItemSource({
+    isReady: async () => ready,
+    searchByItemId: async () => {
+      searches += 1;
+      return { results: [{ item: mediaItem("similar"), score: 0.8 }] };
+    },
+  });
+
+  assert.deepEqual(await source.findCandidates({ id: "pivot" }), []);
+  ready = true;
+  assert.deepEqual(
+    (await source.findCandidates({ id: "pivot" })).map(({ item }) => item.id),
+    ["similar"],
+  );
+  assert.equal(searches, 1);
+});
+
+test("hybrid exploration merges AI scores without duplicating related items", async () => {
+  const related = mediaItem("related");
+  const shared = mediaItem("shared");
+  const hybrid = new HybridExplorationSource(
+    {
+      findCandidates: async () => [related, shared],
+      hydrate: async (items) => items,
+      clear() {},
+    },
+    {
+      findCandidates: async () => [
+        { item: shared, aiScore: 0.4 },
+        { item: mediaItem("ai-only"), aiScore: 0.9 },
+      ],
+      clear() {},
+    },
+  );
+
+  const result = await hybrid.findCandidates(
+    { id: "pivot" },
+    new Set(),
+    { aiEnabled: true, maxAiItems: 2 },
+  );
+
+  assert.deepEqual(
+    result.map(({ item, aiScore }) => [item.id, aiScore ?? null]),
+    [["related", null], ["shared", 0.4], ["ai-only", 0.9]],
+  );
 });
 
 test("unrated source queries rating zero and does not repeat selected items", async () => {

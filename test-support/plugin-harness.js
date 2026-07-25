@@ -38,6 +38,9 @@ const SELECTORS = [
   "#seamless-mode-status",
   "#auto-explore-settings-button",
   "#auto-explore-settings-panel",
+  "#ai-exploration-toggle",
+  "#ai-exploration-max-items",
+  "#ai-exploration-max-items-value",
   "#board-layout-direction",
   "#board-layout-width",
   "#board-layout-width-value",
@@ -257,6 +260,7 @@ function createElementStub(tag = "div") {
 
 function createPluginHarness({
   selectedItems = null,
+  aiSearch = null,
   runAnimationFrames = false,
   navigationProbe = false,
   // Tests that exercise plugin.js error paths can mute the expected logging so
@@ -423,6 +427,7 @@ function createPluginHarness({
       },
     },
     eagle: {
+      extraModule: aiSearch ? { aiSearch } : undefined,
       item: {
         getSelected() {
           selectedRequests += 1;

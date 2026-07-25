@@ -37,6 +37,7 @@
         return chip;
       },
       onFilterChange = () => {},
+      onReset = () => {},
     } = options;
 
     let committedFilter = normalizeFilter(defaultFilter);
@@ -192,6 +193,7 @@
         elements.autoExploreExcludedTagSearch.value = "";
       }
       apply({ closeAfterApply: false });
+      onReset();
     }
 
     function renderTagOptions() {
