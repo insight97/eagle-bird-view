@@ -41,6 +41,7 @@ test("every module resolves its dependencies in index.html script order", () => 
   assert.deepEqual(
     Object.keys(context).filter((key) => key.startsWith("BirdView")).sort(),
     [
+      "BirdViewBoard",
       "BirdViewCamera",
       "BirdViewCore",
       "BirdViewExploration",
@@ -48,6 +49,7 @@ test("every module resolves its dependencies in index.html script order", () => 
       "BirdViewFolderPicker",
       "BirdViewMedia",
       "BirdViewPopover",
+      "BirdViewRowLoad",
       "BirdViewSelection",
       "BirdViewTagEditor",
       "BirdViewVideo",

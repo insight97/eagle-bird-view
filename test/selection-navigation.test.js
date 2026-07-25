@@ -64,6 +64,32 @@ test("selection navigation selects the nearest node at the viewport center", () 
   assert.equal(harness.selections[0].details.changed, true);
 });
 
+test("selection navigation can read rows from the board without state rows", () => {
+  const selections = [];
+  const boardRows = [];
+  const state = {
+    camera: { x: 0, y: 0, scale: 1 },
+    layoutDirection: "ltr",
+    selectedNode: null,
+    verticalNavigation: null,
+  };
+  const node = createNode("center", 350, 250);
+  boardRows.push({ top: 250, bottom: 350, nodes: [node] });
+  const navigation = createSelectionNavigation({
+    state,
+    elements: { viewport: { clientWidth: 800, clientHeight: 600 } },
+    getRows: () => boardRows,
+    onSelectNode(node) {
+      selections.push(node);
+    },
+  });
+
+  navigation.selectNodeAtViewportCenter();
+
+  assert.equal(state.selectedNode, node);
+  assert.deepEqual(selections, [node]);
+});
+
 test("selection navigation clears selection state through its integration callback", () => {
   const harness = createHarness();
   const node = createNode("selected", 0, 0);

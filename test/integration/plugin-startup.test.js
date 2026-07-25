@@ -140,3 +140,26 @@ test("switching Eagle library reloads the selection", async () => {
 
   assert.equal(plugin.selectedRequests, 2);
 });
+
+test("loading selected items selects the item at the viewport center", async () => {
+  const plugin = createPluginHarness({
+    runAnimationFrames: true,
+    navigationProbe: true,
+    selectedItems: [
+      {
+        id: "center-item",
+        name: "center.jpg",
+        ext: "jpg",
+        width: 100,
+        height: 100,
+        fileURL: "file:///center.jpg",
+        thumbnailURL: "file:///center-thumb.jpg",
+      },
+    ],
+  });
+
+  plugin.start();
+  await flush();
+
+  assert.equal(plugin.selectedNodeId, "center-item");
+});

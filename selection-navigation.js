@@ -23,6 +23,7 @@
       onSelectNode,
       onClearSelection,
     } = options;
+    const getRows = options.getRows || (() => state.rows);
 
     if (!state || !elements?.viewport) {
       throw new Error("Selection navigation requires state and viewport");
@@ -53,7 +54,8 @@
       const [dx, dy] = direction;
       if (dy) {
         if (!state.verticalNavigation) {
-          const currentRow = state.rows.find((row) => row.nodes.includes(state.selectedNode));
+          const rows = getRows();
+          const currentRow = rows.find((row) => row.nodes.includes(state.selectedNode));
           const nodeIndex = currentRow?.nodes.indexOf(state.selectedNode) ?? -1;
           state.verticalNavigation = {
             preferredX: state.selectedNode.x + state.selectedNode.width / 2,
@@ -65,7 +67,7 @@
                   : null,
           };
         }
-        const node = findDirectionalNeighbor(state.rows, state.selectedNode, direction, {
+        const node = findDirectionalNeighbor(getRows(), state.selectedNode, direction, {
           preferredX: state.verticalNavigation.preferredX,
           edgeTarget: state.verticalNavigation.edgeTarget,
         });
@@ -77,7 +79,7 @@
       }
 
       state.verticalNavigation = null;
-      const node = findDirectionalNeighbor(state.rows, state.selectedNode, direction, {
+      const node = findDirectionalNeighbor(getRows(), state.selectedNode, direction, {
         wrapRows: true,
         layoutDirection: state.layoutDirection,
       });
@@ -90,7 +92,7 @@
         width: elements.viewport.clientWidth,
         height: elements.viewport.clientHeight,
       });
-      const node = findNearestNodeInRows(state.rows, viewportCenter);
+      const node = findNearestNodeInRows(getRows(), viewportCenter);
       if (node && node !== state.selectedNode) setSelectedNode(node);
     }
 

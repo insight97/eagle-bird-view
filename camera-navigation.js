@@ -46,6 +46,7 @@
       getFocusTargetHeight = () => TARGET_ROW_HEIGHT,
       getVideoControlsHeight = () => DEFAULT_VIDEO_CONTROLS_HEIGHT,
     } = options;
+    const getRows = options.getRows || (() => state.rows);
 
     if (!state || !elements?.viewport || !getBaseScale || !updateCamera) {
       throw new Error("Camera navigation requires state, viewport, scale, and camera callbacks");
@@ -90,7 +91,7 @@
       if (!node) return;
       stopSmoothKeyboardPan();
       stopSmoothKeyboardZoom();
-      const row = state.rows.find((candidate) => candidate.nodes.includes(node));
+      const row = getRows().find((candidate) => candidate.nodes.includes(node));
       const rowHeight = row ? row.bottom - row.top : node.mediaHeight;
       const scale = clamp(
         getRowFocusScale(getBaseScale(), rowHeight, {
@@ -117,7 +118,7 @@
     function fitSelectedRowInViewport() {
       const selectedNode = state.selectedNode;
       if (!selectedNode) return;
-      const row = state.rows.find((candidate) => candidate.nodes.includes(selectedNode));
+      const row = getRows().find((candidate) => candidate.nodes.includes(selectedNode));
       if (!row?.nodes.length) return;
 
       const bounds = row.nodes.reduce(

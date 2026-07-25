@@ -13,7 +13,6 @@ const {
   VIDEO_CONTROLS_HEIGHT,
   VIDEO_EXTENSIONS,
   clamp,
-  createJustifiedLayout,
   directionFor,
   findNodesNearViewport,
   formatFileSize,
@@ -27,7 +26,6 @@ const {
   getWrappedGridTranslation,
   getViewportWorkInterval,
   getTagColorStyle,
-  insertExplorationRow,
   isPlayingVideo,
   normalizeTags,
   normalizeTagColor,
@@ -35,6 +33,8 @@ const {
   selectDiverseExplorationRow,
   shouldLoadUnratedRow,
 } = BirdViewCore;
+const { createBoardState } = BirdViewBoard;
+const { createRowLoadCoordinator } = BirdViewRowLoad;
 const { MediaLoadQueue, waitForImageDecode } = BirdViewMedia;
 const {
   DEFAULT_UNRATED_FILTER,
@@ -139,12 +139,10 @@ const state = {
   lastViewportWork: -Infinity,
   isPanning: false,
   explorationSource: null,
-  explorationGeneration: 0,
   explorationLoading: false,
   folderItemSource: null,
   folderItems: [],
   folderItemOffset: 0,
-  folderItemGeneration: 0,
   folderItemLoading: false,
   unratedSource: null,
   unratedEnabled: false,
@@ -152,21 +150,36 @@ const state = {
   unratedExhausted: false,
   unratedFilter: normalizeUnratedFilter(DEFAULT_UNRATED_FILTER),
   unratedDraftFilter: null,
-  unratedGeneration: 0,
   lastUnratedTriggerRow: null,
   tagColors: new Map(),
   tagColorGeneration: 0,
   folderNames: new Map(),
   folderNameGeneration: 0,
-  selectedItemsGeneration: 0,
   viewportSize: null,
   started: false,
   eagleReady: false,
 };
 
+const board = createBoardState();
 const elements = {};
 let cameraNavigation = null;
 let selectionNavigation = null;
+const rowLoadCoordinator = createRowLoadCoordinator({
+  onLoadingChange(channel, isLoading) {
+    if (channel === "exploration") {
+      state.explorationLoading = isLoading;
+      updateExploreButton();
+    }
+    if (channel === "folder") {
+      state.folderItemLoading = isLoading;
+      updateFolderLoadMoreUI();
+    }
+    if (channel === "unrated") {
+      state.unratedLoading = isLoading;
+      updateAutoExploreToggle();
+    }
+  },
+});
 const mediaLoadQueue = new MediaLoadQueue({ maxConcurrent: MAX_CONCURRENT_IMAGE_LOADS });
 const tagEditor = new TagEditor({
   getViewport: () => elements.viewport,
@@ -259,12 +272,14 @@ function setup() {
   selectionNavigation = createSelectionNavigation({
     state,
     elements,
+    getRows: () => board.rows,
     onSelectNode: applySelectedNode,
     onClearSelection: applyClearedSelection,
   });
   cameraNavigation = createCameraNavigation({
     state,
     elements,
+    getRows: () => board.rows,
     getBaseScale,
     updateCamera,
     selectNodeAtViewportCenter: () => selectionNavigation.selectNodeAtViewportCenter(),
@@ -372,9 +387,9 @@ function handleLibraryChanged() {
   state.folderNameGeneration += 1;
   state.folderNames.clear();
   state.explorationSource.clear();
+  rowLoadCoordinator.invalidate("exploration");
   state.unratedSource.clear();
-  state.unratedGeneration += 1;
-  state.unratedLoading = false;
+  rowLoadCoordinator.invalidate("unrated");
   state.unratedExhausted = false;
   state.lastUnratedTriggerRow = null;
   updateAutoExploreToggle();
@@ -389,15 +404,14 @@ async function loadSelectedItems({ append = false } = {}) {
     return;
   }
 
-  const generation = ++state.selectedItemsGeneration;
-  try {
+  const result = await rowLoadCoordinator.run("selected", async ({ isCurrent }) => {
     const items = await eagle.item.getSelected();
-    if (generation !== state.selectedItemsGeneration) return;
+    if (!isCurrent()) return;
 
     if (items.length) {
       if (append) {
         resetFolderItemLoad();
-        const existingIds = new Set(state.nodes.map(({ item }) => item.id));
+        const existingIds = new Set(board.nodes.map(({ item }) => item.id));
         const newItems = items.filter(({ id }) => id && !existingIds.has(id));
         if (!newItems.length) return;
         appendItemsToBoard(newItems);
@@ -420,7 +434,7 @@ async function loadSelectedItems({ append = false } = {}) {
         console.warn("Failed to inspect selected Eagle folders", error);
       }
     }
-    if (generation !== state.selectedItemsGeneration) return;
+    if (!isCurrent()) return;
     if (selectedFolderItems?.folders?.length) {
       await startFolderItemLoad(selectedFolderItems);
       return;
@@ -436,8 +450,9 @@ async function loadSelectedItems({ append = false } = {}) {
     } else {
       showToast("Eagle 目前沒有選取素材，可開啟自動探索。", false);
     }
-  } catch (error) {
-    if (generation !== state.selectedItemsGeneration) return;
+  });
+  if (result.status === "error") {
+    const { error } = result;
     console.error("Failed to load selected Eagle items", error);
     showToast(`無法讀取 Eagle 素材：${error.message || error}`, true);
   }
@@ -465,45 +480,50 @@ async function startFolderItemLoad({ folders, items }) {
 }
 
 async function loadMoreFolderItems({ focus = false } = {}) {
-  if (state.folderItemLoading || state.folderItemOffset >= state.folderItems.length) return;
+  if (state.folderItemLoading || state.folderItemOffset >= state.folderItems.length) {
+    return { status: "skipped" };
+  }
   const source = state.folderItemSource;
-  if (!source) return;
+  if (!source) return { status: "skipped" };
 
-  const generation = state.folderItemGeneration;
   const start = state.folderItemOffset;
   const batch = state.folderItems.slice(start, start + FOLDER_LOAD_BATCH_SIZE);
-  state.folderItemLoading = true;
-  updateFolderLoadMoreUI();
-  try {
-    const items = await source.hydrate(batch);
-    if (generation !== state.folderItemGeneration) return;
-    if (items.length) {
-      if (start === 0) {
-        renderItems(items);
-        if (focus) requestAnimationFrame(focusFirstItem);
-      } else {
-        appendItemsToBoard(items);
-      }
+  const result = await rowLoadCoordinator.load("folder", {
+    find: async () => batch,
+    hydrate: (items) => source.hydrate(items),
+    isRelevant: () =>
+      state.folderItemSource === source &&
+      state.folderItemOffset === start &&
+      state.folderItems[start] === batch[0],
+  });
+  if (result.status !== "success") {
+    if (result.status === "error") {
+      const { error } = result;
+      console.error("Failed to load folder items", error);
+      showToast(`無法載入資料夾素材：${error.message || error}`, true);
     }
-    state.folderItemOffset = start + batch.length;
-    updateFolderLoadMoreUI();
-    if (!focus && items.length) {
-      showToast(`已載入 ${state.folderItemOffset} / ${state.folderItems.length} 個資料夾素材。`);
-    }
-  } catch (error) {
-    if (generation !== state.folderItemGeneration) return;
-    console.error("Failed to load folder items", error);
-    showToast(`無法載入資料夾素材：${error.message || error}`, true);
-  } finally {
-    if (generation === state.folderItemGeneration) {
-      state.folderItemLoading = false;
-      updateFolderLoadMoreUI();
+    return result;
+  }
+
+  const { items } = result.value;
+  if (items.length) {
+    if (start === 0) {
+      renderItems(items);
+      if (focus) requestAnimationFrame(focusFirstItem);
+    } else {
+      appendItemsToBoard(items);
     }
   }
+  state.folderItemOffset = start + batch.length;
+  updateFolderLoadMoreUI();
+  if (!focus && items.length) {
+    showToast(`已載入 ${state.folderItemOffset} / ${state.folderItems.length} 個資料夾素材。`);
+  }
+  return result;
 }
 
 function resetFolderItemLoad() {
-  state.folderItemGeneration += 1;
+  rowLoadCoordinator.invalidate("folder");
   state.folderItems = [];
   state.folderItemOffset = 0;
   state.folderItemLoading = false;
@@ -533,35 +553,14 @@ function describeSelectedFolders(folders) {
 
 function appendItemsToBoard(items) {
   if (!items.length) return;
-  if (!state.rows.length) {
+  if (!board.rows.length) {
     renderItems(items);
     requestAnimationFrame(focusFirstItem);
     return;
   }
 
-  const layoutConfig = getBoardLayoutConfig();
-  const selectedLayout = createBoardLayout(items, layoutConfig);
-  let layout = {
-    nodes: state.nodes,
-    rows: state.rows,
-    ...layoutConfig,
-  };
-  for (const row of selectedLayout.rows) {
-    layout = insertBoardRow(
-      layout,
-      layout.rows.at(-1),
-      row.nodes.map(({ item }) => item),
-      layoutConfig,
-    );
-  }
-  state.nodes = layout.nodes;
-  state.rows = layout.rows;
-  void loadFolderNames(items);
-  for (const node of state.materializedNodes) positionNode(node);
-  updateBoardMeta();
-  renderAutoExploreTagOptions();
-  updateMediaVisibility();
-  updateLabels();
+  board.append(items, getBoardLayoutConfig());
+  refreshBoardAfterItems(items);
 }
 
 function renderItems(items) {
@@ -575,9 +574,7 @@ function renderItems(items) {
   state.labelCamera = null;
   elements.labels.style.transform = "none";
   state.mountedNodes.clear();
-  const layout = createBoardLayout(items);
-  state.nodes = layout.nodes;
-  state.rows = layout.rows;
+  board.replace(items, getBoardLayoutConfig());
   state.lastUnratedTriggerRow = null;
   void loadFolderNames(items);
   renderAutoExploreTagOptions();
@@ -587,14 +584,23 @@ function renderItems(items) {
   updateLabels();
 }
 
+function refreshBoardAfterItems(items) {
+  void loadFolderNames(items);
+  for (const node of state.materializedNodes) positionNode(node);
+  updateBoardMeta();
+  renderAutoExploreTagOptions();
+  updateMediaVisibility();
+  updateLabels();
+}
+
 function relayoutBoard() {
-  if (!state.nodes.length) return;
+  if (!board.nodes.length) return;
 
   const selectedItemId = state.selectedNode?.item?.id;
   const rotations = new Map(
-    state.nodes.map((node) => [node.item.id, node.rotation || 0]),
+    board.nodes.map((node) => [node.item.id, node.rotation || 0]),
   );
-  const items = state.nodes.map(({ item }) => item);
+  const items = board.nodes.map(({ item }) => item);
 
   selectionNavigation.clearSelection();
   releaseAllMediaCards();
@@ -605,16 +611,11 @@ function relayoutBoard() {
   state.labelCamera = null;
   elements.labels.style.transform = "none";
 
-  const layout = createBoardLayout(items);
-  for (const node of layout.nodes) {
-    node.rotation = rotations.get(node.item.id) || 0;
-  }
-  state.nodes = layout.nodes;
-  state.rows = layout.rows;
+  board.relayout(items, getBoardLayoutConfig(), rotations);
 
   refreshBaseScale();
   updateBoardMeta();
-  const selectedNode = state.nodes.find(({ item }) => item.id === selectedItemId);
+  const selectedNode = board.nodes.find(({ item }) => item.id === selectedItemId);
   if (selectedNode) selectionNavigation.setSelectedNode(selectedNode);
   updateCamera();
   updateMediaVisibility();
@@ -1135,10 +1136,9 @@ async function saveItemMetadata(node, { rollback, successMessage }) {
   if (node.isSaving) return false;
   node.isSaving = true;
   setLabelSaving(node, true);
-  state.explorationGeneration += 1;
+  rowLoadCoordinator.invalidate("exploration");
   state.explorationSource?.clear();
-  state.unratedGeneration += 1;
-  state.unratedLoading = false;
+  rowLoadCoordinator.invalidate("unrated");
   state.unratedExhausted = false;
   state.lastUnratedTriggerRow = null;
   state.unratedSource?.clear();
@@ -1480,9 +1480,9 @@ function handleKeyDown(event) {
     }
     if (arrowAction === "focus-selection") {
       if (event.repeat) return;
-      const previousRow = state.rows.find((row) => row.nodes.includes(state.selectedNode));
+      const previousRow = board.rows.find((row) => row.nodes.includes(state.selectedNode));
       const node = selectionNavigation.moveSelection(directionFor(event.key));
-      const nextRow = node && state.rows.find((row) => row.nodes.includes(node));
+      const nextRow = node && board.rows.find((row) => row.nodes.includes(node));
       if (node) cameraNavigation.focusSelectedNodeAtRowScale(node, { crossRow: previousRow !== nextRow });
       return;
     }
@@ -1636,28 +1636,8 @@ function preloadSelectedNode(node) {
 }
 
 function insertExplorationItemsAfterNode(pivotNode, items) {
-  const pivotRow = state.rows.find((row) => row.nodes.includes(pivotNode));
-  if (!pivotRow) return false;
-
-  const layoutConfig = getBoardLayoutConfig();
-  const layout = insertBoardRow(
-    {
-      nodes: state.nodes,
-      rows: state.rows,
-      ...layoutConfig,
-    },
-    pivotRow,
-    items,
-    layoutConfig,
-  );
-  state.nodes = layout.nodes;
-  state.rows = layout.rows;
-  void loadFolderNames(items);
-  for (const node of state.materializedNodes) positionNode(node);
-  updateBoardMeta();
-  renderAutoExploreTagOptions();
-  updateMediaVisibility();
-  updateLabels();
+  if (!board.insertAfter(pivotNode, items, getBoardLayoutConfig())) return false;
+  refreshBoardAfterItems(items);
   return true;
 }
 
@@ -1671,43 +1651,42 @@ async function exploreNextRow() {
     return;
   }
 
-  const boardNodes = state.nodes;
-  const generation = state.explorationGeneration;
-  state.explorationLoading = true;
-  updateExploreButton();
-  try {
-    const excludedIds = new Set(boardNodes.map(({ item }) => item.id));
-    const candidates = await source.findCandidates(pivot, excludedIds);
-    if (generation !== state.explorationGeneration || state.nodes !== boardNodes) return;
-    const selectedCandidates = selectDiverseExplorationRow(
-      candidates,
-      pivot,
-      Math.random,
-      getBoardLayoutWidth(),
-      state.maxExplorationItems,
-    );
-    if (!selectedCandidates.length) {
-      showToast(`找不到更多與「${pivot.name || "目前素材"}」相關的素材。`, false);
-      return;
-    }
-
-    const items = await source.hydrate(selectedCandidates);
-    if (generation !== state.explorationGeneration || state.nodes !== boardNodes) return;
-    if (!items.length) {
-      showToast("相關素材目前無法載入。", true);
-      return;
-    }
-
-    if (state.selectedNode !== pivotNode) return;
-    if (!insertExplorationItemsAfterNode(pivotNode, items)) return;
-    showToast(`已根據「${pivot.name || "目前素材"}」加入 ${items.length} 個相關素材。`);
-  } catch (error) {
+  const boardNodes = board.nodes;
+  const excludedIds = new Set(boardNodes.map(({ item }) => item.id));
+  const result = await rowLoadCoordinator.load("exploration", {
+    find: () => source.findCandidates(pivot, excludedIds),
+    select: (candidates) =>
+      selectDiverseExplorationRow(
+        candidates,
+        pivot,
+        Math.random,
+        getBoardLayoutWidth(),
+        state.maxExplorationItems,
+      ),
+    hydrate: (candidates) => source.hydrate(candidates),
+    isRelevant: () => board.nodes === boardNodes && state.selectedNode === pivotNode,
+  });
+  if (result.status === "stale" || result.status === "busy") return;
+  if (result.status === "error") {
+    const { error } = result;
     console.error("Failed to explore related Eagle items", error);
     showToast(`探索失敗：${error.message || error}`, true);
-  } finally {
-    state.explorationLoading = false;
-    updateExploreButton();
+    return;
   }
+
+  if (result.value.kind === "empty") {
+    showToast(`找不到更多與「${pivot.name || "目前素材"}」相關的素材。`, false);
+    return;
+  }
+  const { items } = result.value;
+  if (!items.length) {
+    showToast("相關素材目前無法載入。", true);
+    return;
+  }
+
+  if (state.selectedNode !== pivotNode) return;
+  if (!insertExplorationItemsAfterNode(pivotNode, items)) return;
+  showToast(`已根據「${pivot.name || "目前素材"}」加入 ${items.length} 個相關素材。`);
 }
 
 async function exploreFromSelectionTarget({ type, value, label }) {
@@ -1716,129 +1695,89 @@ async function exploreFromSelectionTarget({ type, value, label }) {
   if (!pivotNode || !source || state.explorationLoading) return;
 
   const criterion = type === "tag" ? { tags: [value] } : { folders: [value] };
-  const boardNodes = state.nodes;
-  const generation = state.explorationGeneration;
-  state.explorationLoading = true;
-  updateExploreButton();
-  try {
-    const excludedIds = new Set(boardNodes.map(({ item }) => item.id));
-    const candidates = await source.findCandidates(criterion, excludedIds);
-    if (
-      generation !== state.explorationGeneration ||
-      state.nodes !== boardNodes ||
-      state.selectedNode !== pivotNode
-    ) {
-      return;
-    }
-
-    const selectedCandidates = selectDiverseExplorationRow(
-      candidates,
-      criterion,
-      Math.random,
-      getBoardLayoutWidth(),
-      state.maxExplorationItems,
-    );
-    if (!selectedCandidates.length) {
-      showToast(`找不到更多包含「${label}」的素材。`, false);
-      return;
-    }
-
-    const items = await source.hydrate(selectedCandidates);
-    if (
-      generation !== state.explorationGeneration ||
-      state.nodes !== boardNodes ||
-      state.selectedNode !== pivotNode
-    ) {
-      return;
-    }
-    if (!items.length) {
-      showToast("目標素材目前無法載入。", true);
-      return;
-    }
-
-    if (!insertExplorationItemsAfterNode(pivotNode, items)) return;
-    showToast(`已根據${type === "tag" ? " Tag" : "資料夾"}「${label}」加入 ${items.length} 個素材。`);
-  } catch (error) {
+  const boardNodes = board.nodes;
+  const excludedIds = new Set(boardNodes.map(({ item }) => item.id));
+  const result = await rowLoadCoordinator.load("exploration", {
+    find: () => source.findCandidates(criterion, excludedIds),
+    select: (candidates) =>
+      selectDiverseExplorationRow(
+        candidates,
+        criterion,
+        Math.random,
+        getBoardLayoutWidth(),
+        state.maxExplorationItems,
+      ),
+    hydrate: (candidates) => source.hydrate(candidates),
+    isRelevant: () => board.nodes === boardNodes && state.selectedNode === pivotNode,
+  });
+  if (result.status === "stale" || result.status === "busy") return;
+  if (result.status === "error") {
+    const { error } = result;
     console.error("Failed to explore selection target", error);
     showToast(`探索「${label}」失敗：${error.message || error}`, true);
-  } finally {
-    state.explorationLoading = false;
-    updateExploreButton();
+    return;
   }
+
+  if (result.value.kind === "empty") {
+    showToast(`找不到更多包含「${label}」的素材。`, false);
+    return;
+  }
+  const { items } = result.value;
+  if (!items.length) {
+    showToast("目標素材目前無法載入。", true);
+    return;
+  }
+
+  if (!insertExplorationItemsAfterNode(pivotNode, items)) return;
+  showToast(`已根據${type === "tag" ? " Tag" : "資料夾"}「${label}」加入 ${items.length} 個素材。`);
 }
 
 async function loadNextUnratedRow({ focus = false } = {}) {
   const source = state.unratedSource;
   if (!state.unratedEnabled || !source || state.unratedLoading || state.unratedExhausted) return;
 
-  const boardNodes = state.nodes;
-  const generation = state.unratedGeneration;
-  state.unratedLoading = true;
-  updateAutoExploreToggle();
-  try {
-    const excludedIds = new Set(boardNodes.map(({ item }) => item.id));
-    const layoutConfig = getBoardLayoutConfig();
-    const candidates = await source.findNextRow(
-      excludedIds,
-      state.unratedFilter,
-      layoutConfig.layoutWidth,
-      state.maxExplorationItems,
-    );
-    if (generation !== state.unratedGeneration || state.nodes !== boardNodes) return;
-    if (!candidates.length) {
-      state.unratedExhausted = true;
-      showToast("沒有更多符合目前條件的素材。", false);
-      return;
-    }
-
-    const items = await source.hydrate(candidates);
-    if (generation !== state.unratedGeneration || state.nodes !== boardNodes) return;
-    if (!items.length) {
-      showToast("符合條件的素材目前無法載入。", true);
-      return;
-    }
-
-    if (!state.rows.length) {
-      const layout = createBoardLayout(items, layoutConfig);
-      state.nodes = layout.nodes;
-      state.rows = layout.rows;
-    } else {
-      const layout = insertBoardRow(
-        {
-          nodes: state.nodes,
-          rows: state.rows,
-          ...layoutConfig,
-        },
-        state.rows.at(-1),
-        items,
-        layoutConfig,
-      );
-      state.nodes = layout.nodes;
-      state.rows = layout.rows;
-    }
-    void loadFolderNames(items);
-    for (const node of state.materializedNodes) positionNode(node);
-    updateBoardMeta();
-    renderAutoExploreTagOptions();
-    updateMediaVisibility();
-    updateLabels();
-    if (focus) requestAnimationFrame(focusFirstItem);
-    showToast(`已加入 ${items.length} 個符合條件的素材。`);
-  } catch (error) {
-    if (generation !== state.unratedGeneration) return;
+  const boardNodes = board.nodes;
+  const excludedIds = new Set(boardNodes.map(({ item }) => item.id));
+  const layoutConfig = getBoardLayoutConfig();
+  const result = await rowLoadCoordinator.load("unrated", {
+    find: () =>
+      source.findNextRow(
+        excludedIds,
+        state.unratedFilter,
+        layoutConfig.layoutWidth,
+        state.maxExplorationItems,
+      ),
+    hydrate: (candidates) => source.hydrate(candidates),
+    isRelevant: () => board.nodes === boardNodes,
+  });
+  if (result.status === "stale" || result.status === "busy") return;
+  if (result.status === "error") {
     state.lastUnratedTriggerRow = null;
+    const { error } = result;
     console.error("Failed to load unrated Eagle items", error);
     showToast(`無法載入未評分素材：${error.message || error}`, true);
-  } finally {
-    if (generation === state.unratedGeneration) {
-      state.unratedLoading = false;
-      updateAutoExploreToggle();
-    }
+    return;
   }
+
+  if (result.value.kind === "empty") {
+    state.unratedExhausted = true;
+    showToast("沒有更多符合目前條件的素材。", false);
+    return;
+  }
+  const { items } = result.value;
+  if (!items.length) {
+    showToast("符合條件的素材目前無法載入。", true);
+    return;
+  }
+
+  board.append(items, layoutConfig);
+  refreshBoardAfterItems(items);
+  if (focus) requestAnimationFrame(focusFirstItem);
+  showToast(`已加入 ${items.length} 個符合條件的素材。`);
 }
 
 function maybeLoadNextUnratedRow() {
-  const lastRow = state.rows.at(-1);
+  const lastRow = board.rows.at(-1);
   if (
     !state.unratedEnabled ||
     !lastRow ||
@@ -1846,7 +1785,7 @@ function maybeLoadNextUnratedRow() {
     state.unratedLoading ||
     state.unratedExhausted ||
     !shouldLoadUnratedRow(
-      state.rows,
+      board.rows,
       state.camera,
       { width: elements.viewport.clientWidth, height: elements.viewport.clientHeight },
       getBaseScale(),
@@ -2165,26 +2104,6 @@ function getBoardLayoutConfig() {
   };
 }
 
-function createBoardLayout(items, config = getBoardLayoutConfig()) {
-  return createJustifiedLayout(
-    items,
-    config.direction,
-    config.layoutWidth,
-    config,
-  );
-}
-
-function insertBoardRow(layout, afterRow, items, config = getBoardLayoutConfig()) {
-  return insertExplorationRow(
-    layout,
-    afterRow,
-    items,
-    config.direction,
-    config.layoutWidth,
-    config,
-  );
-}
-
 function normalizeMaxExplorationItems(value) {
   const number = Number(value);
   return Number.isFinite(number)
@@ -2262,15 +2181,14 @@ function applyAutoExploreSettings({ close = true } = {}) {
   updateAutoExploreSettingsUI();
   if (!changed) return;
 
-  state.unratedGeneration += 1;
-  state.unratedLoading = false;
+  rowLoadCoordinator.invalidate("unrated");
   state.unratedExhausted = false;
   state.lastUnratedTriggerRow = null;
   state.unratedSource?.clear();
   updateAutoExploreToggle();
   showToast("已更新自動探索條件。", false);
   if (!state.unratedEnabled) return;
-  if (!state.rows.length) void loadNextUnratedRow({ focus: true });
+  if (!board.rows.length) void loadNextUnratedRow({ focus: true });
   else maybeLoadNextUnratedRow();
 }
 
@@ -2394,7 +2312,7 @@ function renderAutoExploreSelectedTags(container, tags, filterKey) {
 
 function getAutoExploreKnownTags() {
   const tags = new Set(state.tagColors.keys());
-  for (const node of state.nodes) {
+  for (const node of board.nodes) {
     for (const tag of normalizeTags(node.item.tags)) tags.add(tag);
   }
   return [...tags];
@@ -2424,8 +2342,7 @@ function toggleUnratedExploration() {
   state.unratedEnabled = !state.unratedEnabled;
   state.lastUnratedTriggerRow = null;
   if (!state.unratedEnabled) {
-    state.unratedGeneration += 1;
-    state.unratedLoading = false;
+    rowLoadCoordinator.invalidate("unrated");
     state.unratedExhausted = false;
     state.unratedSource?.clear();
   }
@@ -2435,7 +2352,7 @@ function toggleUnratedExploration() {
     return;
   }
   showToast("已開啟自動探索。", false);
-  if (!state.rows.length) void loadNextUnratedRow({ focus: true });
+  if (!board.rows.length) void loadNextUnratedRow({ focus: true });
   else maybeLoadNextUnratedRow();
 }
 
@@ -2519,7 +2436,7 @@ function isInteractiveTarget(target) {
 }
 
 function focusFirstItem() {
-  const node = state.nodes[0];
+  const node = board.nodes[0];
   if (!node) return;
   const viewportWidth = elements.viewport.clientWidth;
   const viewportHeight = elements.viewport.clientHeight;
@@ -2536,15 +2453,14 @@ function focusFirstItem() {
 }
 
 function clearBoard() {
-  state.selectedItemsGeneration += 1;
+  rowLoadCoordinator.invalidate("selected");
   cameraNavigation.cancelCameraFocus();
   tagEditor.close();
   folderPicker.close();
   selectionNavigation.clearSelection();
   releaseAllMediaCards();
   releaseAllMediaLabels();
-  state.nodes = [];
-  state.rows = [];
+  board.clear();
   state.lastUnratedTriggerRow = null;
   state.mountedNodes.clear();
   elements.world.replaceChildren();
@@ -2559,7 +2475,7 @@ function clearBoard() {
 }
 
 function updateBoardMeta() {
-  const count = state.nodes.length;
+  const count = board.nodes.length;
   elements.itemCount.textContent = `${count} 個素材`;
   elements.emptyState.hidden = count > 0;
 }
@@ -2800,7 +2716,7 @@ function wantsOriginalImage(node, scale) {
 
 function getNodesNearViewport(screenMargin) {
   return findNodesNearViewport(
-    state.rows,
+    board.rows,
     state.camera,
     { width: elements.viewport.clientWidth, height: elements.viewport.clientHeight },
     screenMargin,
@@ -2893,11 +2809,11 @@ function refreshBaseScale() {
   const padding = 64;
   const viewportWidth = Math.max(elements.viewport?.clientWidth || 0, 1);
   const viewportHeight = Math.max(elements.viewport?.clientHeight || 0, 1);
-  const referenceHeight = state.nodes.length
-    ? state.nodes[0].mediaHeight +
-      (state.nodes[0].isVideo ? getVideoControlsHeight() : 0)
+  const referenceHeight = board.nodes.length
+    ? board.nodes[0].mediaHeight +
+      (board.nodes[0].isVideo ? getVideoControlsHeight() : 0)
     : TARGET_ROW_HEIGHT + getVideoControlsHeight();
-  const referenceWidth = state.nodes[0]?.width || TARGET_ROW_HEIGHT * (16 / 10);
+  const referenceWidth = board.nodes[0]?.width || TARGET_ROW_HEIGHT * (16 / 10);
   const widthScale = (viewportWidth - padding * 2) / referenceWidth;
   const heightScale = (viewportHeight - padding * 2) / referenceHeight;
   state.baseScale = Math.max(0.01, Math.min(widthScale, heightScale));

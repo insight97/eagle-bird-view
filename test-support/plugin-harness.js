@@ -3,9 +3,11 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const BirdViewBoard = require("../board-state.js");
 const BirdViewCore = require("../bird-view-core.js");
 const BirdViewMedia = require("../media-load-queue.js");
 const BirdViewExploration = require("../exploration-source.js");
+const BirdViewRowLoad = require("../row-load-coordinator.js");
 
 const PLUGIN_SOURCE = fs.readFileSync(path.resolve(__dirname, "../plugin.js"), "utf8");
 const SELECTORS = [
@@ -254,6 +256,7 @@ function createElementStub(tag = "div") {
 function createPluginHarness({
   selectedItems = null,
   runAnimationFrames = false,
+  navigationProbe = false,
   // Tests that exercise plugin.js error paths can mute the expected logging so
   // a passing run does not look like a failing one.
   quiet = false,
@@ -268,6 +271,8 @@ function createPluginHarness({
   let folderSourceResult = { folders: [], items: [] };
   let fullScreen = false;
   let fullScreenCalls = 0;
+  let selectedNodeId = null;
+  let focusedNodeId = null;
   let nextTimerId = 1;
   const timers = [];
   const createdElements = [];
@@ -299,8 +304,10 @@ function createPluginHarness({
   }
 
   const context = {
+    BirdViewBoard,
     BirdViewCore,
     BirdViewMedia,
+    BirdViewRowLoad,
     // Real filter helpers, stubbed item sources.
     BirdViewExploration: { ...BirdViewExploration, RelatedItemSource, UnratedItemSource },
     BirdViewFolder: {
@@ -323,7 +330,9 @@ function createPluginHarness({
           animateCameraTo() {},
           cancelCameraFocus() {},
           fitSelectedRowInViewport() {},
-          focusSelectedNodeAtRowScale() {},
+          focusSelectedNodeAtRowScale(node) {
+            if (navigationProbe) focusedNodeId = node?.item?.id || null;
+          },
           getKeyboardPanStep() { return 240; },
           handleKeyUp() {},
           handleWindowBlur() {},
@@ -338,7 +347,51 @@ function createPluginHarness({
       },
     },
     BirdViewSelection: {
-      createSelectionNavigation() {
+      createSelectionNavigation(options) {
+        if (navigationProbe) {
+          const readRows = options.getRows || (() => options.state.rows);
+
+          function setSelectedNode(node) {
+            if (!node) return;
+            const previousNode = options.state.selectedNode;
+            options.state.selectedNode = node;
+            selectedNodeId = node.item.id;
+            options.onSelectNode?.(node, {
+              changed: node !== previousNode,
+              previousNode,
+              preserveVerticalNavigation: false,
+            });
+          }
+
+          return {
+            clearSelection() {
+              const previousNode = options.state.selectedNode;
+              options.state.selectedNode = null;
+              selectedNodeId = null;
+              options.onClearSelection?.(previousNode);
+            },
+            moveSelection(direction) {
+              if (!options.state.selectedNode) return null;
+              const node = BirdViewCore.findDirectionalNeighbor(
+                readRows(),
+                options.state.selectedNode,
+                direction,
+                { wrapRows: true, layoutDirection: options.state.layoutDirection },
+              );
+              if (node) setSelectedNode(node);
+              return node || null;
+            },
+            selectNodeAtViewportCenter() {
+              const center = BirdViewCore.getViewportWorldCenter(options.state.camera, {
+                width: options.elements.viewport.clientWidth,
+                height: options.elements.viewport.clientHeight,
+              });
+              const node = BirdViewCore.findNearestNodeInRows(readRows(), center);
+              if (node) setSelectedNode(node);
+            },
+            setSelectedNode,
+          };
+        }
         return {
           clearSelection() {},
           moveSelection() { return null; },
@@ -437,8 +490,10 @@ function createPluginHarness({
     get folderLoadRequests() { return folderLoadRequests; },
     get fullScreen() { return fullScreen; },
     get fullScreenCalls() { return fullScreenCalls; },
+    get focusedNodeId() { return focusedNodeId; },
     get keyDown() { return windowListeners.get("keydown"); },
     get selectedRequests() { return selectedRequests; },
+    get selectedNodeId() { return selectedNodeId; },
     get unratedRequests() { return unratedRequests; },
     changeLibrary() {
       libraryChanged();

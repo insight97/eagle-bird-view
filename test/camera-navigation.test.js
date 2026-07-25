@@ -95,6 +95,30 @@ test("camera navigation animates a selected node and cancels the pending focus",
   assert.equal(harness.frames.has(nextFocusFrame), false);
 });
 
+test("camera navigation can read rows from the board without state rows", () => {
+  const harness = createHarness();
+  const node = { x: 100, y: 120, width: 200, mediaHeight: 100, isVideo: false };
+  const boardRows = [{ top: 120, bottom: 220, nodes: [node] }];
+  delete harness.state.rows;
+  harness.state.selectedNode = node;
+
+  const navigation = createCameraNavigation({
+    state: harness.state,
+    elements: { viewport: { clientWidth: 800, clientHeight: 600 } },
+    getBaseScale: () => 1,
+    updateCamera: () => {},
+    getRows: () => boardRows,
+    requestAnimationFrame(callback) {
+      callback(180);
+      return 1;
+    },
+    cancelAnimationFrame() {},
+    now: () => 0,
+  });
+
+  assert.doesNotThrow(() => navigation.focusSelectedNodeAtRowScale(node));
+});
+
 test("camera navigation enlarges focus scale in seamless mode", () => {
   const harness = createHarness();
   const node = { x: 100, y: 120, width: 200, mediaHeight: 100, isVideo: false };
