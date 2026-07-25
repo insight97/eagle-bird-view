@@ -2,7 +2,70 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { RelatedItemSource, UnratedItemSource } = require("../exploration-source.js");
+const {
+  DEFAULT_UNRATED_FILTER,
+  RelatedItemSource,
+  UnratedItemSource,
+  normalizeUnratedFilter,
+  unratedFiltersEqual,
+} = require("../exploration-source.js");
+
+test("normalizeUnratedFilter repairs every field of a stored filter", () => {
+  assert.deepEqual(normalizeUnratedFilter(), {
+    fileTypes: ["image", "video"],
+    rating: "unrated",
+    tags: [],
+    excludedTags: [],
+    tagMatch: "any",
+    maxTagCount: null,
+  });
+
+  assert.deepEqual(
+    normalizeUnratedFilter({
+      fileTypes: ["video", "audio"],
+      rating: "3",
+      tags: [" UI ", "UI", ""],
+      excludedTags: ["Draft"],
+      tagMatch: "all",
+      maxTagCount: 2,
+    }),
+    {
+      fileTypes: ["video"],
+      rating: 3,
+      tags: ["UI"],
+      excludedTags: ["Draft"],
+      tagMatch: "all",
+      maxTagCount: 2,
+    },
+  );
+});
+
+test("normalizeUnratedFilter falls back on unusable values", () => {
+  const filter = normalizeUnratedFilter({
+    fileTypes: ["audio"],
+    rating: 9,
+    tagMatch: "either",
+    maxTagCount: 0,
+  });
+
+  assert.deepEqual(filter.fileTypes, ["image", "video"]);
+  assert.equal(filter.rating, "unrated");
+  assert.equal(filter.tagMatch, "any");
+  assert.equal(filter.maxTagCount, null);
+});
+
+test("normalizeUnratedFilter accepts the legacy single fileType field", () => {
+  assert.deepEqual(normalizeUnratedFilter({ fileType: "video" }).fileTypes, ["video"]);
+  assert.deepEqual(normalizeUnratedFilter({ fileType: "any" }).fileTypes, ["image", "video"]);
+});
+
+test("unratedFiltersEqual compares filters after normalization", () => {
+  assert.equal(unratedFiltersEqual(DEFAULT_UNRATED_FILTER, {}), true);
+  assert.equal(unratedFiltersEqual({ rating: "3" }, { rating: 3 }), true);
+  assert.equal(unratedFiltersEqual({ tags: ["UI"] }, { tags: ["UI", "UI"] }), true);
+  assert.equal(unratedFiltersEqual({ rating: 3 }, { rating: 4 }), false);
+  assert.equal(unratedFiltersEqual({ tags: ["UI"] }, { excludedTags: ["UI"] }), false);
+});
 
 test("findCandidates unions folder and tag results while excluding existing items", async () => {
   const calls = [];

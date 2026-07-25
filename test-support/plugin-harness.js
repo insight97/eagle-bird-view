@@ -5,6 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const BirdViewCore = require("../bird-view-core.js");
 const BirdViewMedia = require("../media-load-queue.js");
+const BirdViewExploration = require("../exploration-source.js");
 
 const PLUGIN_SOURCE = fs.readFileSync(path.resolve(__dirname, "../plugin.js"), "utf8");
 const SELECTORS = [
@@ -300,7 +301,8 @@ function createPluginHarness({
   const context = {
     BirdViewCore,
     BirdViewMedia,
-    BirdViewExploration: { RelatedItemSource, UnratedItemSource },
+    // Real filter helpers, stubbed item sources.
+    BirdViewExploration: { ...BirdViewExploration, RelatedItemSource, UnratedItemSource },
     BirdViewFolder: {
       FolderItemSource: class {
         async loadSelected() {

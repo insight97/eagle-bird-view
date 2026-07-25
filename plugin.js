@@ -36,7 +36,13 @@ const {
   shouldLoadUnratedRow,
 } = BirdViewCore;
 const { MediaLoadQueue, waitForImageDecode } = BirdViewMedia;
-const { RelatedItemSource, UnratedItemSource } = BirdViewExploration;
+const {
+  DEFAULT_UNRATED_FILTER,
+  RelatedItemSource,
+  UnratedItemSource,
+  normalizeUnratedFilter,
+  unratedFiltersEqual,
+} = BirdViewExploration;
 const { FolderItemSource } = BirdViewFolder;
 const { FolderPicker } = BirdViewFolderPicker;
 const { startVideoPlayer } = BirdViewVideo;
@@ -69,15 +75,6 @@ const RESOURCE_RELEASE_VIEWPORTS = 3;
 const GRID_LAYER_OVERFLOW = 768;
 const METADATA_SUCCESS_TOAST_MS = 1200;
 const FOLDER_LOAD_BATCH_SIZE = 120;
-const AUTO_EXPLORE_FILE_TYPES = Object.freeze(["image", "video"]);
-const DEFAULT_AUTO_EXPLORE_FILTER = Object.freeze({
-  fileTypes: Object.freeze(["image", "video"]),
-  rating: "unrated",
-  tags: Object.freeze([]),
-  excludedTags: Object.freeze([]),
-  tagMatch: "any",
-  maxTagCount: null,
-});
 const MEDIA_DEBUG_STORAGE_KEY = "bird-view-debug";
 
 function isMediaDebugEnabled() {
@@ -145,7 +142,7 @@ const state = {
   unratedEnabled: false,
   unratedLoading: false,
   unratedExhausted: false,
-  unratedFilter: cloneAutoExploreFilter(DEFAULT_AUTO_EXPLORE_FILTER),
+  unratedFilter: normalizeUnratedFilter(DEFAULT_UNRATED_FILTER),
   unratedDraftFilter: null,
   unratedGeneration: 0,
   lastUnratedTriggerRow: null,
@@ -1745,32 +1742,11 @@ function maybeLoadNextUnratedRow() {
   void loadNextUnratedRow();
 }
 
-function cloneAutoExploreFilter(filter = DEFAULT_AUTO_EXPLORE_FILTER) {
-  const maxTagCount = Number(filter.maxTagCount);
-  return {
-    fileTypes: normalizeAutoExploreFileTypes(filter),
-    rating:
-      filter.rating === "any" || filter.rating === "unrated"
-        ? filter.rating
-        : [1, 2, 3, 4, 5].includes(Number(filter.rating))
-          ? Number(filter.rating)
-          : DEFAULT_AUTO_EXPLORE_FILTER.rating,
-    tags: normalizeTags(filter.tags),
-    excludedTags: normalizeTags(filter.excludedTags),
-    tagMatch: filter.tagMatch === "all" ? "all" : "any",
-    maxTagCount: Number.isInteger(maxTagCount) && maxTagCount >= 1 ? maxTagCount : null,
-  };
-}
-
-function autoExploreFiltersEqual(first, second) {
-  return JSON.stringify(cloneAutoExploreFilter(first)) === JSON.stringify(cloneAutoExploreFilter(second));
-}
-
 function toggleAutoExploreSettings() {
   const panel = elements.autoExploreSettingsPanel;
   if (!panel) return;
   if (panel.hidden) {
-    state.unratedDraftFilter = cloneAutoExploreFilter(state.unratedFilter);
+    state.unratedDraftFilter = normalizeUnratedFilter(state.unratedFilter);
     if (elements.autoExploreTagSearch) elements.autoExploreTagSearch.value = "";
     if (elements.autoExploreExcludedTagSearch) {
       elements.autoExploreExcludedTagSearch.value = "";
@@ -1938,7 +1914,7 @@ function restoreSavedSettings() {
       state.maxExplorationItems = normalizeMaxExplorationItems(board.maxExplorationItems);
     }
     if (saved?.autoExploreFilter && typeof saved.autoExploreFilter === "object") {
-      state.unratedFilter = cloneAutoExploreFilter(saved.autoExploreFilter);
+      state.unratedFilter = normalizeUnratedFilter(saved.autoExploreFilter);
     }
   } catch (error) {
     console.warn("Failed to restore Bird View settings", error);
@@ -2098,16 +2074,6 @@ function handleAutoExploreExcludedTagSearchKeyDown(event) {
   selectFirstAutoExploreTagOption(event, elements.autoExploreExcludedTagOptions);
 }
 
-function normalizeAutoExploreFileTypes(filter) {
-  const requested = Array.isArray(filter.fileTypes)
-    ? filter.fileTypes
-    : filter.fileType === "any"
-      ? AUTO_EXPLORE_FILE_TYPES
-      : [filter.fileType];
-  const fileTypes = AUTO_EXPLORE_FILE_TYPES.filter((fileType) => requested.includes(fileType));
-  return fileTypes.length ? fileTypes : [...DEFAULT_AUTO_EXPLORE_FILTER.fileTypes];
-}
-
 function selectFirstAutoExploreTagOption(event, optionsElement) {
   if (event.key !== "Enter") return;
   const firstOption = optionsElement?.querySelector("button");
@@ -2117,7 +2083,7 @@ function selectFirstAutoExploreTagOption(event, optionsElement) {
 }
 
 function resetAutoExploreSettings() {
-  state.unratedDraftFilter = cloneAutoExploreFilter(DEFAULT_AUTO_EXPLORE_FILTER);
+  state.unratedDraftFilter = normalizeUnratedFilter(DEFAULT_UNRATED_FILTER);
   if (elements.autoExploreTagSearch) elements.autoExploreTagSearch.value = "";
   if (elements.autoExploreExcludedTagSearch) elements.autoExploreExcludedTagSearch.value = "";
   applyAutoExploreSettings({ close: false });
@@ -2125,12 +2091,12 @@ function resetAutoExploreSettings() {
 
 function applyAutoExploreSettings({ close = true } = {}) {
   if (!state.unratedDraftFilter) return;
-  const nextFilter = cloneAutoExploreFilter(state.unratedDraftFilter);
-  const changed = !autoExploreFiltersEqual(state.unratedFilter, nextFilter);
+  const nextFilter = normalizeUnratedFilter(state.unratedDraftFilter);
+  const changed = !unratedFiltersEqual(state.unratedFilter, nextFilter);
   state.unratedFilter = nextFilter;
   saveSettings();
   if (close) closeAutoExploreSettings();
-  else state.unratedDraftFilter = cloneAutoExploreFilter(nextFilter);
+  else state.unratedDraftFilter = normalizeUnratedFilter(nextFilter);
   updateAutoExploreSettingsUI();
   if (!changed) return;
 
@@ -2219,7 +2185,7 @@ function renderAutoExploreTagPicker({
       marker.textContent = "+";
       option.append(marker, createTagChip(tag));
       option.addEventListener("click", () => {
-        const draft = state.unratedDraftFilter || cloneAutoExploreFilter(state.unratedFilter);
+        const draft = state.unratedDraftFilter || normalizeUnratedFilter(state.unratedFilter);
         const nextTags = new Set(normalizeTags(draft[filterKey]));
         const oppositeKey = filterKey === "tags" ? "excludedTags" : "tags";
         nextTags.add(tag);
@@ -2252,7 +2218,7 @@ function renderAutoExploreSelectedTags(container, tags, filterKey) {
       marker.textContent = "×";
       remove.append(chip, marker);
       remove.addEventListener("click", () => {
-        const draft = state.unratedDraftFilter || cloneAutoExploreFilter(state.unratedFilter);
+        const draft = state.unratedDraftFilter || normalizeUnratedFilter(state.unratedFilter);
         state.unratedDraftFilter = {
           ...draft,
           [filterKey]: normalizeTags(draft[filterKey]).filter((value) => value !== tag),

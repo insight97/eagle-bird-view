@@ -189,22 +189,29 @@
   }
 
   function normalizeUnratedFilter(filter = DEFAULT_UNRATED_FILTER) {
-    const fileTypes = normalizeFileTypes(filter);
-    const rating =
-      filter.rating === "any" || filter.rating === "unrated" || [1, 2, 3, 4, 5].includes(Number(filter.rating))
-        ? filter.rating === "any" || filter.rating === "unrated"
-          ? filter.rating
-          : Number(filter.rating)
-        : DEFAULT_UNRATED_FILTER.rating;
     const maxTagCount = Number(filter.maxTagCount);
     return {
-      fileTypes,
-      rating,
+      fileTypes: normalizeFileTypes(filter),
+      rating: normalizeRating(filter.rating),
       tags: normalizeTags(filter.tags),
       excludedTags: normalizeTags(filter.excludedTags),
       tagMatch: filter.tagMatch === "all" ? "all" : "any",
       maxTagCount: Number.isInteger(maxTagCount) && maxTagCount >= 1 ? maxTagCount : null,
     };
+  }
+
+  function normalizeRating(rating) {
+    if (rating === "any" || rating === "unrated") return rating;
+    const value = Number(rating);
+    return [1, 2, 3, 4, 5].includes(value) ? value : DEFAULT_UNRATED_FILTER.rating;
+  }
+
+  function getUnratedFilterKey(filter) {
+    return JSON.stringify(normalizeUnratedFilter(filter));
+  }
+
+  function unratedFiltersEqual(first, second) {
+    return getUnratedFilterKey(first) === getUnratedFilterKey(second);
   }
 
   async function loadFilteredItems(itemApi, filter) {
@@ -299,5 +306,11 @@
     return sampled;
   }
 
-  return Object.freeze({ RelatedItemSource, UnratedItemSource });
+  return Object.freeze({
+    DEFAULT_UNRATED_FILTER,
+    RelatedItemSource,
+    UnratedItemSource,
+    normalizeUnratedFilter,
+    unratedFiltersEqual,
+  });
 });
