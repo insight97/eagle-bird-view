@@ -100,6 +100,25 @@ test("exploration randomizes among the highest-ranked candidates", () => {
   assert.deepEqual(fromEnd.map(({ id }) => id), ["d", "c", "b"]);
 });
 
+test("exploration randomizes candidates with equal relevance scores", () => {
+  const pivot = item("pivot", ["ui"], []);
+  const candidates = [
+    item("new", ["ui"], []),
+    item("old", ["ui"], []),
+  ];
+  const randomValues = [0.1, 0.9, 0];
+
+  const selected = selectDiverseExplorationRow(
+    candidates,
+    pivot,
+    () => randomValues.shift() ?? 0,
+    1200,
+    3,
+  );
+
+  assert.equal(selected[0].id, "old");
+});
+
 test("exploration can select a lower-ranked candidate from the weighted shortlist", () => {
   const pivot = item("pivot", ["ui"], []);
   const stronger = item("stronger", ["ui", "web"], ["bold", "dark"], 400, 100);

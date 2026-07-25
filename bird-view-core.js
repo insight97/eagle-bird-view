@@ -430,8 +430,12 @@
         .map((candidate) => ({
           candidate,
           score: getExplorationScore(candidate, representedNovelKeys, connectionCounts),
+          tieBreaker: random(),
         }))
-        .sort((a, b) => compareExplorationScores(a.score, b.score));
+        .sort(
+          (a, b) =>
+            compareExplorationScores(a.score, b.score) || b.tieBreaker - a.tieBreaker,
+        );
       const shortlist = scored
         .slice(0, EXPLORATION_RANK_WEIGHTS.length)
         .map(({ candidate }) => candidate);
