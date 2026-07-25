@@ -2,7 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { createPluginHarness } = require("../test-support/plugin-harness.js");
+const { createPluginHarness } = require("../../test-support/plugin-harness.js");
 
 function flush() {
   return new Promise((resolve) => setImmediate(resolve));

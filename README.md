@@ -19,7 +19,9 @@ Eagle 的白板式媒體瀏覽器概念驗證。它會載入 Eagle 目前選取�
 
 ## 開發驗證
 
-執行 `npm run test:unit` 可快速驗證排版、可視範圍、相機導航、媒體載入與探索候選；`npm run test:integration` 會使用 Happy DOM 驗證瀏覽器互動，`npm test` 則會執行全部測試。整合測試會自動將 Happy DOM 預打包至忽略版控的 `.test-cache`，降低掛載磁碟的小檔案載入成本；`npm run test:coverage` 可產生排除該快取的覆蓋率報告。
+測試分成兩層：`test/` 為單元測試，只驗證單一模組的純邏輯（排版、可視範圍、相機導航、媒體載入、探索候選、資料夾路徑），不需要 DOM；`test/integration/` 則驗證需要瀏覽器環境的行為，包含以 Happy DOM 驅動的元件（標籤編輯器、資料夾選擇器、影片播放器），以及透過 `test-support/plugin-harness.js` 把 `plugin.js` 接上假 Eagle API 後的端對端流程。新增模組時，`test/script-load-order.test.js` 會確認 `index.html` 的 `<script>` 順序仍能讓每個模組取得相依模組。
+
+執行 `npm run test:unit` 可快速驗證單元測試，`npm run test:integration` 執行整合測試，`npm test` 則會執行全部測試。整合測試會自動將 Happy DOM 預打包至忽略版控的 `.test-cache`，降低掛載磁碟的小檔案載入成本；`npm run test:coverage` 可產生排除該快取的覆蓋率報告（注意 `plugin.js` 由 vm 載入，不會出現在覆蓋率報告中）。
 
 ## 操作
 
