@@ -38,6 +38,7 @@ const {
 const { MediaLoadQueue, waitForImageDecode } = BirdViewMedia;
 const { RelatedItemSource, UnratedItemSource } = BirdViewExploration;
 const { FolderItemSource } = BirdViewFolder;
+const { FolderPicker } = BirdViewFolderPicker;
 const { startVideoPlayer } = BirdViewVideo;
 const { TagEditor } = BirdViewTagEditor;
 const { createCameraNavigation } = BirdViewCamera;
@@ -166,6 +167,11 @@ const tagEditor = new TagEditor({
   createTagChip,
   onSelectNode: setSelectedNode,
   onCommit: commitNodeTags,
+});
+const folderPicker = new FolderPicker({
+  getViewport: () => elements.viewport,
+  onSelect: addSelectedItemToFolder,
+  onEmpty: () => showToast("目前沒有可用的 Eagle 資料夾。", false),
 });
 
 if (typeof eagle !== "undefined" && typeof eagle.onPluginCreate === "function") {
@@ -539,6 +545,7 @@ function appendItemsToBoard(items) {
 
 function renderItems(items) {
   tagEditor.close();
+  folderPicker.close();
   clearSelection();
   releaseAllMediaCards();
   releaseAllMediaLabels();
@@ -1115,6 +1122,31 @@ async function commitNodeTags(node, nextTags, previousTags) {
   if (saved) void loadTagColors();
 }
 
+async function addSelectedItemToFolder(node, folder) {
+  if (!node || node.isSaving) return;
+  const folderId = String(folder?.id || "").trim();
+  if (!folderId) return;
+
+  const previousFolders = normalizeTags(node.item.folders);
+  if (previousFolders.includes(folderId)) {
+    showToast(`「${node.item.name || "素材"}」已在該資料夾中。`, false);
+    return;
+  }
+
+  const nextFolders = [...previousFolders, folderId];
+  node.item.folders = nextFolders;
+  const saved = await saveItemMetadata(node, {
+    successMessage: `已將「${node.item.name || "素材"}」加入「${folder?.name || "資料夾"}」。`,
+    rollback: () => {
+      node.item.folders = previousFolders;
+    },
+  });
+  if (saved) {
+    await loadFolderNames([node.item]);
+    updateSelectionStatus();
+  }
+}
+
 async function loadTagColors() {
   const generation = ++state.tagColorGeneration;
   if (typeof eagle === "undefined" || typeof eagle.tag?.get !== "function") {
@@ -1155,6 +1187,7 @@ function mountMediaLabel(node) {
 
 function releaseMediaLabel(node) {
   tagEditor.closeForNode(node);
+  folderPicker.closeForNode(node);
   node.label?.remove();
   node.label = null;
   state.mountedLabelNodes.delete(node);
@@ -1338,6 +1371,19 @@ function handleKeyDown(event) {
     return;
   }
 
+  if (
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    !event.shiftKey &&
+    event.key.toLowerCase() === "f"
+  ) {
+    event.preventDefault();
+    if (event.repeat) return;
+    void openSelectedFolderPicker();
+    return;
+  }
+
   if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === "t") {
     event.preventDefault();
     if (event.repeat) return;
@@ -1484,10 +1530,33 @@ function stopSmoothKeyboardZoom() {
 function openSelectedTagEditor() {
   const node = state.selectedNode;
   if (!node || node.isSaving) return;
+  folderPicker.close();
   const anchor = state.seamlessMode
     ? node.element
     : node.label?.querySelector(".media-tag-edit") || node.element;
   tagEditor.open(node, anchor);
+}
+
+async function openSelectedFolderPicker() {
+  const node = state.selectedNode;
+  if (!node || node.isSaving) return;
+  if (typeof eagle === "undefined" || typeof eagle.folder?.getAll !== "function") {
+    showToast("目前的 Eagle 版本不支援搜尋全部資料夾。", true);
+    return;
+  }
+
+  tagEditor.close();
+  try {
+    const folders = await eagle.folder.getAll();
+    if (node !== state.selectedNode) return;
+    const anchor = state.seamlessMode
+      ? node.element
+      : node.label?.querySelector(".media-tag-edit") || node.element;
+    folderPicker.open(node, anchor, folders);
+  } catch (error) {
+    console.error("Failed to load Eagle folders", error);
+    showToast(`無法讀取 Eagle 資料夾：${error.message || error}`, true);
+  }
 }
 
 function panBy(dx, dy) {
@@ -1511,6 +1580,7 @@ function setSelectedNode(node, { preserveVerticalNavigation = false } = {}) {
 }
 
 function applyClearedSelection(previousNode) {
+  folderPicker.closeForNode(previousNode);
   previousNode?.element?.classList.remove("is-selected");
   previousNode?.label?.classList.remove("is-selected");
   updateSelectionStatus();
@@ -1519,6 +1589,7 @@ function applyClearedSelection(previousNode) {
 
 function applySelectedNode(node, { changed, previousNode }) {
   if (changed) {
+    folderPicker.closeForNode(previousNode);
     previousNode?.element?.classList.remove("is-selected");
     previousNode?.label?.classList.remove("is-selected");
     mountMediaCard(node);
@@ -2388,6 +2459,7 @@ function clearBoard() {
   state.selectedItemsGeneration += 1;
   cancelCameraFocus();
   tagEditor.close();
+  folderPicker.close();
   clearSelection();
   releaseAllMediaCards();
   releaseAllMediaLabels();
@@ -2486,6 +2558,7 @@ function updateCamera() {
 
 function handleResize() {
   tagEditor.close();
+  folderPicker.close();
   const previousViewport = state.viewportSize || getViewportSize();
   const previousBaseScale = getBaseScale();
   const nextViewport = getViewportSize();

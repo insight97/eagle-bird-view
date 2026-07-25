@@ -67,6 +67,10 @@ test("auto exploration defaults off and a library change restarts selected item 
   class TagEditor {
     close() {}
   }
+  class FolderPicker {
+    close() {}
+    closeForNode() {}
+  }
   const context = {
     BirdViewCore,
     BirdViewMedia: { MediaLoadQueue, waitForImageDecode() {} },
@@ -82,6 +86,7 @@ test("auto exploration defaults off and a library change restarts selected item 
     },
     BirdViewVideo: { startVideoPlayer() {} },
     BirdViewTagEditor: { TagEditor },
+    BirdViewFolderPicker: { FolderPicker },
     BirdViewCamera: {
       createCameraNavigation() {
         return {

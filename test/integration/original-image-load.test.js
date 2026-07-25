@@ -140,6 +140,12 @@ function buildPlugin(item) {
         async hydrate(items) { return items; }
       },
     },
+    BirdViewFolderPicker: {
+      FolderPicker: class {
+        close() {}
+        closeForNode() {}
+      },
+    },
     BirdViewVideo: { startVideoPlayer() {} },
     BirdViewTagEditor: {
       TagEditor: class {

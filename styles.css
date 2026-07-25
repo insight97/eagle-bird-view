@@ -1127,6 +1127,10 @@ button {
   pointer-events: auto;
 }
 
+.folder-picker {
+  width: min(340px, calc(100% - 16px));
+}
+
 .tag-editor-heading {
   margin-bottom: 8px;
   color: #eef0f3;
@@ -1177,6 +1181,17 @@ button {
 .tag-editor-option.is-active,
 .tag-editor-create.is-active {
   background: #2c3036;
+}
+
+.folder-picker-option {
+  min-width: 0;
+}
+
+.folder-picker-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tag-editor-check {
