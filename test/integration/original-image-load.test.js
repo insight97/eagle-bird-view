@@ -22,14 +22,22 @@ function jpgItem(overrides = {}) {
   };
 }
 
-async function startWithItem(item) {
+async function startWithItems(items, { viewportHeight } = {}) {
   const plugin = createPluginHarness({
-    selectedItems: [item],
+    selectedItems: items,
     runAnimationFrames: true,
   });
+  // Read while laying the board out, so it has to be set before the plugin starts.
+  if (viewportHeight !== undefined) {
+    plugin.elements.get("#viewport").clientHeight = viewportHeight;
+  }
   plugin.start();
   await new Promise((resolve) => setImmediate(resolve));
   return plugin;
+}
+
+function startWithItem(item) {
+  return startWithItems([item]);
 }
 
 test("a stalled original image load times out, offers retry, and recovers", async () => {
@@ -66,6 +74,33 @@ test("a stalled original image load times out, offers retry, and recovers", asyn
 
   assert.equal(card.dataset.mediaQuality, "original");
 });
+
+// A lone selection sits on an unjustified row at TARGET_ROW_HEIGHT while a
+// filled row is shorter, so both boards are at 100% zoom here yet paint their
+// first card at the same 72px. The quality tier has to follow the painted
+// height, not the zoom ratio, or the selection count would decide it.
+for (const count of [1, 8]) {
+  test(`a card painting below the original threshold stays on the thumbnail (${count} selected)`, async () => {
+    const items = Array.from({ length: count }, (_, index) =>
+      jpgItem({ id: `item-${index}` }),
+    );
+    const plugin = await startWithItems(items, { viewportHeight: 200 });
+
+    const thumbnailImage = plugin.createdElementsOfTag("img")[0];
+    const card = thumbnailImage.parentNode.parentNode;
+    assert.equal(thumbnailImage.src, "file:///fake/thumb.jpg");
+
+    thumbnailImage.emit("load");
+
+    assert.equal(card.dataset.mediaQuality, "thumbnail");
+    assert.equal(
+      plugin.createdElementsOfTag("img").filter(({ src }) => src === "file:///fake/original.jpg")
+        .length,
+      0,
+      "no original should be requested for a card this small on screen",
+    );
+  });
+}
 
 test("a thumbnail that never loads still times out the pending original request", async () => {
   const plugin = await startWithItem(jpgItem({ id: "item-2" }));

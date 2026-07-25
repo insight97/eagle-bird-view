@@ -68,7 +68,13 @@ const KEYBOARD_ZOOM_FACTOR = 1.5;
 const KEYBOARD_SEEK_STEP = 5;
 const KEYBOARD_VOLUME_STEP = 0.05;
 const PAN_START_THRESHOLD = 4;
-const ORIGINAL_IMAGE_ZOOM = 0.8;
+// How tall a card has to paint on screen before Eagle's thumbnail stops being
+// enough. Measured in screen pixels so the decision does not depend on how the
+// row happened to be laid out: a lone selection lands on an unjustified row at
+// TARGET_ROW_HEIGHT, a filled row is shorter, and a zoom ratio would compare
+// those against different baselines.
+const ORIGINAL_IMAGE_MIN_HEIGHT = 320;
+const AUTO_EXPLORE_MIN_ZOOM = 0.8;
 const ORIGINAL_IMAGE_LOAD_TIMEOUT = 8000;
 const MAX_CONCURRENT_IMAGE_LOADS = 4;
 const RESOURCE_RELEASE_VIEWPORTS = 3;
@@ -1733,7 +1739,7 @@ function maybeLoadNextUnratedRow() {
       state.camera,
       { width: elements.viewport.clientWidth, height: elements.viewport.clientHeight },
       getBaseScale(),
-      ORIGINAL_IMAGE_ZOOM,
+      AUTO_EXPLORE_MIN_ZOOM,
     )
   ) {
     return;
@@ -2563,10 +2569,9 @@ function updateMediaVisibility({ deferCleanup = false } = {}) {
   const retainedNodes = new Set(
     getNodesNearViewport(mountMargin * RESOURCE_RELEASE_VIEWPORTS),
   );
-  const zoom = scale / getBaseScale();
 
-  if (zoom < ORIGINAL_IMAGE_ZOOM) {
-    for (const node of state.materializedNodes) mediaLoadQueue.cancel(node, "original");
+  for (const node of state.materializedNodes) {
+    if (!wantsOriginalImage(node, scale)) mediaLoadQueue.cancel(node, "original");
   }
 
   if (!deferCleanup) {
@@ -2597,13 +2602,13 @@ function updateMediaVisibility({ deferCleanup = false } = {}) {
       top <= viewportHeight + preloadMargin;
 
     if (isNearViewport) {
-      const quality =
-        !node.isVideo && zoom >= ORIGINAL_IMAGE_ZOOM
-          ? "original"
-          : "thumbnail";
-      node.loadMedia(quality);
+      node.loadMedia(wantsOriginalImage(node, scale) ? "original" : "thumbnail");
     }
   }
+}
+
+function wantsOriginalImage(node, scale) {
+  return !node.isVideo && node.mediaHeight * scale >= ORIGINAL_IMAGE_MIN_HEIGHT;
 }
 
 function getNodesNearViewport(screenMargin) {
