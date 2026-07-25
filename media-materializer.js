@@ -138,7 +138,6 @@
       retainedNodes = [],
       loadNodes = visibleNodes,
       selectedNode = null,
-      deferCleanup = false,
       getQuality = () => "thumbnail",
     } = {}) {
       const visible = new Set(visibleNodes);
@@ -148,13 +147,11 @@
         if (getQuality(node) !== "original") mediaLoadQueue.cancel(node, "original");
       }
 
-      if (!deferCleanup) {
-        for (const node of mountedNodes) {
-          if (!visible.has(node) && node !== selectedNode) unmount(node);
-        }
-        for (const node of [...materializedNodes]) {
-          if (!retained.has(node) && node !== selectedNode) release(node);
-        }
+      for (const node of mountedNodes) {
+        if (!visible.has(node) && node !== selectedNode) unmount(node);
+      }
+      for (const node of [...materializedNodes]) {
+        if (!retained.has(node) && node !== selectedNode) release(node);
       }
 
       for (const node of visible) mount(node);

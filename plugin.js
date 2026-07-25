@@ -2053,7 +2053,9 @@ function keepCameraLayerPromoted() {
 }
 
 function scheduleViewportWork() {
-  if (state.viewportWorkTimer !== null) return;
+  // Pointer movement should stay on the camera transform path. Mounting,
+  // releasing, relabelling, and auto-exploring happen once the gesture ends.
+  if (state.isPanning || state.viewportWorkTimer !== null) return;
   const elapsed = performance.now() - state.lastViewportWork;
   const delay = Math.max(0, getViewportWorkInterval(state.isPanning) - elapsed);
   state.viewportWorkTimer = window.setTimeout(runViewportWork, delay);
@@ -2073,15 +2075,16 @@ function flushViewportWork() {
 
 function runViewportWork() {
   state.viewportWorkTimer = null;
+  if (state.isPanning) return;
   if (state.cameraFocusFrame !== null) return;
   state.lastViewportWork = performance.now();
-  updateMediaVisibility({ deferCleanup: state.isPanning });
+  updateMediaVisibility();
   updateLabels();
   selectionNavigation.selectNodeAtViewportCenter();
   maybeLoadNextUnratedRow();
 }
 
-function updateMediaVisibility({ deferCleanup = false } = {}) {
+function updateMediaVisibility() {
   const preloadMargin = 120;
   const viewportWidth = elements.viewport.clientWidth;
   const viewportHeight = elements.viewport.clientHeight;
@@ -2111,7 +2114,6 @@ function updateMediaVisibility({ deferCleanup = false } = {}) {
     retainedNodes,
     loadNodes,
     selectedNode: state.selectedNode,
-    deferCleanup,
     getQuality: (node) => (wantsOriginalImage(node, scale) ? "original" : "thumbnail"),
   });
 }

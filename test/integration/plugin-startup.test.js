@@ -34,6 +34,18 @@ function statusOf(plugin, selector) {
   return plugin.elements.get(selector).textContent;
 }
 
+function imageItems(count) {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `image-${index}`,
+    name: `image-${index}.jpg`,
+    ext: "jpg",
+    width: 1600,
+    height: 1000,
+    fileURL: `file:///image-${index}.jpg`,
+    thumbnailURL: `file:///image-${index}-thumb.jpg`,
+  }));
+}
+
 test("the board asks Eagle for the selection and leaves auto exploration off", async () => {
   const plugin = await startEmptyPlugin();
 
@@ -185,4 +197,28 @@ test("loading selected items selects the item at the viewport center", async () 
   await flush();
 
   assert.equal(plugin.selectedNodeId, "center-item");
+});
+
+test("dragging defers viewport maintenance until the pointer is released", async () => {
+  const plugin = createPluginHarness({
+    selectedItems: imageItems(48),
+    runAnimationFrames: true,
+  });
+
+  plugin.start();
+  await flush();
+  plugin.flushTimers();
+
+  const viewport = plugin.elements.get("#viewport");
+  const world = plugin.elements.get("#world");
+  const cardsBeforePan = world.children.length;
+
+  viewport.emit("pointerdown", { button: 1, clientX: 0, clientY: 0 });
+  plugin.windowEmit("pointermove", { clientX: 0, clientY: -1000 });
+  plugin.flushTimers();
+
+  assert.equal(world.children.length, cardsBeforePan);
+
+  plugin.windowEmit("pointerup");
+  assert.ok(world.children.length > cardsBeforePan);
 });

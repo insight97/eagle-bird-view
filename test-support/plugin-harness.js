@@ -522,6 +522,19 @@ function createPluginHarness({
     flushTimers() {
       for (const timer of timers.splice(0, timers.length)) timer.callback();
     },
+    windowEmit(type, eventLike = {}) {
+      const callback = windowListeners.get(type);
+      if (!callback) return null;
+      const event = {
+        type,
+        target: elements.get("#viewport"),
+        preventDefault() {},
+        stopPropagation() {},
+        ...eventLike,
+      };
+      callback(event);
+      return event;
+    },
     pluginRun() {
       pluginRun();
     },
