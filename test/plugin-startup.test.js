@@ -4,83 +4,110 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createPluginHarness } = require("../test-support/plugin-harness.js");
 
-test("auto exploration defaults off and a library change restarts selected item loading", async () => {
-  const plugin = createPluginHarness();
-  plugin.start();
-  assert.equal(plugin.selectedRequests, 1);
-  plugin.resolveSelected(0, []);
-  await Promise.resolve();
-  await Promise.resolve();
-  assert.equal(plugin.unratedRequests, 0);
-  assert.equal(plugin.elements.get("#auto-explore-status").textContent, "關");
+function flush() {
+  return new Promise((resolve) => setImmediate(resolve));
+}
 
+// Starts the plugin with an empty Eagle selection, which is the state the board
+// lands in when nothing is selected.
+async function startEmptyPlugin() {
+  const plugin = createPluginHarness({ selectedItems: [] });
+  plugin.start();
+  await flush();
+  return plugin;
+}
+
+function pressKey(plugin, key, { repeat = false } = {}) {
   let prevented = false;
   plugin.keyDown({
-    key: "F11",
-    repeat: false,
+    key,
+    repeat,
     target: null,
     preventDefault() {
       prevented = true;
     },
   });
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(prevented, true);
+  return prevented;
+}
+
+function statusOf(plugin, selector) {
+  return plugin.elements.get(selector).textContent;
+}
+
+test("the board asks Eagle for the selection and leaves auto exploration off", async () => {
+  const plugin = await startEmptyPlugin();
+
+  assert.equal(plugin.selectedRequests, 1);
+  assert.equal(plugin.unratedRequests, 0);
+  assert.equal(statusOf(plugin, "#auto-explore-status"), "關");
+});
+
+test("F11 toggles Eagle fullscreen and ignores auto-repeat", async () => {
+  const plugin = await startEmptyPlugin();
+
+  assert.equal(pressKey(plugin, "F11"), true);
+  await flush();
   assert.equal(plugin.fullScreen, true);
   assert.equal(plugin.fullScreenCalls, 1);
 
-  plugin.keyDown({ key: "F11", repeat: true, target: null, preventDefault() {} });
-  await new Promise((resolve) => setImmediate(resolve));
+  pressKey(plugin, "F11", { repeat: true });
+  await flush();
   assert.equal(plugin.fullScreen, true);
   assert.equal(plugin.fullScreenCalls, 1);
 
-  plugin.keyDown({ key: "F11", repeat: false, target: null, preventDefault() {} });
-  await new Promise((resolve) => setImmediate(resolve));
+  pressKey(plugin, "F11");
+  await flush();
   assert.equal(plugin.fullScreen, false);
   assert.equal(plugin.fullScreenCalls, 2);
+});
 
-  let insertPrevented = false;
-  plugin.keyDown({
-    key: "Insert",
-    repeat: false,
-    target: null,
-    preventDefault() {
-      insertPrevented = true;
-    },
-  });
-  await Promise.resolve();
-  assert.equal(insertPrevented, true);
+test("Insert toggles auto exploration and ignores auto-repeat", async () => {
+  const plugin = await startEmptyPlugin();
+
+  assert.equal(pressKey(plugin, "Insert"), true);
+  await flush();
+  assert.equal(statusOf(plugin, "#auto-explore-status"), "開");
   assert.equal(plugin.unratedRequests, 1);
-  assert.equal(plugin.elements.get("#auto-explore-status").textContent, "開");
 
-  plugin.keyDown({ key: "Insert", repeat: true, target: null, preventDefault() {} });
-  await Promise.resolve();
-  assert.equal(plugin.elements.get("#auto-explore-status").textContent, "開");
+  pressKey(plugin, "Insert", { repeat: true });
+  await flush();
+  assert.equal(statusOf(plugin, "#auto-explore-status"), "開");
+  assert.equal(plugin.unratedRequests, 1);
 
-  plugin.keyDown({ key: "Insert", repeat: false, target: null, preventDefault() {} });
-  assert.equal(plugin.elements.get("#auto-explore-status").textContent, "關");
+  pressKey(plugin, "Insert");
+  assert.equal(statusOf(plugin, "#auto-explore-status"), "關");
+});
 
-  let deletePrevented = false;
-  plugin.keyDown({
-    key: "Delete",
-    repeat: false,
-    target: null,
-    preventDefault() {
-      deletePrevented = true;
-    },
-  });
-  assert.equal(deletePrevented, true);
-  assert.equal(plugin.elements.get("#seamless-mode-status").textContent, "開");
+test("Delete toggles seamless mode and ignores auto-repeat", async () => {
+  const plugin = await startEmptyPlugin();
 
-  plugin.keyDown({ key: "Delete", repeat: true, target: null, preventDefault() {} });
-  assert.equal(plugin.elements.get("#seamless-mode-status").textContent, "開");
+  assert.equal(pressKey(plugin, "Delete"), true);
+  assert.equal(statusOf(plugin, "#seamless-mode-status"), "開");
 
-  plugin.keyDown({ key: "Delete", repeat: false, target: null, preventDefault() {} });
-  assert.equal(plugin.elements.get("#seamless-mode-status").textContent, "關");
+  pressKey(plugin, "Delete", { repeat: true });
+  assert.equal(statusOf(plugin, "#seamless-mode-status"), "開");
+
+  pressKey(plugin, "Delete");
+  assert.equal(statusOf(plugin, "#seamless-mode-status"), "關");
+});
+
+test("the auto explore toggle button loads a row when switched on", async () => {
+  const plugin = await startEmptyPlugin();
 
   plugin.elements.get("#auto-explore-toggle").click();
-  await Promise.resolve();
-  assert.equal(plugin.unratedRequests, 2);
-  assert.equal(plugin.elements.get("#auto-explore-status").textContent, "開");
+  await flush();
+
+  assert.equal(statusOf(plugin, "#auto-explore-status"), "開");
+  assert.equal(plugin.unratedRequests, 1);
+});
+
+test("reopening with a selection appends items instead of loading the selected folder", async () => {
+  const plugin = createPluginHarness();
+  plugin.start();
+  plugin.resolveSelected(0, []);
+  await flush();
+  // The empty selection already consulted the folder source once.
+  assert.equal(plugin.folderLoadRequests, 1);
 
   plugin.setFolderSourceResult({
     folders: [{ id: "selected-folder", name: "Folder" }],
@@ -88,6 +115,7 @@ test("auto exploration defaults off and a library change restarts selected item 
   });
   plugin.pluginRun();
   assert.equal(plugin.selectedRequests, 2);
+
   plugin.resolveSelected(1, [
     {
       id: "selected-item",
@@ -99,10 +127,16 @@ test("auto exploration defaults off and a library change restarts selected item 
       thumbnailURL: "file:///selected-thumb.jpg",
     },
   ]);
-  await Promise.resolve();
-  await Promise.resolve();
-  assert.equal(plugin.folderLoadRequests, 1);
+  await flush();
+
+  assert.equal(plugin.folderLoadRequests, 1, "selected items win over a selected folder");
+  assert.equal(plugin.elements.get("#item-count").textContent, "1 個素材");
+});
+
+test("switching Eagle library reloads the selection", async () => {
+  const plugin = await startEmptyPlugin();
 
   plugin.changeLibrary();
-  assert.equal(plugin.selectedRequests, 3);
+
+  assert.equal(plugin.selectedRequests, 2);
 });
