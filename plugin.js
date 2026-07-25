@@ -167,7 +167,7 @@ const tagEditor = new TagEditor({
   getViewport: () => elements.viewport,
   getAvailableTags: () => state.tagColors.keys(),
   createTagChip,
-  onSelectNode: setSelectedNode,
+  onSelectNode: (node) => selectionNavigation.setSelectedNode(node),
   onCommit: commitNodeTags,
 });
 const folderPicker = new FolderPicker({
@@ -255,8 +255,8 @@ function setup() {
     elements,
     getBaseScale,
     updateCamera,
-    selectNodeAtViewportCenter,
-    getVideoControlsHeight: () => getVideoControlsHeight(),
+    selectNodeAtViewportCenter: () => selectionNavigation.selectNodeAtViewportCenter(),
+    getVideoControlsHeight,
     getFocusRowEmphasis: () =>
       state.seamlessMode ? TIGHT_FOCUS_ROW_EMPHASIS : undefined,
     getFocusTargetHeight: () => state.focusMediaSize,
@@ -265,8 +265,8 @@ function setup() {
   elements.viewport.addEventListener("pointerdown", beginPan);
   elements.viewport.addEventListener("wheel", handleWheel, { passive: false });
   window.addEventListener("keydown", handleKeyDown);
-  window.addEventListener("keyup", handleKeyUp);
-  window.addEventListener("blur", handleWindowBlur);
+  window.addEventListener("keyup", (event) => cameraNavigation.handleKeyUp(event.key));
+  window.addEventListener("blur", () => cameraNavigation.handleWindowBlur());
   window.addEventListener("resize", handleResize);
   document.addEventListener("pointerdown", handleAutoExploreOutsidePointerDown);
   elements.autoExploreToggle.addEventListener("click", toggleUnratedExploration);
@@ -549,7 +549,7 @@ function appendItemsToBoard(items) {
 function renderItems(items) {
   tagEditor.close();
   folderPicker.close();
-  clearSelection();
+  selectionNavigation.clearSelection();
   releaseAllMediaCards();
   releaseAllMediaLabels();
   elements.world.replaceChildren();
@@ -578,7 +578,7 @@ function relayoutBoard() {
   );
   const items = state.nodes.map(({ item }) => item);
 
-  clearSelection();
+  selectionNavigation.clearSelection();
   releaseAllMediaCards();
   releaseAllMediaLabels();
   elements.world.replaceChildren();
@@ -597,7 +597,7 @@ function relayoutBoard() {
   refreshBaseScale();
   updateBoardMeta();
   const selectedNode = state.nodes.find(({ item }) => item.id === selectedItemId);
-  if (selectedNode) setSelectedNode(selectedNode);
+  if (selectedNode) selectionNavigation.setSelectedNode(selectedNode);
   updateCamera();
   updateMediaVisibility();
   updateLabels();
@@ -869,7 +869,7 @@ function createMediaCard(node) {
     playButton.addEventListener("pointerdown", (event) => event.stopPropagation());
     playButton.addEventListener("click", (event) => {
       event.stopPropagation();
-      setSelectedNode(node);
+      selectionNavigation.setSelectedNode(node);
       startVideo(frame, image, playButton, item, node);
     });
     node.startPlayback = () => startVideo(frame, image, playButton, item, node);
@@ -879,7 +879,7 @@ function createMediaCard(node) {
   card.addEventListener("dblclick", (event) => {
     if (!node.isVideo || event.target.closest("button, input")) return;
     event.preventDefault();
-    setSelectedNode(node);
+    selectionNavigation.setSelectedNode(node);
     if (node.togglePlayback) {
       node.togglePlayback();
     } else {
@@ -1014,7 +1014,7 @@ function createRatingControls(rating, node) {
     star.addEventListener("pointerleave", () => paintRating(rating, getItemRating(node.item)));
     star.addEventListener("click", async (event) => {
       event.stopPropagation();
-      setSelectedNode(node);
+      selectionNavigation.setSelectedNode(node);
       await setItemRating(node, index, { toggle: true });
     });
     rating.append(star);
@@ -1317,7 +1317,7 @@ function beginPan(event) {
 }
 
 function startViewportPan() {
-  cancelCameraFocus();
+  cameraNavigation.cancelCameraFocus();
   tagEditor.close();
   state.isPanning = true;
   state.lastViewportWork = performance.now();
@@ -1338,7 +1338,7 @@ function handleWheel(event) {
   const pointerX = event.clientX - rect.left;
   const pointerY = event.clientY - rect.top;
   const zoomFactor = Math.exp(-event.deltaY * 0.0015);
-  zoomAtPoint(pointerX, pointerY, zoomFactor);
+  cameraNavigation.zoomAtPoint(pointerX, pointerY, zoomFactor);
 }
 
 function handleKeyDown(event) {
@@ -1414,8 +1414,8 @@ function handleKeyDown(event) {
   ) {
     event.preventDefault();
     if (event.repeat) return;
-    if (event.key === "Home") focusSelectedNodeAtRowScale();
-    else fitSelectedRowInViewport();
+    if (event.key === "Home") cameraNavigation.focusSelectedNodeAtRowScale();
+    else cameraNavigation.fitSelectedRowInViewport();
     return;
   }
 
@@ -1431,25 +1431,25 @@ function handleKeyDown(event) {
     if (arrowAction === "focus-selection") {
       if (event.repeat) return;
       const previousRow = state.rows.find((row) => row.nodes.includes(state.selectedNode));
-      const node = moveSelection(directionFor(event.key));
+      const node = selectionNavigation.moveSelection(directionFor(event.key));
       const nextRow = node && state.rows.find((row) => row.nodes.includes(node));
-      if (node) focusSelectedNodeAtRowScale(node, { crossRow: previousRow !== nextRow });
+      if (node) cameraNavigation.focusSelectedNodeAtRowScale(node, { crossRow: previousRow !== nextRow });
       return;
     }
     if (arrowAction === "viewport-pan") {
-      panOneViewport(event.key);
-      selectNodeAtViewportCenter();
+      cameraNavigation.panOneViewport(event.key);
+      selectionNavigation.selectNodeAtViewportCenter();
       return;
     }
     const key = event.key.toLowerCase();
     if (state.smoothPanEnabled) {
-      startSmoothKeyboardPan(key);
+      cameraNavigation.startSmoothKeyboardPan(key);
       return;
     }
-    const panStep = getKeyboardPanStep();
+    const panStep = cameraNavigation.getKeyboardPanStep();
     const direction = directionFor(key);
-    panBy(direction[0] * -panStep, direction[1] * -panStep);
-    selectNodeAtViewportCenter();
+    cameraNavigation.panBy(direction[0] * -panStep, direction[1] * -panStep);
+    selectionNavigation.selectNodeAtViewportCenter();
     return;
   }
 
@@ -1470,11 +1470,11 @@ function handleKeyDown(event) {
   if (event.ctrlKey && (event.key === "PageUp" || event.key === "PageDown")) {
     event.preventDefault();
     if (state.smoothZoomEnabled) {
-      startSmoothKeyboardZoom(event.key);
+      cameraNavigation.startSmoothKeyboardZoom(event.key);
       return;
     }
     const factor = event.key === "PageUp" ? KEYBOARD_ZOOM_FACTOR : 1 / KEYBOARD_ZOOM_FACTOR;
-    zoomAtPoint(
+    cameraNavigation.zoomAtPoint(
       elements.viewport.clientWidth / 2,
       elements.viewport.clientHeight / 2,
       factor,
@@ -1489,12 +1489,12 @@ function handleKeyDown(event) {
   if (!direction) return;
   event.preventDefault();
   if (state.smoothPanEnabled) {
-    startSmoothKeyboardPan(key);
+    cameraNavigation.startSmoothKeyboardPan(key);
     return;
   }
-  const panStep = getKeyboardPanStep();
-  panBy(direction[0] * -panStep, direction[1] * -panStep);
-  selectNodeAtViewportCenter();
+  const panStep = cameraNavigation.getKeyboardPanStep();
+  cameraNavigation.panBy(direction[0] * -panStep, direction[1] * -panStep);
+  selectionNavigation.selectNodeAtViewportCenter();
 }
 
 async function toggleFullScreen() {
@@ -1515,30 +1515,6 @@ async function toggleFullScreen() {
     console.error("Failed to toggle Eagle fullscreen", error);
     showToast(`無法切換全螢幕模式：${error.message || error}`, true);
   }
-}
-
-function handleKeyUp(event) {
-  cameraNavigation.handleKeyUp(event.key);
-}
-
-function handleWindowBlur() {
-  cameraNavigation.handleWindowBlur();
-}
-
-function startSmoothKeyboardPan(key) {
-  cameraNavigation.startSmoothKeyboardPan(key);
-}
-
-function stopSmoothKeyboardPan() {
-  cameraNavigation.stopSmoothKeyboardPan();
-}
-
-function startSmoothKeyboardZoom(key) {
-  cameraNavigation.startSmoothKeyboardZoom(key);
-}
-
-function stopSmoothKeyboardZoom() {
-  cameraNavigation.stopSmoothKeyboardZoom();
 }
 
 function openSelectedTagEditor() {
@@ -1571,26 +1547,6 @@ async function openSelectedFolderPicker() {
     console.error("Failed to load Eagle folders", error);
     showToast(`無法讀取 Eagle 資料夾：${error.message || error}`, true);
   }
-}
-
-function panBy(dx, dy) {
-  cameraNavigation.panBy(dx, dy);
-}
-
-function getKeyboardPanStep() {
-  return cameraNavigation.getKeyboardPanStep();
-}
-
-function panOneViewport(key) {
-  cameraNavigation.panOneViewport(key);
-}
-
-function clearSelection() {
-  selectionNavigation.clearSelection();
-}
-
-function setSelectedNode(node, { preserveVerticalNavigation = false } = {}) {
-  selectionNavigation.setSelectedNode(node, { preserveVerticalNavigation });
 }
 
 function applyClearedSelection(previousNode) {
@@ -1627,22 +1583,6 @@ function preloadSelectedNode(node) {
     return;
   }
   node.loadMedia?.("thumbnail");
-}
-
-function moveSelection(direction) {
-  return selectionNavigation.moveSelection(direction);
-}
-
-function focusSelectedNodeAtRowScale(node = state.selectedNode, { crossRow = false } = {}) {
-  cameraNavigation.focusSelectedNodeAtRowScale(node, { crossRow });
-}
-
-function fitSelectedRowInViewport() {
-  cameraNavigation.fitSelectedRowInViewport();
-}
-
-function cancelCameraFocus() {
-  cameraNavigation.cancelCameraFocus();
 }
 
 async function exploreNextRow() {
@@ -1894,8 +1834,8 @@ function updateBoardSettings() {
   if (elements.focusMediaSize) {
     state.focusMediaSize = normalizeFocusMediaSize(elements.focusMediaSize.value);
   }
-  if (!state.smoothPanEnabled) stopSmoothKeyboardPan();
-  if (!state.smoothZoomEnabled) stopSmoothKeyboardZoom();
+  if (!state.smoothPanEnabled) cameraNavigation.stopSmoothKeyboardPan();
+  if (!state.smoothZoomEnabled) cameraNavigation.stopSmoothKeyboardZoom();
   saveSettings();
   updateBoardSettingsUI();
   if (layoutDirectionChanged || layoutWidthChanged) relayoutBoard();
@@ -1927,7 +1867,7 @@ function updateBoardSettingsUI() {
   if (elements.smoothPanSpeed) elements.smoothPanSpeed.value = String(state.smoothPanSpeed);
   if (elements.smoothPanSpeedValue) {
     elements.smoothPanSpeedValue.textContent =
-      `${state.smoothPanSpeed} px/s · ${getKeyboardPanStep()} px/次`;
+      `${state.smoothPanSpeed} px/s · ${cameraNavigation.getKeyboardPanStep()} px/次`;
   }
   if (elements.smoothZoomToggle) elements.smoothZoomToggle.checked = state.smoothZoomEnabled;
   if (elements.smoothZoomSpeed) elements.smoothZoomSpeed.value = String(state.smoothZoomSpeed);
@@ -2393,10 +2333,6 @@ function updateExploreButton() {
     : "探索下一列";
 }
 
-function selectNodeAtViewportCenter() {
-  selectionNavigation.selectNodeAtViewportCenter();
-}
-
 function activateSelectedNode() {
   const node = state.selectedNode;
   if (!node?.isVideo) return;
@@ -2441,10 +2377,6 @@ function rememberVideoVolume(volume) {
   state.videoVolume = clamp(nextVolume, 0, 1);
 }
 
-function zoomAtPoint(pointerX, pointerY, factor) {
-  cameraNavigation.zoomAtPoint(pointerX, pointerY, factor);
-}
-
 function isInteractiveTarget(target) {
   return (
     typeof Element !== "undefined" &&
@@ -2466,16 +2398,16 @@ function focusFirstItem() {
   state.camera.x = viewportWidth / 2 - (node.x + node.width / 2) * scale;
   state.camera.y = viewportHeight / 2 - (node.y + displayHeight / 2) * scale;
   updateCamera();
-  selectNodeAtViewportCenter();
+  selectionNavigation.selectNodeAtViewportCenter();
   updateMediaVisibility();
 }
 
 function clearBoard() {
   state.selectedItemsGeneration += 1;
-  cancelCameraFocus();
+  cameraNavigation.cancelCameraFocus();
   tagEditor.close();
   folderPicker.close();
-  clearSelection();
+  selectionNavigation.clearSelection();
   releaseAllMediaCards();
   releaseAllMediaLabels();
   state.nodes = [];
@@ -2650,7 +2582,7 @@ function runViewportWork() {
   state.lastViewportWork = performance.now();
   updateMediaVisibility({ deferCleanup: state.isPanning });
   updateLabels();
-  selectNodeAtViewportCenter();
+  selectionNavigation.selectNodeAtViewportCenter();
   maybeLoadNextUnratedRow();
 }
 

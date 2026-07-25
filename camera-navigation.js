@@ -25,9 +25,9 @@
   const CAMERA_FOCUS_DURATION = 180;
   const MIN_ZOOM = 0.08;
   const MAX_ZOOM = 8;
-  const DEFAULT_VIEWPORT_PAN_FRACTION = 2 / 3;
+  const VIEWPORT_PAN_FRACTION = 2 / 3;
+  const CAMERA_FIT_PADDING = 64;
   const DEFAULT_FOCUS_ROW_EMPHASIS = 0.9;
-  const DEFAULT_CAMERA_FIT_PADDING = 64;
   const DEFAULT_VIDEO_CONTROLS_HEIGHT = 8;
   const DEFAULT_SMOOTH_PAN_SPEED = 480;
   const DEFAULT_SMOOTH_ZOOM_SPEED = 1.5;
@@ -42,15 +42,9 @@
       requestAnimationFrame = root.requestAnimationFrame?.bind(root),
       cancelAnimationFrame = root.cancelAnimationFrame?.bind(root),
       now = () => root.performance.now(),
-      viewportPanFraction = DEFAULT_VIEWPORT_PAN_FRACTION,
-      focusRowEmphasis = DEFAULT_FOCUS_ROW_EMPHASIS,
-      getFocusRowEmphasis = () => focusRowEmphasis,
+      getFocusRowEmphasis = () => DEFAULT_FOCUS_ROW_EMPHASIS,
       getFocusTargetHeight = () => TARGET_ROW_HEIGHT,
-      cameraFitPadding = DEFAULT_CAMERA_FIT_PADDING,
-      videoControlsHeight = DEFAULT_VIDEO_CONTROLS_HEIGHT,
-      getVideoControlsHeight = () => videoControlsHeight,
-      minZoom = MIN_ZOOM,
-      maxZoom = MAX_ZOOM,
+      getVideoControlsHeight = () => DEFAULT_VIDEO_CONTROLS_HEIGHT,
     } = options;
 
     if (!state || !elements?.viewport || !getBaseScale || !updateCamera) {
@@ -103,8 +97,8 @@
           targetHeight: getFocusTargetHeight(),
           emphasis: getFocusRowEmphasis(),
         }),
-        getBaseScale() * minZoom,
-        getBaseScale() * maxZoom,
+        getBaseScale() * MIN_ZOOM,
+        getBaseScale() * MAX_ZOOM,
       );
       const displayHeight =
         node.mediaHeight + (node.isVideo ? getVideoControlsHeight() : 0);
@@ -147,12 +141,12 @@
       stopSmoothKeyboardZoom();
       const viewportWidth = elements.viewport.clientWidth;
       const viewportHeight = elements.viewport.clientHeight;
-      const availableWidth = Math.max(viewportWidth - cameraFitPadding * 2, 1);
-      const availableHeight = Math.max(viewportHeight - cameraFitPadding * 2, 1);
+      const availableWidth = Math.max(viewportWidth - CAMERA_FIT_PADDING * 2, 1);
+      const availableHeight = Math.max(viewportHeight - CAMERA_FIT_PADDING * 2, 1);
       const scale = clamp(
         Math.min(availableWidth / width, availableHeight / height),
-        getBaseScale() * minZoom,
-        getBaseScale() * maxZoom,
+        getBaseScale() * MIN_ZOOM,
+        getBaseScale() * MAX_ZOOM,
       );
       const target = centerCameraAtPoint(
         { ...state.camera, scale },
@@ -179,7 +173,7 @@
       const delta = getViewportPanDelta(
         key,
         { width: elements.viewport.clientWidth, height: elements.viewport.clientHeight },
-        viewportPanFraction,
+        VIEWPORT_PAN_FRACTION,
       );
       if (delta) panBy(delta.x, delta.y);
     }
@@ -191,8 +185,8 @@
         { x: pointerX, y: pointerY },
         factor,
         getBaseScale(),
-        minZoom,
-        maxZoom,
+        MIN_ZOOM,
+        MAX_ZOOM,
       );
       updateCamera();
     }
