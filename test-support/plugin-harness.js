@@ -6,6 +6,7 @@ const vm = require("node:vm");
 const BirdViewBoard = require("../board-state.js");
 const BirdViewCore = require("../bird-view-core.js");
 const BirdViewMedia = require("../media-load-queue.js");
+const BirdViewMaterializer = require("../media-materializer.js");
 const BirdViewExploration = require("../exploration-source.js");
 const BirdViewRowLoad = require("../row-load-coordinator.js");
 
@@ -307,6 +308,7 @@ function createPluginHarness({
     BirdViewBoard,
     BirdViewCore,
     BirdViewMedia,
+    BirdViewMaterializer,
     BirdViewRowLoad,
     // Real filter helpers, stubbed item sources.
     BirdViewExploration: { ...BirdViewExploration, RelatedItemSource, UnratedItemSource },
