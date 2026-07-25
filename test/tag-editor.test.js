@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const core = require("../bird-view-core.js");
+const popover = require("../anchored-popover.js");
 const { TagEditor } = require("../tag-editor.js");
 
 function withDocumentStub(run) {
@@ -24,6 +25,7 @@ test("browser globals take priority over CommonJS shims in Eagle", () => {
   const source = fs.readFileSync(path.resolve(__dirname, "../tag-editor.js"), "utf8");
   const context = {
     BirdViewCore: core,
+    BirdViewPopover: popover,
     module,
     require() {
       requireCalls += 1;
