@@ -186,13 +186,7 @@
                   <p class="settings-intro">設定探索來源與自動探索要載入哪些素材。</p>
                   <div class="settings-card">
                     <div class="settings-card-title">探索來源</div>
-                    <label class="auto-explore-setting-row settings-toggle-row">
-                      <span class="settings-control-label">
-                        <span>AI 探索</span>
-                        <small>使用 Eagle AI Search 找相似素材，套用於「探索下一列」。</small>
-                      </span>
-                      <input id="ai-exploration-toggle" type="checkbox" />
-                    </label>
+                    <div class="settings-card-help">每列最多 AI 素材；設定為 0 即關閉 AI 探索。</div>
                     <div class="auto-explore-setting-row auto-explore-speed-row">
                       <span>每列最多 AI 素材</span>
                       <div class="auto-explore-speed-control">
@@ -200,17 +194,17 @@
                           id="ai-exploration-max-items"
                           class="auto-explore-range"
                           type="range"
-                          min="1"
+                          min="0"
                           max="12"
                           step="1"
-                          value="3"
+                          value="0"
                         />
                         <output
                           id="ai-exploration-max-items-value"
                           class="auto-explore-exploration-limit-value"
                           for="ai-exploration-max-items"
                         >
-                          3 個
+                          關閉
                         </output>
                       </div>
                     </div>
@@ -231,8 +225,48 @@
                       </div>
                     </div>
                   </div>
-                  <div class="settings-card">
-                    <div class="settings-card-title">篩選條件</div>
+                  <details class="settings-collapsible">
+                    <summary class="settings-collapsible-summary">
+                      <span>資料夾</span>
+                      <span id="auto-explore-folder-summary" class="settings-collapsible-value">不限</span>
+                    </summary>
+                    <div class="settings-card settings-collapsible-card">
+                    <label class="auto-explore-setting-row">
+                      <span>群組之間</span>
+                      <select id="auto-explore-folder-match" class="auto-explore-select">
+                        <option value="any">符合任一資料夾</option>
+                        <option value="all">全部資料夾都符合</option>
+                      </select>
+                    </label>
+                    <label class="auto-explore-setting-row settings-toggle-row">
+                      <span class="settings-control-label">
+                        <span>包含子資料夾</span>
+                        <small>指定資料夾時，也會探索其子資料夾內的素材。</small>
+                      </span>
+                      <input id="auto-explore-include-subfolders" type="checkbox" checked />
+                    </label>
+                    <div class="auto-explore-tag-search-label">
+                      <span>指定資料夾</span>
+                      <div class="auto-explore-tag-picker">
+                        <input
+                          id="auto-explore-folder-search"
+                          class="auto-explore-tag-search"
+                          type="search"
+                          placeholder="搜尋資料夾"
+                        />
+                        <div id="auto-explore-folder-options" class="auto-explore-tag-options" hidden></div>
+                      </div>
+                    </div>
+                    <div class="auto-explore-tag-hint">不選任何資料夾代表不限資料夾</div>
+                    <div id="auto-explore-selected-folders" class="auto-explore-selected-tags" hidden></div>
+                    </div>
+                  </details>
+                  <details class="settings-collapsible">
+                    <summary class="settings-collapsible-summary">
+                      <span>評分與 Tag</span>
+                      <span id="auto-explore-filter-summary" class="settings-collapsible-value">未評分 · 不限 Tag</span>
+                    </summary>
+                    <div class="settings-card settings-collapsible-card">
                     <label class="auto-explore-setting-row">
                       <span>評分</span>
                       <select id="auto-explore-rating" class="auto-explore-select">
@@ -246,7 +280,36 @@
                       </select>
                     </label>
                     <label class="auto-explore-setting-row">
-                      <span>Tag 匹配</span>
+                      <span>最低評分</span>
+                      <select id="auto-explore-min-rating" class="auto-explore-select">
+                        <option value="">不限</option>
+                        <option value="1">1 星</option>
+                        <option value="2">2 星</option>
+                        <option value="3">3 星</option>
+                        <option value="4">4 星</option>
+                        <option value="5">5 星</option>
+                      </select>
+                    </label>
+                    <label class="auto-explore-setting-row">
+                      <span>最高評分</span>
+                      <select id="auto-explore-max-rating" class="auto-explore-select">
+                        <option value="">不限</option>
+                        <option value="1">1 星</option>
+                        <option value="2">2 星</option>
+                        <option value="3">3 星</option>
+                        <option value="4">4 星</option>
+                        <option value="5">5 星</option>
+                      </select>
+                    </label>
+                    <label class="auto-explore-setting-row">
+                      <span>群組之間</span>
+                      <select id="auto-explore-tag-group-match" class="auto-explore-select">
+                        <option value="any">符合任一群組</option>
+                        <option value="all">全部群組都符合</option>
+                      </select>
+                    </label>
+                    <label class="auto-explore-setting-row">
+                      <span>群組 1 內</span>
                       <select id="auto-explore-tag-match" class="auto-explore-select">
                         <option value="any">符合任一個</option>
                         <option value="all">全部符合</option>
@@ -264,8 +327,12 @@
                         placeholder="不限"
                       />
                     </label>
+                    <div id="auto-explore-tag-groups" class="auto-explore-tag-groups"></div>
+                    <button id="auto-explore-add-tag-group" class="tag-editor-button" type="button">
+                      ＋新增 Tag 群組
+                    </button>
                     <div class="auto-explore-tag-search-label">
-                      <span>指定 Tag</span>
+                      <span>群組 1 的 Tag</span>
                       <div class="auto-explore-tag-picker">
                         <input
                           id="auto-explore-tag-search"
@@ -300,7 +367,8 @@
                       class="auto-explore-selected-tags"
                       hidden
                     ></div>
-                  </div>
+                    </div>
+                  </details>
                 </section>
                 <section
                   id="settings-panel-board"

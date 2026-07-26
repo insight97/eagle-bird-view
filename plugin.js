@@ -60,8 +60,8 @@ const MIN_FOCUS_MEDIA_SIZE = 80;
 const MAX_FOCUS_MEDIA_SIZE = 400;
 const DEFAULT_LAYOUT_DIRECTION = "ltr";
 const DEFAULT_LAYOUT_WIDTH = LAYOUT_WIDTH;
-const DEFAULT_MAX_AI_EXPLORATION_ITEMS = 3;
-const MIN_AI_EXPLORATION_ITEMS = 1;
+const DEFAULT_MAX_AI_EXPLORATION_ITEMS = 0;
+const MIN_AI_EXPLORATION_ITEMS = 0;
 const MAX_AI_EXPLORATION_ITEMS = 12;
 const SEAMLESS_LAYOUT_GAP = 0;
 const SEAMLESS_ROW_GAP = 0;
@@ -106,7 +106,6 @@ const state = {
   layoutWidthUnlimited: false,
   seamlessMode: false,
   maxExplorationItems: DEFAULT_MAX_EXPLORATION_ITEMS,
-  aiExplorationEnabled: false,
   maxAiExplorationItems: DEFAULT_MAX_AI_EXPLORATION_ITEMS,
   aiExplorationAvailable: false,
   videoVolume: 1,
@@ -138,6 +137,8 @@ const state = {
   tagColorGeneration: 0,
   folderNames: new Map(),
   folderNameGeneration: 0,
+  folderOptions: [],
+  folderOptionGeneration: 0,
   viewportSize: null,
   started: false,
   eagleReady: false,
@@ -218,6 +219,16 @@ function setup() {
   elements.seamlessModeStatus = document.querySelector("#seamless-mode-status");
   elements.autoExploreSettingsButton = document.querySelector("#auto-explore-settings-button");
   elements.autoExploreSettingsPanel = document.querySelector("#auto-explore-settings-panel");
+  elements.autoExploreMinRating = document.querySelector("#auto-explore-min-rating");
+  elements.autoExploreMaxRating = document.querySelector("#auto-explore-max-rating");
+  elements.autoExploreFolderMatch = document.querySelector("#auto-explore-folder-match");
+  elements.autoExploreIncludeSubfolders = document.querySelector("#auto-explore-include-subfolders");
+  elements.autoExploreFolderSearch = document.querySelector("#auto-explore-folder-search");
+  elements.autoExploreFolderOptions = document.querySelector("#auto-explore-folder-options");
+  elements.autoExploreSelectedFolders = document.querySelector("#auto-explore-selected-folders");
+  elements.autoExploreTagGroupMatch = document.querySelector("#auto-explore-tag-group-match");
+  elements.autoExploreTagGroups = document.querySelector("#auto-explore-tag-groups");
+  elements.autoExploreAddTagGroup = document.querySelector("#auto-explore-add-tag-group");
   elements.settingsPresetSelect = document.querySelector("#settings-preset-select");
   elements.settingsPresetName = document.querySelector("#settings-preset-name");
   elements.settingsPresetSave = document.querySelector("#settings-preset-save");
@@ -257,11 +268,12 @@ function setup() {
   elements.autoExploreSelectedExcludedTags = document.querySelector("#auto-explore-selected-excluded-tags");
   elements.autoExploreControls = document.querySelector(".auto-explore-controls");
   elements.autoExploreSettingsReset = document.querySelector("#auto-explore-settings-reset");
-  elements.aiExplorationToggle = document.querySelector("#ai-exploration-toggle");
   elements.maxAiExplorationItems = document.querySelector("#ai-exploration-max-items");
   elements.maxAiExplorationItemsValue = document.querySelector(
     "#ai-exploration-max-items-value",
   );
+  elements.autoExploreFolderSummary = document.querySelector("#auto-explore-folder-summary");
+  elements.autoExploreFilterSummary = document.querySelector("#auto-explore-filter-summary");
   elements.exploreButton = document.querySelector("#explore-button");
   elements.folderLoadMoreButton = document.querySelector("#folder-load-more-button");
   elements.toast = document.querySelector("#toast");
@@ -270,7 +282,9 @@ function setup() {
     document,
     elements,
     getKnownTags: getAutoExploreKnownTags,
+    getKnownFolders: getAutoExploreKnownFolders,
     createTagChip,
+    createFolderChip,
     onFilterChange: handleAutoExploreFilterChange,
     onReset: resetAiExplorationSettings,
   });
@@ -327,7 +341,6 @@ function setup() {
   elements.layoutDirection?.addEventListener("change", updateBoardSettings);
   elements.layoutWidth?.addEventListener("input", updateBoardSettings);
   elements.maxExplorationItems?.addEventListener("input", updateBoardSettings);
-  elements.aiExplorationToggle?.addEventListener("change", updateBoardSettings);
   elements.maxAiExplorationItems?.addEventListener("input", updateBoardSettings);
   elements.smoothPanToggle?.addEventListener("change", updateBoardSettings);
   elements.smoothPanSpeed?.addEventListener("input", updateBoardSettings);
@@ -375,7 +388,7 @@ function startEagleIntegration() {
     new RelatedItemSource(eagle.item),
     new AiSimilarItemSource(aiSearch),
   );
-  state.unratedSource = new UnratedItemSource(eagle.item);
+  state.unratedSource = new UnratedItemSource(eagle.item, eagle.folder, Math.random);
   state.folderItemSource =
     typeof eagle.folder?.getSelected === "function" || typeof eagle.folder?.get === "function"
       ? new FolderItemSource(eagle.item, eagle.folder)
@@ -387,6 +400,7 @@ function startEagleIntegration() {
   updateBoardSettingsUI();
   updateAutoExploreToggle();
   void loadTagColors();
+  void loadAutoExploreFolders();
   void loadSelectedItems();
 }
 
@@ -403,6 +417,8 @@ function handleLibraryChanged() {
   clearBoard();
   state.folderNameGeneration += 1;
   state.folderNames.clear();
+  state.folderOptionGeneration += 1;
+  state.folderOptions = [];
   state.explorationSource.clear();
   rowLoadCoordinator.invalidate("exploration");
   state.unratedSource.clear();
@@ -410,7 +426,9 @@ function handleLibraryChanged() {
   state.unratedExhausted = false;
   state.lastUnratedTriggerRow = null;
   updateAutoExploreToggle();
+  autoExploreSettings.update();
   void loadTagColors();
+  void loadAutoExploreFolders();
   showToast("Eagle 資料庫已切換，正在重新載入選取素材。", false);
   void loadSelectedItems();
 }
@@ -823,6 +841,13 @@ function createTagChip(tag) {
   return chip;
 }
 
+function createFolderChip(folder) {
+  const chip = document.createElement("span");
+  chip.className = "media-tag folder-filter-tag";
+  chip.textContent = folder?.label || folder?.name || folder?.id || "";
+  return chip;
+}
+
 function createSelectionExploreButton({ type, value, label }) {
   const button = document.createElement("button");
   button.className = `selection-explore-target selection-${type}-target`;
@@ -963,6 +988,43 @@ async function loadTagColors() {
     autoExploreSettings.update();
     console.warn("Failed to load Eagle tag colors", error);
   }
+}
+
+async function loadAutoExploreFolders() {
+  const generation = ++state.folderOptionGeneration;
+  if (typeof eagle === "undefined" || typeof eagle.folder?.getAll !== "function") {
+    state.folderOptions = [];
+    autoExploreSettings.update();
+    return;
+  }
+
+  try {
+    const folders = await eagle.folder.getAll();
+    if (generation !== state.folderOptionGeneration) return;
+    state.folderOptions = flattenFolderOptions(folders);
+    autoExploreSettings.update();
+  } catch (error) {
+    if (generation !== state.folderOptionGeneration) return;
+    state.folderOptions = [];
+    autoExploreSettings.update();
+    console.warn("Failed to load Eagle folders for auto exploration", error);
+  }
+}
+
+function flattenFolderOptions(folders) {
+  const options = [];
+  const visited = new Set();
+  const visit = (folder, parentPath = "") => {
+    const id = String(folder?.id || "").trim();
+    if (!id || visited.has(id)) return;
+    visited.add(id);
+    const name = String(folder?.name || "").trim() || "未命名資料夾";
+    const label = parentPath ? `${parentPath} / ${name}` : name;
+    options.push({ id, label, name });
+    for (const child of folder?.children || []) visit(child, label);
+  };
+  for (const folder of folders || []) visit(folder);
+  return options.sort((first, second) => first.label.localeCompare(second.label));
 }
 
 function mountMediaLabel(node) {
@@ -1316,7 +1378,7 @@ async function exploreNextRow() {
   const result = await rowLoadCoordinator.load("exploration", {
     find: () =>
       source.findCandidates(pivot, excludedIds, {
-        aiEnabled: state.aiExplorationEnabled,
+        aiEnabled: state.maxAiExplorationItems > 0,
         maxAiItems: state.maxAiExplorationItems,
       }),
     select: (candidates) =>
@@ -1365,7 +1427,7 @@ async function exploreFromSelectionTarget({ type, value, label }) {
   const result = await rowLoadCoordinator.load("exploration", {
     find: () =>
       source.findCandidates(criterion, excludedIds, {
-        aiEnabled: state.aiExplorationEnabled,
+        aiEnabled: state.maxAiExplorationItems > 0,
         maxAiItems: state.maxAiExplorationItems,
       }),
     select: (candidates) =>
@@ -1489,16 +1551,11 @@ function updateBoardSettings() {
     ? normalizeMaxExplorationItems(elements.maxExplorationItems.value)
     : state.maxExplorationItems;
   state.maxExplorationItems = nextMaxExplorationItems;
-  const nextAiExplorationEnabled = elements.aiExplorationToggle
-    ? Boolean(elements.aiExplorationToggle.checked)
-    : state.aiExplorationEnabled;
   const nextMaxAiExplorationItems = elements.maxAiExplorationItems
     ? normalizeMaxAiExplorationItems(elements.maxAiExplorationItems.value)
     : state.maxAiExplorationItems;
   const aiExplorationSettingsChanged =
-    nextAiExplorationEnabled !== state.aiExplorationEnabled ||
     nextMaxAiExplorationItems !== state.maxAiExplorationItems;
-  state.aiExplorationEnabled = nextAiExplorationEnabled;
   state.maxAiExplorationItems = nextMaxAiExplorationItems;
   state.smoothPanEnabled = Boolean(elements.smoothPanToggle?.checked);
   const speed = Number(elements.smoothPanSpeed?.value);
@@ -1550,19 +1607,14 @@ function updateBoardSettingsUI() {
   if (elements.maxExplorationItemsValue) {
     elements.maxExplorationItemsValue.textContent = `${state.maxExplorationItems} 個`;
   }
-  if (elements.aiExplorationToggle) {
-    elements.aiExplorationToggle.checked = state.aiExplorationEnabled;
-    elements.aiExplorationToggle.disabled = !state.aiExplorationAvailable;
-    elements.aiExplorationToggle.title = state.aiExplorationAvailable
-      ? "使用 Eagle AI Search 參與手動探索"
-      : "需要 Eagle AI Search 才能使用";
-  }
   if (elements.maxAiExplorationItems) {
     elements.maxAiExplorationItems.value = String(state.maxAiExplorationItems);
     elements.maxAiExplorationItems.disabled = !state.aiExplorationAvailable;
   }
   if (elements.maxAiExplorationItemsValue) {
-    elements.maxAiExplorationItemsValue.textContent = `${state.maxAiExplorationItems} 個`;
+    elements.maxAiExplorationItemsValue.textContent = state.maxAiExplorationItems > 0
+      ? `${state.maxAiExplorationItems} 個`
+      : "關閉";
   }
   if (elements.smoothPanToggle) elements.smoothPanToggle.checked = state.smoothPanEnabled;
   if (elements.smoothPanSpeed) elements.smoothPanSpeed.value = String(state.smoothPanSpeed);
@@ -1619,7 +1671,7 @@ function getSettingsSnapshot() {
       layoutWidthUnlimited: state.layoutWidthUnlimited,
       seamlessMode: state.seamlessMode,
       maxExplorationItems: state.maxExplorationItems,
-      aiExplorationEnabled: state.aiExplorationEnabled,
+      aiExplorationEnabled: state.maxAiExplorationItems > 0,
       maxAiExplorationItems: state.maxAiExplorationItems,
       smoothPanEnabled: state.smoothPanEnabled,
       smoothPanSpeed: state.smoothPanSpeed,
@@ -1657,8 +1709,12 @@ function applySettingsSnapshotValues(settings, { restoreAutoExploreState = false
     state.layoutWidthUnlimited = Boolean(board.layoutWidthUnlimited);
     state.seamlessMode = Boolean(board.seamlessMode);
     state.maxExplorationItems = normalizeMaxExplorationItems(board.maxExplorationItems);
-    state.aiExplorationEnabled = Boolean(board.aiExplorationEnabled);
-    state.maxAiExplorationItems = normalizeMaxAiExplorationItems(board.maxAiExplorationItems);
+    const configuredMaxAiExplorationItems = normalizeMaxAiExplorationItems(
+      board.maxAiExplorationItems,
+    );
+    state.maxAiExplorationItems = board.aiExplorationEnabled === false
+      ? 0
+      : configuredMaxAiExplorationItems;
   }
   if (settings?.autoExploreFilter && typeof settings.autoExploreFilter === "object") {
     autoExploreSettings.setFilter(settings.autoExploreFilter);
@@ -1675,7 +1731,6 @@ function applySettingsSnapshot(settings, { persist = true } = {}) {
     previous.board.layoutWidthUnlimited !== next.board.layoutWidthUnlimited ||
     previous.board.seamlessMode !== next.board.seamlessMode;
   const aiExplorationSettingsChanged =
-    previous.board.aiExplorationEnabled !== next.board.aiExplorationEnabled ||
     previous.board.maxAiExplorationItems !== next.board.maxAiExplorationItems;
   const autoExploreFilterChanged = !unratedFiltersEqual(
     previous.autoExploreFilter,
@@ -1893,8 +1948,7 @@ function handleAutoExploreFilterChange(nextFilter, { changed }) {
 }
 
 function resetAiExplorationSettings() {
-  state.aiExplorationEnabled = false;
-  state.maxAiExplorationItems = DEFAULT_MAX_AI_EXPLORATION_ITEMS;
+  state.maxAiExplorationItems = 0;
   rowLoadCoordinator.invalidate("exploration");
   state.explorationSource?.clear();
   updateBoardSettingsUI();
@@ -1976,6 +2030,21 @@ function getAutoExploreKnownTags() {
     for (const tag of normalizeTags(node.item.tags)) tags.add(tag);
   }
   return [...tags];
+}
+
+function getAutoExploreKnownFolders() {
+  const folders = new Map(state.folderOptions.map((folder) => [folder.id, folder]));
+  for (const node of board.nodes) {
+    for (const folderId of normalizeTags(node.item.folders)) {
+      if (!folders.has(folderId)) {
+        folders.set(folderId, {
+          id: folderId,
+          label: state.folderNames.get(folderId) || folderId,
+        });
+      }
+    }
+  }
+  return [...folders.values()];
 }
 
 function toggleUnratedExploration() {

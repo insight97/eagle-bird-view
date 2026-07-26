@@ -39,13 +39,24 @@ const SELECTORS = [
   "#seamless-mode-status",
   "#auto-explore-settings-button",
   "#auto-explore-settings-panel",
+  "#auto-explore-min-rating",
+  "#auto-explore-max-rating",
+  "#auto-explore-folder-match",
+  "#auto-explore-include-subfolders",
+  "#auto-explore-folder-search",
+  "#auto-explore-folder-options",
+  "#auto-explore-selected-folders",
+  "#auto-explore-folder-summary",
+  "#auto-explore-filter-summary",
+  "#auto-explore-tag-group-match",
+  "#auto-explore-tag-groups",
+  "#auto-explore-add-tag-group",
   "#settings-preset-select",
   "#settings-preset-name",
   "#settings-preset-save",
   "#settings-preset-update",
   "#settings-preset-delete",
   "#settings-preset-status",
-  "#ai-exploration-toggle",
   "#ai-exploration-max-items",
   "#ai-exploration-max-items-value",
   "#board-layout-direction",
@@ -269,6 +280,7 @@ function createPluginHarness({
   selectedItems = null,
   aiSearch = null,
   storage = null,
+  folderTree = [],
   runAnimationFrames = false,
   navigationProbe = false,
   // Tests that exercise plugin.js error paths can mute the expected logging so
@@ -446,6 +458,9 @@ function createPluginHarness({
         async open() {},
       },
       folder: {
+        async getAll() {
+          return folderTree;
+        },
         async getSelected() {
           return [];
         },

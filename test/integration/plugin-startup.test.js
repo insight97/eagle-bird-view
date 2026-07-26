@@ -54,7 +54,7 @@ test("the board asks Eagle for the selection and leaves auto exploration off", a
   assert.equal(statusOf(plugin, "#auto-explore-status"), "關");
 });
 
-test("AI exploration settings are enabled only when Eagle AI Search is available", async () => {
+test("AI exploration is controlled by the per-row item limit", async () => {
   const plugin = createPluginHarness({
     selectedItems: [],
     aiSearch: { searchByItemId: async () => ({ results: [] }) },
@@ -62,19 +62,19 @@ test("AI exploration settings are enabled only when Eagle AI Search is available
   plugin.start();
   await flush();
 
-  const toggle = plugin.elements.get("#ai-exploration-toggle");
   const maxItems = plugin.elements.get("#ai-exploration-max-items");
-  assert.equal(toggle.disabled, false);
   assert.equal(maxItems.disabled, false);
-  assert.equal(maxItems.value, "3");
+  assert.equal(maxItems.value, "0");
 
-  toggle.checked = true;
-  toggle.emit("change");
   maxItems.value = "5";
   maxItems.emit("input");
 
-  assert.equal(toggle.checked, true);
   assert.equal(maxItems.value, "5");
+  assert.equal(plugin.elements.get("#ai-exploration-max-items-value").textContent, "5 個");
+
+  maxItems.value = "0";
+  maxItems.emit("input");
+  assert.equal(plugin.elements.get("#ai-exploration-max-items-value").textContent, "關閉");
 });
 
 test("F11 toggles Eagle fullscreen and ignores auto-repeat", async () => {

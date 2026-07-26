@@ -28,9 +28,16 @@ test("normalizeUnratedFilter repairs every field of a stored filter", () => {
   assert.deepEqual(normalizeUnratedFilter(), {
     fileTypes: ["image", "video"],
     rating: "unrated",
+    minRating: null,
+    maxRating: null,
+    folders: [],
+    folderMatch: "any",
+    includeSubfolders: true,
     tags: [],
     excludedTags: [],
     tagMatch: "any",
+    tagGroups: [],
+    tagGroupMatch: "any",
     maxTagCount: null,
   });
 
@@ -38,17 +45,31 @@ test("normalizeUnratedFilter repairs every field of a stored filter", () => {
     normalizeUnratedFilter({
       fileTypes: ["video", "audio"],
       rating: "3",
+      minRating: "2",
+      maxRating: "5",
+      folders: ["root"],
+      folderMatch: "all",
+      includeSubfolders: false,
       tags: [" UI ", "UI", ""],
       excludedTags: ["Draft"],
       tagMatch: "all",
+      tagGroups: [{ tags: [" Photo ", "Photo"], match: "any" }],
+      tagGroupMatch: "all",
       maxTagCount: 2,
     }),
     {
       fileTypes: ["video"],
       rating: 3,
+      minRating: 2,
+      maxRating: 5,
+      folders: ["root"],
+      folderMatch: "all",
+      includeSubfolders: false,
       tags: ["UI"],
       excludedTags: ["Draft"],
       tagMatch: "all",
+      tagGroups: [{ tags: ["Photo"], match: "any" }],
+      tagGroupMatch: "all",
       maxTagCount: 2,
     },
   );
@@ -64,6 +85,8 @@ test("normalizeUnratedFilter falls back on unusable values", () => {
 
   assert.deepEqual(filter.fileTypes, ["image", "video"]);
   assert.equal(filter.rating, "unrated");
+  assert.equal(filter.minRating, null);
+  assert.equal(filter.maxRating, null);
   assert.equal(filter.tagMatch, "any");
   assert.equal(filter.maxTagCount, null);
 });
@@ -404,6 +427,127 @@ test("unrated source applies rating, tag matching, and strict tag count filters"
   assert.equal(calls.length, 1);
   assert.equal(calls[0].rating, 3);
   assert.deepEqual(calls[0].tags, ["UI"]);
+});
+
+test("unrated source applies rating ranges and folder include filters", async () => {
+  const calls = [];
+  const source = new UnratedItemSource(
+    {
+      get: async (options) => {
+        calls.push(options);
+        return [
+          { id: "child-match", ext: "jpg", width: 200, height: 100, star: 3, folders: ["child"] },
+          { id: "root-match", ext: "jpg", width: 200, height: 100, star: 4, folders: ["root"] },
+          { id: "too-low", ext: "jpg", width: 200, height: 100, star: 2, folders: ["child"] },
+          { id: "too-high", ext: "jpg", width: 200, height: 100, star: 5, folders: ["root"] },
+        ];
+      },
+      getByIds: async () => [],
+    },
+    {
+      async getAll() {
+        return [
+          {
+            id: "root",
+            children: [{ id: "child", parent: "root" }],
+          },
+        ];
+      },
+    },
+    () => 0,
+  );
+
+  const result = await source.findNextRow(new Set(), {
+    rating: "any",
+    minRating: 3,
+    maxRating: 4,
+    folders: ["root"],
+    includeSubfolders: true,
+  });
+
+  assert.deepEqual(result.map(({ id }) => id), ["child-match", "root-match"]);
+  assert.deepEqual(calls.map(({ folders }) => folders), [["root"], ["child"]]);
+});
+
+test("unrated source falls back when the folder tree API throws synchronously", async () => {
+  const calls = [];
+  const source = new UnratedItemSource(
+    {
+      get: async (options) => {
+        calls.push(options);
+        return [];
+      },
+      getByIds: async () => [],
+    },
+    {
+      getAll() {
+        throw new TypeError("Class constructor Folder cannot be invoked without 'new'");
+      },
+    },
+    () => 0,
+  );
+
+  const result = await source.findNextRow(new Set(), {
+    rating: "any",
+    folders: ["root"],
+    includeSubfolders: true,
+  });
+
+  assert.deepEqual(result, []);
+  assert.deepEqual(calls.map(({ folders }) => folders), [["root"]]);
+});
+
+test("unrated source does not treat an Eagle Folder class as the random function", async () => {
+  class Folder {}
+  Folder.getAll = async () => [];
+
+  const source = new UnratedItemSource(
+    {
+      get: async () => [
+        { id: "match", ext: "jpg", width: 200, height: 100, folders: ["root"] },
+      ],
+      getByIds: async () => [],
+    },
+    Folder,
+    () => 0,
+  );
+
+  const result = await source.findNextRow(new Set(), {
+    rating: "any",
+    folders: ["root"],
+    includeSubfolders: true,
+  });
+
+  assert.deepEqual(result.map(({ id }) => id), ["match"]);
+});
+
+test("unrated source combines tag groups with configurable boolean logic", async () => {
+  const source = new UnratedItemSource({
+    get: async () => [
+      { id: "first-group", ext: "jpg", width: 200, height: 100, tags: ["A", "B"] },
+      { id: "second-group", ext: "jpg", width: 200, height: 100, tags: ["C", "D"] },
+      { id: "partial", ext: "jpg", width: 200, height: 100, tags: ["A"] },
+    ],
+    getByIds: async () => [],
+  }, () => 0);
+
+  const anyGroupResult = await source.findNextRow(new Set(), {
+    rating: "any",
+    tags: ["A", "B"],
+    tagMatch: "all",
+    tagGroups: [{ tags: ["C", "D"], match: "all" }],
+    tagGroupMatch: "any",
+  });
+  assert.deepEqual(anyGroupResult.map(({ id }) => id), ["first-group", "second-group"]);
+
+  source.clear();
+  const allGroupsResult = await source.findNextRow(new Set(), {
+    rating: "any",
+    tags: ["A"],
+    tagGroups: [{ tags: ["C"], match: "any" }],
+    tagGroupMatch: "all",
+  });
+  assert.deepEqual(allGroupsResult.map(({ id }) => id), []);
 });
 
 test("clearing an unrated source invalidates an in-flight query", async () => {

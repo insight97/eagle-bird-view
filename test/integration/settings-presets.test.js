@@ -22,7 +22,17 @@ function flush() {
 
 test("saves a preset, applies it, and updates the selected preset", async () => {
   const storage = createStorage();
-  const plugin = createPluginHarness({ selectedItems: [], storage });
+  const plugin = createPluginHarness({
+    selectedItems: [],
+    storage,
+    folderTree: [
+      {
+        id: "root",
+        name: "Design",
+        children: [{ id: "child", name: "References", parent: "root" }],
+      },
+    ],
+  });
   plugin.start();
   await flush();
 
@@ -76,4 +86,18 @@ test("saves a preset, applies it, and updates the selected preset", async () => 
     JSON.parse(storage.getItem("bird-view-presets")).presets.map(({ name }) => name),
     ["Focus view"],
   );
+
+  const folderSearch = plugin.elements.get("#auto-explore-folder-search");
+  const folderOptions = plugin.elements.get("#auto-explore-folder-options");
+  folderSearch.value = "design";
+  folderSearch.emit("input");
+  folderOptions.children[0].click();
+  name.value = "Folder view";
+  save.click();
+
+  const folderPreset = JSON.parse(storage.getItem("bird-view-presets")).presets.find(
+    ({ name: presetName }) => presetName === "Folder view",
+  );
+  assert.deepEqual(folderPreset.settings.autoExploreFilter.folders, ["root"]);
+  assert.equal(folderPreset.settings.autoExploreFilter.includeSubfolders, true);
 });

@@ -41,9 +41,16 @@
   const DEFAULT_UNRATED_FILTER = Object.freeze({
     fileTypes: Object.freeze(["image", "video"]),
     rating: "unrated",
+    minRating: null,
+    maxRating: null,
+    folders: Object.freeze([]),
+    folderMatch: "any",
+    includeSubfolders: true,
     tags: Object.freeze([]),
     excludedTags: Object.freeze([]),
     tagMatch: "any",
+    tagGroups: Object.freeze([]),
+    tagGroupMatch: "any",
     maxTagCount: null,
   });
   const INDEX_FIELDS = [
@@ -129,13 +136,20 @@
   class UnratedItemSource {
     #items = null;
     #itemApi;
+    #folderApi;
     #random;
     #generation = 0;
     #filterKey = null;
 
-    constructor(itemApi, random = Math.random) {
+    constructor(itemApi, folderApiOrRandom, random) {
       this.#itemApi = itemApi;
-      this.#random = random;
+      if (arguments.length < 3 && typeof folderApiOrRandom === "function") {
+        this.#folderApi = null;
+        this.#random = folderApiOrRandom;
+      } else {
+        this.#folderApi = folderApiOrRandom;
+        this.#random = typeof random === "function" ? random : Math.random;
+      }
     }
 
     async findNextRow(
@@ -145,7 +159,10 @@
       maxItems,
     ) {
       const normalizedFilter = normalizeUnratedFilter(filter);
-      const filterKey = JSON.stringify(normalizedFilter);
+      const folderScopeResult = resolveFolderScope(this.#folderApi, normalizedFilter);
+      const folderScope =
+        folderScopeResult instanceof Promise ? await folderScopeResult : folderScopeResult;
+      const filterKey = JSON.stringify({ normalizedFilter, folderScope });
       if (this.#filterKey !== filterKey) {
         this.#generation += 1;
         this.#filterKey = filterKey;
@@ -153,7 +170,7 @@
       }
       const generation = this.#generation;
       if (!this.#items) {
-        this.#items = loadFilteredItems(this.#itemApi, normalizedFilter)
+        this.#items = loadFilteredItems(this.#itemApi, normalizedFilter, folderScope)
           .catch((error) => {
             if (generation === this.#generation) this.#items = null;
             throw error;
@@ -162,7 +179,7 @@
       const items = await this.#items;
       if (generation !== this.#generation) return [];
       const available = items.filter(
-        (item) => isEligibleItem(item, excludedIds, normalizedFilter),
+        (item) => isEligibleItem(item, excludedIds, normalizedFilter, folderScope),
       );
       const selected = selectRandomExplorationRow(
         available,
@@ -289,13 +306,23 @@
   }
 
   function normalizeUnratedFilter(filter = DEFAULT_UNRATED_FILTER) {
+    const minRating = normalizeRatingBound(filter.minRating);
+    const maxRating = normalizeRatingBound(filter.maxRating);
+    const normalizedRatingRange = normalizeRatingRange(minRating, maxRating);
     const maxTagCount = Number(filter.maxTagCount);
     return {
       fileTypes: normalizeFileTypes(filter),
       rating: normalizeRating(filter.rating),
+      minRating: normalizedRatingRange.min,
+      maxRating: normalizedRatingRange.max,
+      folders: normalizeTags(filter.folders),
+      folderMatch: filter.folderMatch === "all" ? "all" : "any",
+      includeSubfolders: filter.includeSubfolders !== false,
       tags: normalizeTags(filter.tags),
       excludedTags: normalizeTags(filter.excludedTags),
       tagMatch: filter.tagMatch === "all" ? "all" : "any",
+      tagGroups: normalizeTagGroups(filter.tagGroups),
+      tagGroupMatch: filter.tagGroupMatch === "all" ? "all" : "any",
       maxTagCount: Number.isInteger(maxTagCount) && maxTagCount >= 1 ? maxTagCount : null,
     };
   }
@@ -306,6 +333,28 @@
     return [1, 2, 3, 4, 5].includes(value) ? value : DEFAULT_UNRATED_FILTER.rating;
   }
 
+  function normalizeRatingBound(rating) {
+    const value = Number(rating);
+    return [1, 2, 3, 4, 5].includes(value) ? value : null;
+  }
+
+  function normalizeRatingRange(minRating, maxRating) {
+    if (minRating !== null && maxRating !== null && minRating > maxRating) {
+      return { min: maxRating, max: minRating };
+    }
+    return { min: minRating, max: maxRating };
+  }
+
+  function normalizeTagGroups(groups) {
+    if (!Array.isArray(groups)) return [];
+    return groups
+      .filter((group) => group && typeof group === "object")
+      .map((group) => ({
+        tags: normalizeTags(group.tags),
+        match: group.match === "any" ? "any" : "all",
+      }));
+  }
+
   function getUnratedFilterKey(filter) {
     return JSON.stringify(normalizeUnratedFilter(filter));
   }
@@ -314,23 +363,30 @@
     return getUnratedFilterKey(first) === getUnratedFilterKey(second);
   }
 
-  async function loadFilteredItems(itemApi, filter) {
-    const rating = filter.rating === "any" ? {} : { rating: filter.rating === "unrated" ? 0 : filter.rating };
+  async function loadFilteredItems(itemApi, filter, folderScope) {
+    const rating =
+      filter.rating === "any" || filter.minRating !== null || filter.maxRating !== null
+        ? {}
+        : { rating: filter.rating === "unrated" ? 0 : filter.rating };
     const fields = { fields: INDEX_FIELDS };
-    if (!filter.tags.length) {
-      if (!filter.fileTypes.includes("video") || filter.fileTypes.includes("image")) {
-        return itemApi.get({ ...rating, ...fields });
-      }
-      const results = await Promise.all(
-        [...VIDEO_EXTENSIONS].map((ext) => itemApi.get({ ...rating, ext, ...fields })),
-      );
-      return results.flatMap((items) => items || []);
+    const queries = [];
+    const queryTags = getQueryTags(filter);
+    for (const tag of queryTags) queries.push({ ...rating, tags: [tag], ...fields });
+    for (const folderId of folderScope.queryFolderIds) {
+      queries.push({ ...rating, folders: [folderId], ...fields });
     }
 
-    const queryTags = filter.tagMatch === "all" ? filter.tags.slice(0, 1) : filter.tags;
-    const results = await Promise.all(
-      queryTags.map((tag) => itemApi.get({ ...rating, tags: [tag], ...fields })),
-    );
+    if (!queries.length) {
+      if (!filter.fileTypes.includes("video") || filter.fileTypes.includes("image")) {
+        queries.push({ ...rating, ...fields });
+      } else {
+        queries.push(
+          ...[...VIDEO_EXTENSIONS].map((ext) => ({ ...rating, ext, ...fields })),
+        );
+      }
+    }
+
+    const results = await Promise.all(queries.map((query) => itemApi.get(query)));
     const itemsById = new Map();
     for (const items of results) {
       for (const item of items || []) {
@@ -340,25 +396,120 @@
     return [...itemsById.values()];
   }
 
-  function isEligibleItem(item, excludedIds, filter) {
+  function isEligibleItem(item, excludedIds, filter, folderScope = createFolderScope(filter)) {
     if (!item?.id || item.isDeleted || excludedIds.has(item.id)) return false;
     const fileType = getItemFileType(item);
     if (!fileType || !filter.fileTypes.includes(fileType)) return false;
-    if (filter.rating !== "any") {
-      const rating = getItemRating(item);
-      if (filter.rating === "unrated" ? rating !== 0 : rating !== filter.rating) return false;
+    const rating = getItemRating(item);
+    if (filter.rating === "unrated" && rating !== 0) return false;
+    if (filter.rating !== "any" && filter.rating !== "unrated" && rating !== filter.rating) {
+      return false;
     }
-    const tags = normalizeTags(item.tags);
+    if (filter.minRating !== null && rating < filter.minRating) return false;
+    if (filter.maxRating !== null && rating > filter.maxRating) return false;
+
+    const itemFolders = new Set(normalizeTags(item.folders));
     if (
-      filter.tags.length &&
-      (filter.tagMatch === "all"
-        ? !filter.tags.every((tag) => tags.includes(tag))
-        : !filter.tags.some((tag) => tags.includes(tag)))
+      folderScope.includedGroups.length &&
+      (filter.folderMatch === "all"
+        ? !folderScope.includedGroups.every((group) => group.some((id) => itemFolders.has(id)))
+        : !folderScope.includedGroups.some((group) => group.some((id) => itemFolders.has(id))))
     ) {
       return false;
     }
+    const tags = normalizeTags(item.tags);
+    const tagGroups = [
+      { tags: filter.tags, match: filter.tagMatch },
+      ...filter.tagGroups,
+    ].filter((group) => group.tags.length);
+    if (tagGroups.length) {
+      const groupMatches = tagGroups.map((group) =>
+        group.match === "all"
+          ? group.tags.every((tag) => tags.includes(tag))
+          : group.tags.some((tag) => tags.includes(tag)),
+      );
+      if (filter.tagGroupMatch === "all" ? !groupMatches.every(Boolean) : !groupMatches.some(Boolean)) {
+        return false;
+      }
+    }
     if (filter.excludedTags.some((tag) => tags.includes(tag))) return false;
     return filter.maxTagCount === null || tags.length < filter.maxTagCount;
+  }
+
+  function getQueryTags(filter) {
+    const groups = [
+      { tags: filter.tags, match: filter.tagMatch },
+      ...filter.tagGroups,
+    ].filter((group) => group.tags.length);
+    return [
+      ...new Set(
+        groups.flatMap(({ tags, match }) => (match === "all" ? tags.slice(0, 1) : tags)),
+      ),
+    ].slice(0, MAX_TAG_QUERIES);
+  }
+
+  function resolveFolderScope(folderApi, filter) {
+    const selectedFolderIds = [...new Set(filter.folders)];
+    const descendants = new Map(selectedFolderIds.map((id) => [id, [id]]));
+    const createScope = () => createResolvedFolderScope(filter, descendants);
+    if (
+      !filter.includeSubfolders ||
+      !selectedFolderIds.length ||
+      typeof folderApi?.getAll !== "function"
+    ) {
+      return createScope();
+    }
+
+    return Promise.resolve()
+      .then(() => folderApi.getAll())
+      .then((folders) => {
+        const byId = new Map();
+        const visit = (folder, parentId = "") => {
+          const id = String(folder?.id || "").trim();
+          if (!id || byId.has(id)) return;
+          byId.set(id, {
+            id,
+            parentId: String(folder?.parent || parentId || "").trim(),
+          });
+          for (const child of folder?.children || []) visit(child, id);
+        };
+        for (const folder of folders || []) visit(folder);
+        for (const folder of byId.values()) {
+          for (const selectedId of selectedFolderIds) {
+            if (isDescendantOf(folder.id, selectedId, byId)) {
+              descendants.get(selectedId)?.push(folder.id);
+            }
+          }
+        }
+        return createScope();
+      })
+      .catch(() => createScope());
+  }
+
+  function createResolvedFolderScope(filter, descendants) {
+    const includedGroups = filter.folders.map((id) => [...new Set(descendants.get(id) || [id])]);
+    return {
+      includedGroups,
+      queryFolderIds: [...new Set(includedGroups.flat())].slice(0, MAX_FOLDER_QUERIES),
+    };
+  }
+
+  function createFolderScope(filter) {
+    return {
+      includedGroups: filter.folders.map((id) => [id]),
+      queryFolderIds: [...filter.folders].slice(0, MAX_FOLDER_QUERIES),
+    };
+  }
+
+  function isDescendantOf(folderId, ancestorId, byId) {
+    let currentId = folderId;
+    const visited = new Set();
+    while (currentId && !visited.has(currentId)) {
+      if (currentId === ancestorId) return true;
+      visited.add(currentId);
+      currentId = byId.get(currentId)?.parentId || "";
+    }
+    return false;
   }
 
   function getItemFileType(item) {

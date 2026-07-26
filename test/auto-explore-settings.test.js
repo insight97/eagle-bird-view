@@ -21,7 +21,19 @@ function createHarness() {
     autoExploreFileTypeImage: createElementStub("input"),
     autoExploreFileTypeVideo: createElementStub("input"),
     autoExploreRating: createElementStub("select"),
+    autoExploreMinRating: createElementStub("select"),
+    autoExploreMaxRating: createElementStub("select"),
+    autoExploreFolderMatch: createElementStub("select"),
+    autoExploreIncludeSubfolders: createElementStub("input"),
+    autoExploreFolderSearch: createElementStub("input"),
+    autoExploreFolderOptions: createElementStub("div"),
+    autoExploreSelectedFolders: createElementStub("div"),
+    autoExploreFolderSummary: createElementStub("span"),
+    autoExploreFilterSummary: createElementStub("span"),
     autoExploreTagMatch: createElementStub("select"),
+    autoExploreTagGroupMatch: createElementStub("select"),
+    autoExploreTagGroups: createElementStub("div"),
+    autoExploreAddTagGroup: createElementStub("button"),
     autoExploreMaxTagCount: createElementStub("input"),
     autoExploreTagSearch: createElementStub("input"),
     autoExploreTagOptions: createElementStub("div"),
@@ -39,6 +51,7 @@ function createHarness() {
   elements.autoExploreSettingsPanels[1].dataset.settingsPanel = "display";
   elements.autoExploreFileTypeImage.checked = true;
   elements.autoExploreFileTypeVideo.checked = true;
+  elements.autoExploreIncludeSubfolders.checked = true;
 
   const document = {
     addEventListener() {},
@@ -55,9 +68,18 @@ function createHarness() {
     filtersEqual: unratedFiltersEqual,
     normalizeTags,
     getKnownTags: () => ["UI", "Draft"],
+    getKnownFolders: () => [
+      { id: "root", label: "Design" },
+      { id: "child", label: "Design / Child" },
+    ],
     createTagChip: (tag) => {
       const chip = createElementStub("span");
       chip.textContent = tag;
+      return chip;
+    },
+    createFolderChip: (folder) => {
+      const chip = createElementStub("span");
+      chip.textContent = folder.label;
       return chip;
     },
     onFilterChange(next, details) {
@@ -93,4 +115,34 @@ test("auto explore settings resolve tag conflicts and reset to defaults", () => 
 
   harness.elements.autoExploreSettingsReset.click();
   assert.deepEqual(harness.settings.getFilter(), normalizeUnratedFilter(DEFAULT_UNRATED_FILTER));
+});
+
+test("auto explore settings configure rating ranges, folders, and tag groups", () => {
+  const harness = createHarness();
+  harness.settings.open();
+
+  harness.elements.autoExploreMinRating.value = "3";
+  harness.elements.autoExploreMinRating.emit("change");
+  harness.elements.autoExploreMaxRating.value = "5";
+  harness.elements.autoExploreMaxRating.emit("change");
+  harness.elements.autoExploreFolderSearch.value = "design";
+  harness.elements.autoExploreFolderSearch.emit("input");
+  harness.elements.autoExploreFolderOptions.children[0].click();
+  harness.elements.autoExploreAddTagGroup.click();
+
+  const group = harness.elements.autoExploreTagGroups.children[0];
+  const groupSearch = group.children[1];
+  const groupOptions = group.children[2];
+  groupSearch.value = "D";
+  groupSearch.emit("input");
+  groupOptions.children[0].click();
+
+  const filter = harness.settings.getFilter();
+  assert.equal(filter.rating, "any");
+  assert.equal(filter.minRating, 3);
+  assert.equal(filter.maxRating, 5);
+  assert.deepEqual(filter.folders, ["root"]);
+  assert.deepEqual(filter.tagGroups, [{ tags: ["Draft"], match: "all" }]);
+  assert.equal(harness.elements.autoExploreFolderSummary.textContent, "1 個資料夾（含子資料夾）");
+  assert.equal(harness.elements.autoExploreFilterSummary.textContent, "3–5 星 · 1 個 Tag 群組");
 });
