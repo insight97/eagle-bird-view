@@ -157,6 +157,37 @@ button {
   letter-spacing: 0.01em;
 }
 
+.settings-presets {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #383c43;
+}
+
+.settings-preset-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-preset-row .auto-explore-select,
+.settings-preset-name {
+  width: 100%;
+  flex: 1;
+}
+
+.settings-preset-status {
+  min-height: 12px;
+  color: #858b96;
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.settings-preset-status.is-error {
+  color: #ef9a9a;
+}
+
 .settings-close {
   display: grid;
   width: 26px;
@@ -1447,10 +1478,21 @@ button {
   cursor: pointer;
 }
 
+.tag-editor-button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
 .tag-editor-button.is-primary {
   border-color: #7971ed;
   background: #625bd0;
   color: #fff;
+}
+
+.tag-editor-button.is-danger:hover:not(:disabled) {
+  border-color: #b86c76;
+  background: #4a2d34;
+  color: #ffdfe3;
 }
 
 .media-label.is-selected {

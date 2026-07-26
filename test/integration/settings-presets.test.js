@@ -1,0 +1,79 @@
+"use strict";
+
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const { createPluginHarness } = require("../../test-support/plugin-harness.js");
+
+function createStorage() {
+  const values = new Map();
+  return {
+    getItem(key) {
+      return values.get(key) ?? null;
+    },
+    setItem(key, value) {
+      values.set(key, String(value));
+    },
+  };
+}
+
+function flush() {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
+test("saves a preset, applies it, and updates the selected preset", async () => {
+  const storage = createStorage();
+  const plugin = createPluginHarness({ selectedItems: [], storage });
+  plugin.start();
+  await flush();
+
+  const name = plugin.elements.get("#settings-preset-name");
+  const save = plugin.elements.get("#settings-preset-save");
+  const select = plugin.elements.get("#settings-preset-select");
+  const update = plugin.elements.get("#settings-preset-update");
+  const deleteButton = plugin.elements.get("#settings-preset-delete");
+  const layoutWidth = plugin.elements.get("#board-layout-width");
+  const autoExploreToggle = plugin.elements.get("#auto-explore-toggle");
+  const autoExploreStatus = plugin.elements.get("#auto-explore-status");
+
+  name.value = "Focus view";
+  save.click();
+  assert.equal(select.value, "Focus view");
+  assert.equal(update.disabled, false);
+
+  layoutWidth.value = "1600";
+  layoutWidth.emit("input");
+  select.value = "Focus view";
+  select.emit("change");
+  assert.equal(layoutWidth.value, "1200");
+
+  layoutWidth.value = "1600";
+  layoutWidth.emit("input");
+  update.click();
+
+  const stored = JSON.parse(storage.getItem("bird-view-presets"));
+  assert.equal(stored.presets[0].name, "Focus view");
+  assert.equal(stored.presets[0].settings.board.layoutWidth, 1600);
+
+  name.value = "Auto view";
+  save.click();
+  autoExploreToggle.click();
+  await flush();
+  update.click();
+  autoExploreToggle.click();
+  assert.equal(autoExploreStatus.textContent, "關");
+
+  select.value = "Auto view";
+  select.emit("change");
+  await flush();
+  assert.equal(autoExploreStatus.textContent, "開");
+  assert.equal(plugin.unratedRequests, 2);
+
+  assert.equal(deleteButton.disabled, false);
+  deleteButton.click();
+  assert.equal(select.value, "");
+  assert.equal(deleteButton.disabled, true);
+  assert.deepEqual(
+    JSON.parse(storage.getItem("bird-view-presets")).presets.map(({ name }) => name),
+    ["Focus view"],
+  );
+});

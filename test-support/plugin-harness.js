@@ -9,6 +9,7 @@ const BirdViewMedia = require("../media-load-queue.js");
 const BirdViewMaterializer = require("../media-materializer.js");
 const BirdViewExploration = require("../exploration-source.js");
 const BirdViewAutoExploreSettings = require("../auto-explore-settings.js");
+const BirdViewSettingsPresets = require("../settings-presets.js");
 const BirdViewRowLoad = require("../row-load-coordinator.js");
 
 const PLUGIN_SOURCE = fs.readFileSync(path.resolve(__dirname, "../plugin.js"), "utf8");
@@ -38,6 +39,12 @@ const SELECTORS = [
   "#seamless-mode-status",
   "#auto-explore-settings-button",
   "#auto-explore-settings-panel",
+  "#settings-preset-select",
+  "#settings-preset-name",
+  "#settings-preset-save",
+  "#settings-preset-update",
+  "#settings-preset-delete",
+  "#settings-preset-status",
   "#ai-exploration-toggle",
   "#ai-exploration-max-items",
   "#ai-exploration-max-items-value",
@@ -261,6 +268,7 @@ function createElementStub(tag = "div") {
 function createPluginHarness({
   selectedItems = null,
   aiSearch = null,
+  storage = null,
   runAnimationFrames = false,
   navigationProbe = false,
   // Tests that exercise plugin.js error paths can mute the expected logging so
@@ -315,6 +323,7 @@ function createPluginHarness({
     BirdViewMedia,
     BirdViewMaterializer,
     BirdViewAutoExploreSettings,
+    BirdViewSettingsPresets,
     BirdViewRowLoad,
     // Real filter helpers, stubbed item sources.
     BirdViewExploration: { ...BirdViewExploration, RelatedItemSource, UnratedItemSource },
@@ -487,6 +496,7 @@ function createPluginHarness({
     },
     cancelAnimationFrame() {},
     performance: { now: () => 0 },
+    localStorage: storage || undefined,
     console: quiet ? { ...console, error() {}, warn() {} } : console,
   };
 
@@ -504,6 +514,7 @@ function createPluginHarness({
     get selectedRequests() { return selectedRequests; },
     get selectedNodeId() { return selectedNodeId; },
     get unratedRequests() { return unratedRequests; },
+    storage,
     changeLibrary() {
       libraryChanged();
     },

@@ -41,7 +41,9 @@ const {
   HybridExplorationSource,
   RelatedItemSource,
   UnratedItemSource,
+  unratedFiltersEqual,
 } = BirdViewExploration;
+const { createSettingsPresetStore } = BirdViewSettingsPresets;
 const { FolderItemSource } = BirdViewFolder;
 const { FolderPicker } = BirdViewFolderPicker;
 const { TagEditor } = BirdViewTagEditor;
@@ -139,6 +141,7 @@ const state = {
   viewportSize: null,
   started: false,
   eagleReady: false,
+  selectedPresetName: "",
 };
 
 const board = createBoardState();
@@ -147,6 +150,7 @@ let cameraNavigation = null;
 let selectionNavigation = null;
 let mediaMaterializer = null;
 let autoExploreSettings = null;
+let settingsPresetStore = null;
 const rowLoadCoordinator = createRowLoadCoordinator({
   onLoadingChange(channel, isLoading) {
     if (channel === "exploration") {
@@ -214,6 +218,12 @@ function setup() {
   elements.seamlessModeStatus = document.querySelector("#seamless-mode-status");
   elements.autoExploreSettingsButton = document.querySelector("#auto-explore-settings-button");
   elements.autoExploreSettingsPanel = document.querySelector("#auto-explore-settings-panel");
+  elements.settingsPresetSelect = document.querySelector("#settings-preset-select");
+  elements.settingsPresetName = document.querySelector("#settings-preset-name");
+  elements.settingsPresetSave = document.querySelector("#settings-preset-save");
+  elements.settingsPresetUpdate = document.querySelector("#settings-preset-update");
+  elements.settingsPresetDelete = document.querySelector("#settings-preset-delete");
+  elements.settingsPresetStatus = document.querySelector("#settings-preset-status");
   elements.autoExploreSettingsClose = document.querySelector("#auto-explore-settings-close");
   elements.autoExploreSettingsTabs = Array.from(
     document.querySelectorAll?.("[data-settings-tab]") || [],
@@ -263,6 +273,9 @@ function setup() {
     createTagChip,
     onFilterChange: handleAutoExploreFilterChange,
     onReset: resetAiExplorationSettings,
+  });
+  settingsPresetStore = createSettingsPresetStore({
+    storage: typeof localStorage === "undefined" ? null : localStorage,
   });
 
   mediaMaterializer = createMediaMaterializer({
@@ -321,8 +334,13 @@ function setup() {
   elements.smoothZoomToggle?.addEventListener("change", updateBoardSettings);
   elements.smoothZoomSpeed?.addEventListener("input", updateBoardSettings);
   elements.focusMediaSize?.addEventListener("input", updateBoardSettings);
+  elements.settingsPresetSelect?.addEventListener("change", handlePresetSelection);
+  elements.settingsPresetSave?.addEventListener("click", saveNewPreset);
+  elements.settingsPresetUpdate?.addEventListener("click", updateSelectedPreset);
+  elements.settingsPresetDelete?.addEventListener("click", deleteSelectedPreset);
   elements.exploreButton.addEventListener("click", exploreNextRow);
   restoreSavedSettings();
+  renderPresetOptions();
   updateSeamlessModeUI();
   updateAutoExploreToggle();
   updateBoardSettingsUI();
@@ -1591,40 +1609,121 @@ function updateSeamlessModeUI() {
   }
 }
 
+function getSettingsSnapshot() {
+  return {
+    version: 1,
+    unratedEnabled: state.unratedEnabled,
+    board: {
+      layoutDirection: state.layoutDirection,
+      layoutWidth: state.layoutWidth,
+      layoutWidthUnlimited: state.layoutWidthUnlimited,
+      seamlessMode: state.seamlessMode,
+      maxExplorationItems: state.maxExplorationItems,
+      aiExplorationEnabled: state.aiExplorationEnabled,
+      maxAiExplorationItems: state.maxAiExplorationItems,
+      smoothPanEnabled: state.smoothPanEnabled,
+      smoothPanSpeed: state.smoothPanSpeed,
+      smoothZoomEnabled: state.smoothZoomEnabled,
+      smoothZoomSpeed: state.smoothZoomSpeed,
+      focusMediaSize: state.focusMediaSize,
+    },
+    autoExploreFilter: autoExploreSettings.getFilter(),
+  };
+}
+
+function applySettingsSnapshotValues(settings, { restoreAutoExploreState = false } = {}) {
+  if (restoreAutoExploreState && typeof settings?.unratedEnabled === "boolean") {
+    state.unratedEnabled = settings.unratedEnabled;
+  }
+  const board = settings?.board;
+  if (board && typeof board === "object") {
+    state.smoothPanEnabled = Boolean(board.smoothPanEnabled);
+    state.smoothPanSpeed = normalizeStoredSettingNumber(
+      board.smoothPanSpeed,
+      MIN_SMOOTH_PAN_SPEED,
+      MAX_SMOOTH_PAN_SPEED,
+      DEFAULT_SMOOTH_PAN_SPEED,
+    );
+    state.smoothZoomEnabled = Boolean(board.smoothZoomEnabled);
+    state.smoothZoomSpeed = normalizeStoredSettingNumber(
+      board.smoothZoomSpeed,
+      MIN_SMOOTH_ZOOM_SPEED,
+      MAX_SMOOTH_ZOOM_SPEED,
+      DEFAULT_SMOOTH_ZOOM_SPEED,
+    );
+    state.focusMediaSize = normalizeFocusMediaSize(board.focusMediaSize);
+    state.layoutDirection = normalizeLayoutDirection(board.layoutDirection);
+    state.layoutWidth = normalizeBoardLayoutWidth(board.layoutWidth);
+    state.layoutWidthUnlimited = Boolean(board.layoutWidthUnlimited);
+    state.seamlessMode = Boolean(board.seamlessMode);
+    state.maxExplorationItems = normalizeMaxExplorationItems(board.maxExplorationItems);
+    state.aiExplorationEnabled = Boolean(board.aiExplorationEnabled);
+    state.maxAiExplorationItems = normalizeMaxAiExplorationItems(board.maxAiExplorationItems);
+  }
+  if (settings?.autoExploreFilter && typeof settings.autoExploreFilter === "object") {
+    autoExploreSettings.setFilter(settings.autoExploreFilter);
+  }
+}
+
+function applySettingsSnapshot(settings, { persist = true } = {}) {
+  const previous = getSettingsSnapshot();
+  applySettingsSnapshotValues(settings, { restoreAutoExploreState: true });
+  const next = getSettingsSnapshot();
+  const layoutChanged =
+    previous.board.layoutDirection !== next.board.layoutDirection ||
+    previous.board.layoutWidth !== next.board.layoutWidth ||
+    previous.board.layoutWidthUnlimited !== next.board.layoutWidthUnlimited ||
+    previous.board.seamlessMode !== next.board.seamlessMode;
+  const aiExplorationSettingsChanged =
+    previous.board.aiExplorationEnabled !== next.board.aiExplorationEnabled ||
+    previous.board.maxAiExplorationItems !== next.board.maxAiExplorationItems;
+  const autoExploreFilterChanged = !unratedFiltersEqual(
+    previous.autoExploreFilter,
+    next.autoExploreFilter,
+  );
+  const autoExploreStateChanged = previous.unratedEnabled !== next.unratedEnabled;
+
+  if (!state.smoothPanEnabled) cameraNavigation.stopSmoothKeyboardPan();
+  if (!state.smoothZoomEnabled) cameraNavigation.stopSmoothKeyboardZoom();
+  updateSeamlessModeUI();
+  updateBoardSettingsUI();
+  autoExploreSettings.update();
+
+  if (aiExplorationSettingsChanged) {
+    rowLoadCoordinator.invalidate("exploration");
+    state.explorationSource?.clear();
+  }
+  if (autoExploreStateChanged && !next.unratedEnabled) {
+    rowLoadCoordinator.invalidate("unrated");
+    state.unratedExhausted = false;
+    state.lastUnratedTriggerRow = null;
+    state.unratedSource?.clear();
+  }
+  if (autoExploreFilterChanged) {
+    rowLoadCoordinator.invalidate("unrated");
+    state.unratedExhausted = false;
+    state.lastUnratedTriggerRow = null;
+    state.unratedSource?.clear();
+  }
+  if (autoExploreStateChanged || autoExploreFilterChanged) {
+    updateAutoExploreToggle();
+  }
+  if (layoutChanged) relayoutBoard();
+  if (persist) saveSettings();
+
+  if ((autoExploreStateChanged || autoExploreFilterChanged) && state.unratedEnabled) {
+    if (!board.rows.length) void loadNextUnratedRow({ focus: true });
+    else maybeLoadNextUnratedRow();
+  }
+}
+
 function restoreSavedSettings() {
   try {
     if (typeof localStorage === "undefined") return;
     const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
     if (!stored) return;
     const saved = JSON.parse(stored);
-    const board = saved?.board;
-    if (board && typeof board === "object") {
-      state.smoothPanEnabled = Boolean(board.smoothPanEnabled);
-      state.smoothPanSpeed = normalizeStoredSettingNumber(
-        board.smoothPanSpeed,
-        MIN_SMOOTH_PAN_SPEED,
-        MAX_SMOOTH_PAN_SPEED,
-        DEFAULT_SMOOTH_PAN_SPEED,
-      );
-      state.smoothZoomEnabled = Boolean(board.smoothZoomEnabled);
-      state.smoothZoomSpeed = normalizeStoredSettingNumber(
-        board.smoothZoomSpeed,
-        MIN_SMOOTH_ZOOM_SPEED,
-        MAX_SMOOTH_ZOOM_SPEED,
-        DEFAULT_SMOOTH_ZOOM_SPEED,
-      );
-      state.focusMediaSize = normalizeFocusMediaSize(board.focusMediaSize);
-      state.layoutDirection = normalizeLayoutDirection(board.layoutDirection);
-      state.layoutWidth = normalizeBoardLayoutWidth(board.layoutWidth);
-      state.layoutWidthUnlimited = Boolean(board.layoutWidthUnlimited);
-      state.seamlessMode = Boolean(board.seamlessMode);
-      state.maxExplorationItems = normalizeMaxExplorationItems(board.maxExplorationItems);
-      state.aiExplorationEnabled = Boolean(board.aiExplorationEnabled);
-      state.maxAiExplorationItems = normalizeMaxAiExplorationItems(board.maxAiExplorationItems);
-    }
-    if (saved?.autoExploreFilter && typeof saved.autoExploreFilter === "object") {
-      autoExploreSettings.setFilter(saved.autoExploreFilter);
-    }
+    applySettingsSnapshotValues(saved);
   } catch (error) {
     console.warn("Failed to restore Bird View settings", error);
   }
@@ -1633,29 +1732,149 @@ function restoreSavedSettings() {
 function saveSettings() {
   try {
     if (typeof localStorage === "undefined") return;
-    localStorage.setItem(
-      SETTINGS_STORAGE_KEY,
-      JSON.stringify({
-        version: 1,
-        board: {
-          layoutDirection: state.layoutDirection,
-          layoutWidth: state.layoutWidth,
-          layoutWidthUnlimited: state.layoutWidthUnlimited,
-          seamlessMode: state.seamlessMode,
-          maxExplorationItems: state.maxExplorationItems,
-          aiExplorationEnabled: state.aiExplorationEnabled,
-          maxAiExplorationItems: state.maxAiExplorationItems,
-          smoothPanEnabled: state.smoothPanEnabled,
-          smoothPanSpeed: state.smoothPanSpeed,
-          smoothZoomEnabled: state.smoothZoomEnabled,
-          smoothZoomSpeed: state.smoothZoomSpeed,
-          focusMediaSize: state.focusMediaSize,
-        },
-        autoExploreFilter: autoExploreSettings.getFilter(),
-      }),
-    );
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(getSettingsSnapshot()));
   } catch (error) {
     console.warn("Failed to save Bird View settings", error);
+  }
+}
+
+function renderPresetOptions() {
+  const select = elements.settingsPresetSelect;
+  if (!select || !settingsPresetStore) return;
+
+  const presets = settingsPresetStore.list();
+  const selectedName = presets.some((preset) => preset.name === state.selectedPresetName)
+    ? state.selectedPresetName
+    : "";
+  state.selectedPresetName = selectedName;
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "選擇 preset…";
+  select.replaceChildren(
+    placeholder,
+    ...presets.map((preset) => {
+      const option = document.createElement("option");
+      option.value = preset.name;
+      option.textContent = preset.name;
+      return option;
+    }),
+  );
+  select.value = selectedName;
+  if (elements.settingsPresetName && selectedName) {
+    elements.settingsPresetName.value = selectedName;
+  }
+  updatePresetControls();
+}
+
+function updatePresetControls() {
+  const hasSelectedPreset = Boolean(state.selectedPresetName);
+  if (elements.settingsPresetUpdate) {
+    elements.settingsPresetUpdate.disabled = !hasSelectedPreset;
+  }
+  if (elements.settingsPresetDelete) {
+    elements.settingsPresetDelete.disabled = !hasSelectedPreset;
+  }
+}
+
+function setPresetStatus(message, { error = false } = {}) {
+  if (!elements.settingsPresetStatus) return;
+  elements.settingsPresetStatus.textContent = message;
+  elements.settingsPresetStatus.classList.toggle("is-error", error);
+}
+
+function handlePresetSelection() {
+  const name = String(elements.settingsPresetSelect?.value || "");
+  if (!name) {
+    state.selectedPresetName = "";
+    if (elements.settingsPresetName) elements.settingsPresetName.value = "";
+    updatePresetControls();
+    setPresetStatus("");
+    return;
+  }
+
+  const preset = settingsPresetStore?.get(name);
+  if (!preset) {
+    renderPresetOptions();
+    setPresetStatus("找不到這個 preset，請重新選擇。", { error: true });
+    return;
+  }
+
+  state.selectedPresetName = preset.name;
+  if (elements.settingsPresetName) elements.settingsPresetName.value = preset.name;
+  applySettingsSnapshot(preset.settings);
+  updatePresetControls();
+  setPresetStatus(`已套用「${preset.name}」。`);
+}
+
+function saveNewPreset() {
+  const name = String(elements.settingsPresetName?.value || "").trim();
+  const result = settingsPresetStore?.save(name, getSettingsSnapshot());
+  if (!result?.ok) {
+    setPresetStatus(getPresetErrorMessage(result?.error), { error: true });
+    return;
+  }
+
+  state.selectedPresetName = result.preset.name;
+  if (elements.settingsPresetName) elements.settingsPresetName.value = result.preset.name;
+  renderPresetOptions();
+  setPresetStatus(`已儲存「${result.preset.name}」。`);
+  showToast(`已儲存 preset「${result.preset.name}」。`, false);
+}
+
+function updateSelectedPreset() {
+  const name = state.selectedPresetName || String(elements.settingsPresetSelect?.value || "");
+  if (!name) {
+    setPresetStatus("請先選擇要更新的 preset。", { error: true });
+    return;
+  }
+
+  const result = settingsPresetStore?.update(name, getSettingsSnapshot());
+  if (!result?.ok) {
+    setPresetStatus(getPresetErrorMessage(result?.error), { error: true });
+    return;
+  }
+
+  state.selectedPresetName = result.preset.name;
+  renderPresetOptions();
+  setPresetStatus(`已更新「${result.preset.name}」。`);
+  showToast(`已更新 preset「${result.preset.name}」。`, false);
+}
+
+function deleteSelectedPreset() {
+  const name = state.selectedPresetName || String(elements.settingsPresetSelect?.value || "");
+  if (!name) {
+    setPresetStatus("請先選擇要刪除的 preset。", { error: true });
+    return;
+  }
+  if (typeof window.confirm === "function" && !window.confirm(`確定要刪除 preset「${name}」嗎？`)) {
+    return;
+  }
+
+  const result = settingsPresetStore?.remove(name);
+  if (!result?.ok) {
+    setPresetStatus(getPresetErrorMessage(result?.error), { error: true });
+    return;
+  }
+
+  state.selectedPresetName = "";
+  if (elements.settingsPresetName) elements.settingsPresetName.value = "";
+  renderPresetOptions();
+  setPresetStatus(`已刪除「${result.preset.name}」。`);
+  showToast(`已刪除 preset「${result.preset.name}」。`, false);
+}
+
+function getPresetErrorMessage(error) {
+  switch (error) {
+    case "invalid-name":
+      return "請輸入 preset 名稱。";
+    case "duplicate-name":
+      return "這個名稱已存在，請改用其他名稱或按「更新」。";
+    case "limit-reached":
+      return "Preset 已達上限，請先整理現有 preset。";
+    case "not-found":
+      return "找不到這個 preset，請重新選擇。";
+    default:
+      return "Preset 儲存失敗，請稍後再試。";
   }
 }
 

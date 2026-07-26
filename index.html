@@ -15,6 +15,7 @@
     <script src="media-load-queue.js"></script>
     <script src="exploration-source.js"></script>
     <script src="auto-explore-settings.js"></script>
+    <script src="settings-presets.js"></script>
     <script src="folder-item-source.js"></script>
     <script src="folder-picker.js"></script>
     <script src="video-player.js"></script>
@@ -109,6 +110,34 @@
                   ×
                 </button>
               </div>
+              <section class="settings-presets" aria-labelledby="settings-presets-title">
+                <div id="settings-presets-title" class="settings-card-title">Preset</div>
+                <div class="settings-preset-row">
+                  <select id="settings-preset-select" class="auto-explore-select" aria-label="選擇 preset">
+                    <option value="">選擇 preset…</option>
+                  </select>
+                  <button id="settings-preset-update" class="tag-editor-button" type="button" disabled>
+                    更新
+                  </button>
+                  <button id="settings-preset-delete" class="tag-editor-button is-danger" type="button" disabled>
+                    刪除
+                  </button>
+                </div>
+                <div class="settings-preset-row">
+                  <input
+                    id="settings-preset-name"
+                    class="auto-explore-tag-search settings-preset-name"
+                    type="text"
+                    maxlength="80"
+                    placeholder="輸入名稱"
+                    aria-label="Preset 名稱"
+                  />
+                  <button id="settings-preset-save" class="tag-editor-button" type="button">
+                    儲存為新 preset
+                  </button>
+                </div>
+                <div id="settings-preset-status" class="settings-preset-status" role="status" aria-live="polite"></div>
+              </section>
               <div class="auto-explore-settings-tabs" role="tablist" aria-label="設定分類">
                 <button
                   id="settings-tab-exploration"
