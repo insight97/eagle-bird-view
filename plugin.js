@@ -217,6 +217,7 @@ function setup() {
   elements.autoExploreStatus = document.querySelector("#auto-explore-status");
   elements.seamlessModeToggle = document.querySelector("#seamless-mode-toggle");
   elements.seamlessModeStatus = document.querySelector("#seamless-mode-status");
+  elements.toolbarPresetSelect = document.querySelector("#toolbar-preset-select");
   elements.autoExploreSettingsButton = document.querySelector("#auto-explore-settings-button");
   elements.autoExploreSettingsPanel = document.querySelector("#auto-explore-settings-panel");
   elements.autoExploreMinRating = document.querySelector("#auto-explore-min-rating");
@@ -347,6 +348,7 @@ function setup() {
   elements.smoothZoomToggle?.addEventListener("change", updateBoardSettings);
   elements.smoothZoomSpeed?.addEventListener("input", updateBoardSettings);
   elements.focusMediaSize?.addEventListener("input", updateBoardSettings);
+  elements.toolbarPresetSelect?.addEventListener("change", handlePresetSelection);
   elements.settingsPresetSelect?.addEventListener("change", handlePresetSelection);
   elements.settingsPresetSave?.addEventListener("click", saveNewPreset);
   elements.settingsPresetUpdate?.addEventListener("click", updateSelectedPreset);
@@ -1794,27 +1796,32 @@ function saveSettings() {
 }
 
 function renderPresetOptions() {
-  const select = elements.settingsPresetSelect;
-  if (!select || !settingsPresetStore) return;
+  const selects = [elements.settingsPresetSelect, elements.toolbarPresetSelect].filter(Boolean);
+  if (!selects.length || !settingsPresetStore) return;
 
   const presets = settingsPresetStore.list();
   const selectedName = presets.some((preset) => preset.name === state.selectedPresetName)
     ? state.selectedPresetName
     : "";
   state.selectedPresetName = selectedName;
-  const placeholder = document.createElement("option");
-  placeholder.value = "";
-  placeholder.textContent = "選擇 preset…";
-  select.replaceChildren(
-    placeholder,
-    ...presets.map((preset) => {
-      const option = document.createElement("option");
-      option.value = preset.name;
-      option.textContent = preset.name;
-      return option;
-    }),
-  );
-  select.value = selectedName;
+  for (const select of selects) {
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "選擇 preset…";
+    select.replaceChildren(
+      placeholder,
+      ...presets.map((preset) => {
+        const option = document.createElement("option");
+        option.value = preset.name;
+        option.textContent = preset.name;
+        return option;
+      }),
+    );
+    select.value = selectedName;
+  }
+  if (elements.toolbarPresetSelect) {
+    elements.toolbarPresetSelect.disabled = !presets.length;
+  }
   if (elements.settingsPresetName && selectedName) {
     elements.settingsPresetName.value = selectedName;
   }
@@ -1837,11 +1844,17 @@ function setPresetStatus(message, { error = false } = {}) {
   elements.settingsPresetStatus.classList.toggle("is-error", error);
 }
 
-function handlePresetSelection() {
-  const name = String(elements.settingsPresetSelect?.value || "");
+function handlePresetSelection(event) {
+  const source = event?.currentTarget || event?.target;
+  const name = String(
+    source
+      ? source.value || ""
+      : elements.settingsPresetSelect?.value || elements.toolbarPresetSelect?.value || "",
+  );
   if (!name) {
     state.selectedPresetName = "";
     if (elements.settingsPresetName) elements.settingsPresetName.value = "";
+    renderPresetOptions();
     updatePresetControls();
     setPresetStatus("");
     return;
@@ -1857,6 +1870,7 @@ function handlePresetSelection() {
   state.selectedPresetName = preset.name;
   if (elements.settingsPresetName) elements.settingsPresetName.value = preset.name;
   applySettingsSnapshot(preset.settings);
+  renderPresetOptions();
   updatePresetControls();
   setPresetStatus(`已套用「${preset.name}」。`);
 }

@@ -39,6 +39,7 @@ test("saves a preset, applies it, and updates the selected preset", async () => 
   const name = plugin.elements.get("#settings-preset-name");
   const save = plugin.elements.get("#settings-preset-save");
   const select = plugin.elements.get("#settings-preset-select");
+  const toolbarSelect = plugin.elements.get("#toolbar-preset-select");
   const update = plugin.elements.get("#settings-preset-update");
   const deleteButton = plugin.elements.get("#settings-preset-delete");
   const layoutWidth = plugin.elements.get("#board-layout-width");
@@ -48,13 +49,16 @@ test("saves a preset, applies it, and updates the selected preset", async () => 
   name.value = "Focus view";
   save.click();
   assert.equal(select.value, "Focus view");
+  assert.equal(toolbarSelect.value, "Focus view");
+  assert.equal(toolbarSelect.disabled, false);
   assert.equal(update.disabled, false);
 
   layoutWidth.value = "1600";
   layoutWidth.emit("input");
-  select.value = "Focus view";
-  select.emit("change");
+  toolbarSelect.value = "Focus view";
+  toolbarSelect.emit("change");
   assert.equal(layoutWidth.value, "1200");
+  assert.equal(select.value, "Focus view");
 
   layoutWidth.value = "1600";
   layoutWidth.emit("input");
@@ -81,6 +85,8 @@ test("saves a preset, applies it, and updates the selected preset", async () => 
   assert.equal(deleteButton.disabled, false);
   deleteButton.click();
   assert.equal(select.value, "");
+  assert.equal(toolbarSelect.value, "");
+  assert.equal(toolbarSelect.disabled, false);
   assert.equal(deleteButton.disabled, true);
   assert.deepEqual(
     JSON.parse(storage.getItem("bird-view-presets")).presets.map(({ name }) => name),

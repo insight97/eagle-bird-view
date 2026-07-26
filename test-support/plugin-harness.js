@@ -37,6 +37,7 @@ const SELECTORS = [
   "#auto-explore-status",
   "#seamless-mode-toggle",
   "#seamless-mode-status",
+  "#toolbar-preset-select",
   "#auto-explore-settings-button",
   "#auto-explore-settings-panel",
   "#auto-explore-min-rating",
