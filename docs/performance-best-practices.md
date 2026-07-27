@@ -25,7 +25,7 @@ Chrome 的官方效能模型把每幀工作分成 JavaScript、style、layout、
 | 相機動畫 | `camera-navigation.js` 以 `requestAnimationFrame` 插值 camera；每幀呼叫整合層的 `updateCamera()`。 | 跨列聚焦同時改變位置與 scale，會觸發較多下游更新。 |
 | 白板 transform | `plugin.js` 的 `renderCamera()` 每幀更新 `.world` 的 `transform`，並更新 grid transform。 | transform 是正確的動畫 seam，但大型 layer 的 raster／composite 成本仍需實測。 |
 | 相機工作節流 | 拖曳期間只留在 camera transform path；掛載、釋放、標籤與自動探索延後到手勢結束或 timer。 | 這個方向符合「動畫期間少做非必要工作」的原則；跨列動畫需確認 `cameraFocusFrame` 期間是否仍讓昂貴工作進入每幀。 |
-| 媒體 windowing | `updateMediaVisibility()` 取得 visible、retained、load 三種集合；`MediaMaterializer` 對非可視卡片 unmount，對遠處卡片 release。 | 已有虛擬化，但 overscan 是固定 screen-space margin；低 zoom 時可能保留較多卡片。 |
+| 媒體 windowing | `updateMediaVisibility()` 取得 visible、retained、load 三種集合；`MediaMaterializer` 對非可視卡片 unmount，對遠處卡片 release；目前保留範圍為 2 個 viewport。 | 已有虛擬化，但 overscan 是固定 screen-space margin；低 zoom 時仍可能保留較多卡片。 |
 | 卡片與標籤 | 卡片位於 `.world`；標籤在獨立 `.labels-layer`，縮放改變時重新計算已掛載標籤位置。 | 標籤的 `left`／`top`／`width` 寫入是跨列動畫的主要可疑主執行緒工作。 |
 | 圖片 | 先載入 thumbnail；畫面高度達門檻後以最多 4 路併發載入 original；原圖替換前等待 `decode()`。 | queue 與釋放策略已避免無限載入；需在 trace 中區分網路、decode、raster 與 DOM 更新。 |
 | layer hint | `.world.is-moving` 動態設定 `will-change: transform`，動畫停止後移除；`.grid-layer` 與 `.labels-layer` 常駐 `will-change: transform`。 | `.world` 的動態 hint 比常駐所有卡片安全；grid／labels 常駐 hint 是否有益仍應用 layer borders 驗證。 |
