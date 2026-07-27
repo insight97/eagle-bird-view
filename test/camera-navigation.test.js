@@ -4,7 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createCameraNavigation } = require("../camera-navigation.js");
 
-function createHarness(focusTargetHeight = 180) {
+function createHarness(focusTargetHeight = 180, focusCallbacks = {}) {
   const frames = new Map();
   let nextFrame = 1;
   let currentTime = 0;
@@ -38,6 +38,7 @@ function createHarness(focusTargetHeight = 180) {
     selectNodeAtViewportCenter: () => { centeredSelections += 1; },
     getFocusRowEmphasis: () => (state.seamlessMode ? 1.1 : undefined),
     getFocusTargetHeight: () => focusTargetHeight,
+    ...focusCallbacks,
     requestAnimationFrame(callback) {
       const id = nextFrame++;
       frames.set(id, callback);
@@ -93,6 +94,39 @@ test("camera navigation animates a selected node and cancels the pending focus",
   harness.navigation.cancelCameraFocus();
   assert.equal(harness.state.cameraFocusFrame, null);
   assert.equal(harness.frames.has(nextFocusFrame), false);
+});
+
+test("camera navigation reports the animated focus lifecycle", () => {
+  const events = [];
+  const harness = createHarness(180, {
+    onFocusStart: () => events.push("start"),
+    onFocusEnd: () => events.push("end"),
+  });
+  const node = { x: 100, y: 120, width: 200, mediaHeight: 100, isVideo: false };
+  harness.state.rows = [{ top: 120, bottom: 220, nodes: [node] }];
+  harness.state.selectedNode = node;
+
+  harness.navigation.focusSelectedNodeAtRowScale(node);
+
+  assert.deepEqual(events, ["start"]);
+  harness.frames.get(harness.state.cameraFocusFrame)(180);
+  assert.deepEqual(events, ["start", "end"]);
+});
+
+test("camera navigation ends the focus lifecycle when canceled", () => {
+  const events = [];
+  const harness = createHarness(180, {
+    onFocusStart: () => events.push("start"),
+    onFocusEnd: () => events.push("end"),
+  });
+  const node = { x: 100, y: 120, width: 200, mediaHeight: 100, isVideo: false };
+  harness.state.rows = [{ top: 120, bottom: 220, nodes: [node] }];
+  harness.state.selectedNode = node;
+
+  harness.navigation.focusSelectedNodeAtRowScale(node);
+  harness.navigation.cancelCameraFocus();
+
+  assert.deepEqual(events, ["start", "end"]);
 });
 
 test("camera navigation can read rows from the board without state rows", () => {

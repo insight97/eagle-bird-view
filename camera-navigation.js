@@ -45,6 +45,8 @@
       getFocusRowEmphasis = () => DEFAULT_FOCUS_ROW_EMPHASIS,
       getFocusTargetHeight = () => TARGET_ROW_HEIGHT,
       getVideoControlsHeight = () => DEFAULT_VIDEO_CONTROLS_HEIGHT,
+      onFocusStart = () => {},
+      onFocusEnd = () => {},
     } = options;
     const getRows = options.getRows || (() => state.rows);
 
@@ -52,10 +54,19 @@
       throw new Error("Camera navigation requires state, viewport, scale, and camera callbacks");
     }
 
+    let focusActive = false;
+
+    function finishCameraFocus() {
+      if (!focusActive) return;
+      focusActive = false;
+      onFocusEnd();
+    }
+
     function cancelCameraFocus() {
       if (state.cameraFocusFrame === null) return;
       cancelAnimationFrame?.(state.cameraFocusFrame);
       state.cameraFocusFrame = null;
+      finishCameraFocus();
     }
 
     function animateCameraTo(target, { animate = true, duration = CAMERA_FOCUS_DURATION } = {}) {
@@ -77,14 +88,20 @@
       const start = { ...state.camera };
       const startedAt = now();
       const transitionDuration = Math.max(1, Number(duration) || CAMERA_FOCUS_DURATION);
+      focusActive = true;
+      onFocusStart();
       const step = (timestamp) => {
         const progress = clamp((timestamp - startedAt) / transitionDuration, 0, 1);
         Object.assign(state.camera, interpolateCamera(start, target, progress));
         updateCamera();
         if (progress < 1) state.cameraFocusFrame = requestAnimationFrame?.(step);
-        else state.cameraFocusFrame = null;
+        else {
+          state.cameraFocusFrame = null;
+          finishCameraFocus();
+        }
       };
       state.cameraFocusFrame = requestAnimationFrame?.(step) ?? null;
+      if (state.cameraFocusFrame === null) finishCameraFocus();
     }
 
     function focusSelectedNodeAtRowScale(node = state.selectedNode, { crossRow = false } = {}) {

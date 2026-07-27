@@ -322,6 +322,11 @@ function setup() {
     getBaseScale,
     updateCamera,
     selectNodeAtViewportCenter: () => selectionNavigation.selectNodeAtViewportCenter(),
+    onFocusStart: () => elements.labels?.classList.add("is-camera-focus"),
+    onFocusEnd: () => {
+      elements.labels?.classList.remove("is-camera-focus");
+      updateLabels();
+    },
     getVideoControlsHeight,
     getFocusRowEmphasis: () =>
       state.seamlessMode ? TIGHT_FOCUS_ROW_EMPHASIS : undefined,
@@ -2335,7 +2340,7 @@ function renderCamera() {
     GRID_LAYER_OVERFLOW,
   );
   elements.grid.style.transform = `translate3d(${gridTranslation.x}px, ${gridTranslation.y}px, 0)`;
-  if (scaleChanged) updateMountedLabelPositions();
+  if (scaleChanged && state.cameraFocusFrame === null) updateMountedLabelPositions();
   else updateLabelLayerTransform();
   scheduleViewportWork();
 }

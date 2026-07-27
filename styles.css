@@ -1033,6 +1033,10 @@ button {
   will-change: transform;
 }
 
+.labels-layer.is-camera-focus {
+  visibility: hidden;
+}
+
 .media-card {
   position: absolute;
   box-sizing: content-box;
