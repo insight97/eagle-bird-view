@@ -4,7 +4,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createPluginHarness } = require("../../test-support/plugin-harness.js");
 
-const CAMERA_SETTLE_DELAY = 200;
+const CAMERA_SETTLE_DELAY = 100;
+const SMOOTH_ZOOM_RASTER_VELOCITY_THRESHOLD = 0.08;
 
 function jpgItem() {
   return {
@@ -37,6 +38,34 @@ test("the board layer drops its compositing hint once the camera settles", async
   assert.equal(world.classList.contains("is-moving"), true);
 
   plugin.fireTimer(CAMERA_SETTLE_DELAY);
+
+  assert.equal(world.classList.contains("is-moving"), false);
+});
+
+test("the board layer can drop its hint during the slow end of smooth zoom", async () => {
+  const plugin = createPluginHarness({
+    selectedItems: [],
+    runAnimationFrames: true,
+    smoothZoomProbe: true,
+  });
+  plugin.start();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  plugin.state.smoothZoomEnabled = true;
+  plugin.keyDown({
+    key: "PageUp",
+    ctrlKey: true,
+    target: null,
+    preventDefault() {},
+  });
+
+  const world = plugin.elements.get("#world");
+  assert.equal(world.classList.contains("is-moving"), true);
+
+  plugin.state.smoothZoomVelocity = SMOOTH_ZOOM_RASTER_VELOCITY_THRESHOLD - 0.01;
+  plugin.state.smoothZoomKeys.clear();
+  plugin.state.cameraFrame = null;
+  plugin.updateCamera();
 
   assert.equal(world.classList.contains("is-moving"), false);
 });

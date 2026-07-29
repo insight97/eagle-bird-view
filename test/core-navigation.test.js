@@ -20,6 +20,7 @@ const {
   getPanLayerTranslation,
   getRowFocusScale,
   getWrappedGridTranslation,
+  getNodeScreenCenter,
   getViewportWorkInterval,
   getTagColorStyle,
   getViewportPanDelta,
@@ -31,6 +32,7 @@ const {
   rankTagMatches,
   resizeCamera,
   shouldAutoplayVideo,
+  reanchorCameraToNode,
   zoomCameraAtPoint,
 } = require("../bird-view-core.js");
 
@@ -65,6 +67,18 @@ test("centerCameraAtPoint keeps a selected item centered at the current zoom", (
     x: 300,
     y: 200,
   });
+});
+
+test("reanchorCameraToNode keeps a relaid-out item at the same screen center", () => {
+  const camera = { x: 30, y: -40, scale: 2 };
+  const previousNode = { x: 10, y: 20, width: 100, mediaHeight: 80 };
+  const nextNode = { x: 300, y: 420, width: 200, mediaHeight: 160 };
+  const screenCenter = getNodeScreenCenter(previousNode, camera);
+
+  const nextCamera = reanchorCameraToNode(camera, nextNode, screenCenter);
+
+  assert.deepEqual(getNodeScreenCenter(nextNode, nextCamera), screenCenter);
+  assert.equal(nextCamera.scale, camera.scale);
 });
 
 test("interpolateCamera animates position and zoom together", () => {

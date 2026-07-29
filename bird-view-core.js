@@ -97,6 +97,21 @@
     };
   }
 
+  function getNodeScreenCenter(node, camera) {
+    return {
+      x: camera.x + (node.x + node.width / 2) * camera.scale,
+      y: camera.y + (node.y + node.mediaHeight / 2) * camera.scale,
+    };
+  }
+
+  function reanchorCameraToNode(camera, node, screenCenter) {
+    return {
+      ...camera,
+      x: screenCenter.x - (node.x + node.width / 2) * camera.scale,
+      y: screenCenter.y - (node.y + node.mediaHeight / 2) * camera.scale,
+    };
+  }
+
   function centerCameraAtPoint(camera, point, viewport) {
     return {
       ...camera,
@@ -927,5 +942,7 @@
     selectRandomExplorationRow,
     shouldLoadUnratedRow,
     zoomCameraAtPoint,
+    getNodeScreenCenter,
+    reanchorCameraToNode,
   });
 });

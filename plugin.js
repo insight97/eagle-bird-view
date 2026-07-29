@@ -21,6 +21,7 @@ const {
   getNextRating,
   getLabelDetailLevel,
   getLabelRect,
+  getNodeScreenCenter,
   getPanLayerTranslation,
   getWrappedGridTranslation,
   getViewportWorkInterval,
@@ -28,6 +29,7 @@ const {
   isPlayingVideo,
   normalizeTags,
   normalizeTagColor,
+  reanchorCameraToNode,
   resizeCamera,
   selectDiverseExplorationRow,
   shouldAutoplayVideo,
@@ -75,7 +77,8 @@ const KEYBOARD_ZOOM_FACTOR = 1.5;
 const KEYBOARD_SEEK_STEP = 5;
 const KEYBOARD_VOLUME_STEP = 0.05;
 const PAN_START_THRESHOLD = 4;
-const CAMERA_SETTLE_DELAY = 200;
+const CAMERA_SETTLE_DELAY = 100;
+const SMOOTH_ZOOM_RASTER_VELOCITY_THRESHOLD = 0.08;
 const SMOOTH_ZOOM_QUALITY_INTERVAL = 120;
 // How tall a card has to paint on screen before Eagle's thumbnail stops being
 // enough. Measured in screen pixels so the decision does not depend on how the
@@ -686,6 +689,9 @@ function relayoutBoard() {
   if (!board.nodes.length) return;
 
   const selectedItemId = state.selectedNode?.item?.id;
+  const selectedScreenCenter = state.selectedNode
+    ? getNodeScreenCenter(state.selectedNode, state.camera)
+    : null;
   const rotations = new Map(
     board.nodes.map((node) => [node.item.id, node.rotation || 0]),
   );
@@ -704,7 +710,12 @@ function relayoutBoard() {
   refreshBaseScale();
   updateBoardMeta();
   const selectedNode = board.nodes.find(({ item }) => item.id === selectedItemId);
-  if (selectedNode) selectionNavigation.setSelectedNode(selectedNode);
+  if (selectedNode) {
+    selectionNavigation.setSelectedNode(selectedNode);
+    if (selectedScreenCenter) {
+      state.camera = reanchorCameraToNode(state.camera, selectedNode, selectedScreenCenter);
+    }
+  }
   updateCamera();
   updateMediaVisibility();
   updateLabels();
@@ -2543,6 +2554,17 @@ function renderCamera() {
 // soft. Hold the hint only while the camera is moving and drop it once it
 // settles, which lets the compositor re-raster at the scale actually on screen.
 function keepCameraLayerPromoted() {
+  const isSlowSmoothZoom =
+    state.isSmoothZooming &&
+    state.smoothZoomKeys.size === 0 &&
+    Math.abs(state.smoothZoomVelocity) <= SMOOTH_ZOOM_RASTER_VELOCITY_THRESHOLD;
+  if (isSlowSmoothZoom) {
+    window.clearTimeout(state.cameraSettleTimer);
+    state.cameraSettleTimer = null;
+    elements.world.classList.remove("is-moving");
+    return;
+  }
+
   elements.world.classList.add("is-moving");
   window.clearTimeout(state.cameraSettleTimer);
   state.cameraSettleTimer = window.setTimeout(() => {

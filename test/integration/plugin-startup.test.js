@@ -2,6 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { getNodeScreenCenter } = require("../../bird-view-core.js");
 const { createPluginHarness } = require("../../test-support/plugin-harness.js");
 
 function flush() {
@@ -254,6 +255,28 @@ test("Delete toggles seamless mode and ignores auto-repeat", async () => {
 
   pressKey(plugin, "Delete");
   assert.equal(statusOf(plugin, "#seamless-mode-status"), "關");
+});
+
+test("switching layout modes keeps the selected item at its screen position", async () => {
+  const plugin = createPluginHarness({
+    selectedItems: imageItems(8),
+    navigationProbe: true,
+    runAnimationFrames: true,
+  });
+  plugin.start();
+  await flush();
+
+  assert.ok(plugin.selectedNode);
+  plugin.camera.x = -240;
+  plugin.camera.y = -110;
+  plugin.camera.scale = 1.3;
+  const before = getNodeScreenCenter(plugin.selectedNode, plugin.camera);
+
+  plugin.elements.get("#seamless-mode-toggle").click();
+
+  const after = getNodeScreenCenter(plugin.selectedNode, plugin.camera);
+  assert.ok(Math.abs(after.x - before.x) < 0.001);
+  assert.ok(Math.abs(after.y - before.y) < 0.001);
 });
 
 test("the auto explore toggle button loads a row when switched on", async () => {

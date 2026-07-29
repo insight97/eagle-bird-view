@@ -307,6 +307,8 @@ function createPluginHarness({
   let videoStartRequests = 0;
   let videoPlayCalls = 0;
   let videoPauseCalls = 0;
+  let navigationState = null;
+  let cameraUpdate = null;
   let nextTimerId = 1;
   const timers = [];
   const createdElements = [];
@@ -388,6 +390,8 @@ function createPluginHarness({
     BirdViewFolderPicker: { FolderPicker },
     BirdViewCamera: {
       createCameraNavigation(options) {
+        navigationState = options.state;
+        cameraUpdate = options.updateCamera;
         return {
           animateCameraTo() {},
           cancelCameraFocus() {},
@@ -566,7 +570,11 @@ function createPluginHarness({
     get folderLoadRequests() { return folderLoadRequests; },
     get fullScreen() { return fullScreen; },
     get fullScreenCalls() { return fullScreenCalls; },
+    get camera() { return navigationState?.camera || null; },
     get focusedNodeId() { return focusedNodeId; },
+    get selectedNode() { return navigationState?.selectedNode || null; },
+    get state() { return navigationState; },
+    updateCamera() { cameraUpdate?.(); },
     get videoStartRequests() { return videoStartRequests; },
     get videoPlayCalls() { return videoPlayCalls; },
     get videoPauseCalls() { return videoPauseCalls; },
