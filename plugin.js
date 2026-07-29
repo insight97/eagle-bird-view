@@ -30,6 +30,7 @@ const {
   normalizeTagColor,
   resizeCamera,
   selectDiverseExplorationRow,
+  shouldAutoplayVideo,
   shouldLoadUnratedRow,
 } = BirdViewCore;
 const { createBoardState } = BirdViewBoard;
@@ -101,6 +102,7 @@ const state = {
   smoothZoomEnabled: false,
   smoothZoomSpeed: DEFAULT_SMOOTH_ZOOM_SPEED,
   focusMediaSize: DEFAULT_FOCUS_MEDIA_SIZE,
+  videoAutoplayEnabled: false,
   layoutDirection: DEFAULT_LAYOUT_DIRECTION,
   layoutWidth: DEFAULT_LAYOUT_WIDTH,
   layoutWidthUnlimited: false,
@@ -256,6 +258,7 @@ function setup() {
   elements.smoothZoomSpeedValue = document.querySelector("#smooth-zoom-speed-value");
   elements.focusMediaSize = document.querySelector("#focus-media-size");
   elements.focusMediaSizeValue = document.querySelector("#focus-media-size-value");
+  elements.videoAutoplayToggle = document.querySelector("#video-autoplay-toggle");
   elements.autoExploreFileTypeImage = document.querySelector("#auto-explore-file-type-image");
   elements.autoExploreFileTypeVideo = document.querySelector("#auto-explore-file-type-video");
   elements.autoExploreRating = document.querySelector("#auto-explore-rating");
@@ -353,6 +356,7 @@ function setup() {
   elements.smoothZoomToggle?.addEventListener("change", updateBoardSettings);
   elements.smoothZoomSpeed?.addEventListener("input", updateBoardSettings);
   elements.focusMediaSize?.addEventListener("input", updateBoardSettings);
+  elements.videoAutoplayToggle?.addEventListener("change", updateBoardSettings);
   elements.toolbarPresetSelect?.addEventListener("change", handlePresetSelection);
   elements.settingsPresetSelect?.addEventListener("change", handlePresetSelection);
   elements.settingsPresetSave?.addEventListener("click", saveNewPreset);
@@ -1344,6 +1348,7 @@ async function openSelectedFolderPicker() {
 
 function applyClearedSelection(previousNode) {
   folderPicker.closeForNode(previousNode);
+  mediaMaterializer.pause(previousNode);
   previousNode?.element?.classList.remove("is-selected");
   previousNode?.label?.classList.remove("is-selected");
   updateSelectionStatus();
@@ -1353,12 +1358,14 @@ function applyClearedSelection(previousNode) {
 function applySelectedNode(node, { changed, previousNode }) {
   if (changed) {
     folderPicker.closeForNode(previousNode);
+    mediaMaterializer.pause(previousNode);
     previousNode?.element?.classList.remove("is-selected");
     previousNode?.label?.classList.remove("is-selected");
     mediaMaterializer.mount(node);
     mediaMaterializer.preloadSelected(node);
     node.element.classList.add("is-selected");
     node.label?.classList.add("is-selected");
+    syncSelectedVideoAutoplay();
   }
   updateSelectionStatus();
   updateExploreButton();
@@ -1581,10 +1588,12 @@ function updateBoardSettings() {
   if (elements.focusMediaSize) {
     state.focusMediaSize = normalizeFocusMediaSize(elements.focusMediaSize.value);
   }
+  state.videoAutoplayEnabled = Boolean(elements.videoAutoplayToggle?.checked);
   if (!state.smoothPanEnabled) cameraNavigation.stopSmoothKeyboardPan();
   if (!state.smoothZoomEnabled) cameraNavigation.stopSmoothKeyboardZoom();
   saveSettings();
   updateBoardSettingsUI();
+  syncSelectedVideoAutoplay();
   if (aiExplorationSettingsChanged) {
     rowLoadCoordinator.invalidate("exploration");
     state.explorationSource?.clear();
@@ -1640,6 +1649,9 @@ function updateBoardSettingsUI() {
   if (elements.focusMediaSizeValue) {
     elements.focusMediaSizeValue.textContent = `${state.focusMediaSize} px`;
   }
+  if (elements.videoAutoplayToggle) {
+    elements.videoAutoplayToggle.checked = state.videoAutoplayEnabled;
+  }
 }
 
 function toggleSeamlessMode() {
@@ -1685,6 +1697,7 @@ function getSettingsSnapshot() {
       smoothZoomEnabled: state.smoothZoomEnabled,
       smoothZoomSpeed: state.smoothZoomSpeed,
       focusMediaSize: state.focusMediaSize,
+      videoAutoplayEnabled: state.videoAutoplayEnabled,
     },
     autoExploreFilter: autoExploreSettings.getFilter(),
   };
@@ -1711,6 +1724,7 @@ function applySettingsSnapshotValues(settings, { restoreAutoExploreState = false
       DEFAULT_SMOOTH_ZOOM_SPEED,
     );
     state.focusMediaSize = normalizeFocusMediaSize(board.focusMediaSize);
+    state.videoAutoplayEnabled = Boolean(board.videoAutoplayEnabled);
     state.layoutDirection = normalizeLayoutDirection(board.layoutDirection);
     state.layoutWidth = normalizeBoardLayoutWidth(board.layoutWidth);
     state.layoutWidthUnlimited = Boolean(board.layoutWidthUnlimited);
@@ -1747,6 +1761,9 @@ function applySettingsSnapshot(settings, { persist = true } = {}) {
 
   if (!state.smoothPanEnabled) cameraNavigation.stopSmoothKeyboardPan();
   if (!state.smoothZoomEnabled) cameraNavigation.stopSmoothKeyboardZoom();
+  if (previous.board.videoAutoplayEnabled !== next.board.videoAutoplayEnabled) {
+    syncSelectedVideoAutoplay();
+  }
   updateSeamlessModeUI();
   updateBoardSettingsUI();
   autoExploreSettings.update();
@@ -2111,6 +2128,17 @@ function updateExploreButton() {
   }
 }
 
+function syncSelectedVideoAutoplay() {
+  const node = state.selectedNode;
+  if (!state.videoAutoplayEnabled || !node?.isVideo) return;
+
+  if (shouldAutoplayVideo(node, state.camera.scale)) {
+    mediaMaterializer.play(node);
+  } else {
+    mediaMaterializer.pause(node);
+  }
+}
+
 function activateSelectedNode() {
   const node = state.selectedNode;
   if (!node?.isVideo) return;
@@ -2334,6 +2362,7 @@ function renderCamera() {
     elements.zoomLabel.textContent = `${Math.round((state.camera.scale / getBaseScale()) * 100)}%`;
     state.renderedBaseScale = state.baseScale;
   }
+  if (scaleChanged) syncSelectedVideoAutoplay();
   const gridTranslation = getWrappedGridTranslation(
     state.camera,
     state.gridSize,

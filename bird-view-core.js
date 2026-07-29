@@ -7,6 +7,7 @@
 })(typeof globalThis === "object" ? globalThis : this, () => {
   const VIDEO_EXTENSIONS = new Set(["mp4", "m4v", "mov", "webm", "mkv"]);
   const VIDEO_CONTROLS_HEIGHT = 8;
+  const VIDEO_AUTOPLAY_MIN_HEIGHT = 320;
   const LAYOUT_WIDTH = 1200;
   const MIN_LAYOUT_WIDTH = 240;
   const MAX_LAYOUT_WIDTH = 2400;
@@ -66,6 +67,17 @@
     }
     if (event.ctrlKey || event.metaKey || event.altKey) return null;
     return "free-pan";
+  }
+
+  function shouldAutoplayVideo(node, scale, minimumHeight = VIDEO_AUTOPLAY_MIN_HEIGHT) {
+    const screenHeight = Number(node?.mediaHeight) * Number(scale);
+    const threshold = Number(minimumHeight);
+    return Boolean(
+      node?.isVideo &&
+        Number.isFinite(screenHeight) &&
+        Number.isFinite(threshold) &&
+        screenHeight >= threshold,
+    );
   }
 
   function getViewportPanDelta(key, viewport, fraction = 2 / 3) {
@@ -876,6 +888,7 @@
     MIN_LAYOUT_WIDTH,
     MIN_ROW_HEIGHT,
     TARGET_ROW_HEIGHT,
+    VIDEO_AUTOPLAY_MIN_HEIGHT,
     VIDEO_CONTROLS_HEIGHT,
     VIDEO_EXTENSIONS,
     clamp,
@@ -904,6 +917,7 @@
     normalizeTagColor,
     rankTagMatches,
     resizeCamera,
+    shouldAutoplayVideo,
     getViewportPanDelta,
     getViewportWorldCenter,
     insertExplorationRow,

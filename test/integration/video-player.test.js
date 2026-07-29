@@ -70,6 +70,11 @@ test("video player mounts controls, updates progress and volume, and restores th
       assert.equal(rotations, 1);
       assert.equal(layoutChanges, 1);
 
+      node.pausePlayback();
+      assert.equal(pauseCalls, 1);
+      node.playPlayback();
+      assert.equal(playCalls, 2);
+
       Object.defineProperty(video, "duration", { configurable: true, value: 125 });
       video.currentTime = 65;
       video.dispatchEvent(new window.Event("loadedmetadata"));
@@ -102,11 +107,13 @@ test("video player mounts controls, updates progress and volume, and restores th
       assert.equal(node.videoElement, null);
       assert.equal(node.mediaElement, image);
       assert.equal(node.height, 100);
+      assert.equal(node.pausePlayback, null);
+      assert.equal(node.playPlayback, null);
       assert.equal(image.parentNode, frame);
       assert.equal(playButton.parentNode, frame);
       assert.equal(layoutChanges, 2);
       assert.equal(toasts.at(-1), "這個影片的容器或編碼無法由外掛播放器解碼。");
-      assert.equal(pauseCalls, 0);
+      assert.equal(pauseCalls, 1);
     } finally {
       window.HTMLMediaElement.prototype.play = originalPlay;
       window.HTMLMediaElement.prototype.pause = originalPause;

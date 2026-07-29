@@ -202,8 +202,13 @@
         video.pause();
       }
     };
+    const playPlayback = () =>
+      video.play().catch(() => showToast("無法播放這個影片。", true));
+    const pausePlayback = () => video.pause();
     node.videoElement = video;
     node.togglePlayback = togglePlayback;
+    node.playPlayback = playPlayback;
+    node.pausePlayback = pausePlayback;
 
     toggleButton.addEventListener("click", togglePlayback);
     video.addEventListener("play", () => {
@@ -264,6 +269,8 @@
       controls.remove();
       node.videoElement = null;
       node.togglePlayback = null;
+      node.playPlayback = null;
+      node.pausePlayback = null;
       node.stopVideoControls = null;
       node.revealVideoControls = null;
       node.mediaElement = image;

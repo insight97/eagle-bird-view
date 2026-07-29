@@ -73,6 +73,7 @@ const SELECTORS = [
   "#smooth-zoom-speed-value",
   "#focus-media-size",
   "#focus-media-size-value",
+  "#video-autoplay-toggle",
   "#auto-explore-file-type-image",
   "#auto-explore-file-type-video",
   "#auto-explore-rating",
@@ -300,6 +301,9 @@ function createPluginHarness({
   let fullScreenCalls = 0;
   let selectedNodeId = null;
   let focusedNodeId = null;
+  let videoStartRequests = 0;
+  let videoPlayCalls = 0;
+  let videoPauseCalls = 0;
   let nextTimerId = 1;
   const timers = [];
   const createdElements = [];
@@ -351,7 +355,31 @@ function createPluginHarness({
         }
       },
     },
-    BirdViewVideo: { startVideoPlayer() {} },
+    BirdViewVideo: {
+      startVideoPlayer({ node }) {
+        videoStartRequests += 1;
+        node.videoElement = {
+          paused: false,
+          play() {
+            videoPlayCalls += 1;
+            this.paused = false;
+            return Promise.resolve();
+          },
+          pause() {
+            videoPauseCalls += 1;
+            this.paused = true;
+          },
+          load() {},
+          removeAttribute() {},
+        };
+        node.playPlayback = () => node.videoElement.play();
+        node.pausePlayback = () => node.videoElement.pause();
+        node.togglePlayback = () => {
+          if (node.videoElement.paused) node.playPlayback();
+          else node.pausePlayback();
+        };
+      },
+    },
     BirdViewTagEditor: { TagEditor },
     BirdViewFolderPicker: { FolderPicker },
     BirdViewCamera: {
@@ -526,6 +554,9 @@ function createPluginHarness({
     get fullScreen() { return fullScreen; },
     get fullScreenCalls() { return fullScreenCalls; },
     get focusedNodeId() { return focusedNodeId; },
+    get videoStartRequests() { return videoStartRequests; },
+    get videoPlayCalls() { return videoPlayCalls; },
+    get videoPauseCalls() { return videoPauseCalls; },
     get keyDown() { return windowListeners.get("keydown"); },
     get selectedRequests() { return selectedRequests; },
     get selectedNodeId() { return selectedNodeId; },

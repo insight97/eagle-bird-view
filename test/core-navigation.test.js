@@ -30,8 +30,18 @@ const {
   normalizeTagColor,
   rankTagMatches,
   resizeCamera,
+  shouldAutoplayVideo,
   zoomCameraAtPoint,
 } = require("../bird-view-core.js");
+
+test("shouldAutoplayVideo requires a selected video large enough on screen", () => {
+  const video = { isVideo: true, mediaHeight: 180 };
+
+  assert.equal(shouldAutoplayVideo(video, 1), false);
+  assert.equal(shouldAutoplayVideo(video, 320 / 180), true);
+  assert.equal(shouldAutoplayVideo({ ...video, isVideo: false }, 2), false);
+  assert.equal(shouldAutoplayVideo(video, 0), false);
+});
 
 test("getLabelRect projects a node into rounded screen coordinates", () => {
   assert.deepEqual(

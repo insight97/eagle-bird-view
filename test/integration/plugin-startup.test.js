@@ -46,12 +46,25 @@ function imageItems(count) {
   }));
 }
 
+function videoItem() {
+  return {
+    id: "video-0",
+    name: "video-0.mp4",
+    ext: "mp4",
+    width: 1600,
+    height: 900,
+    fileURL: "file:///video-0.mp4",
+    thumbnailURL: "file:///video-0-thumb.jpg",
+  };
+}
+
 test("the board asks Eagle for the selection and leaves auto exploration off", async () => {
   const plugin = await startEmptyPlugin();
 
   assert.equal(plugin.selectedRequests, 1);
   assert.equal(plugin.unratedRequests, 0);
   assert.equal(statusOf(plugin, "#auto-explore-status"), "關");
+  assert.equal(plugin.elements.get("#video-autoplay-toggle").checked, false);
 });
 
 test("AI exploration is controlled by the per-row item limit", async () => {
@@ -197,6 +210,31 @@ test("loading selected items selects the item at the viewport center", async () 
   await flush();
 
   assert.equal(plugin.selectedNodeId, "center-item");
+});
+
+test("selected videos autoplay only while the video is large enough", async () => {
+  const plugin = createPluginHarness({
+    selectedItems: [videoItem()],
+    navigationProbe: true,
+    runAnimationFrames: true,
+    storage: {
+      getItem(key) {
+        return key === "bird-view-settings"
+          ? JSON.stringify({ board: { videoAutoplayEnabled: true } })
+          : null;
+      },
+      setItem() {},
+    },
+  });
+
+  plugin.start();
+  await flush();
+
+  assert.equal(plugin.elements.get("#video-autoplay-toggle").checked, true);
+  assert.equal(plugin.videoStartRequests, 1);
+
+  plugin.changeLibrary();
+  assert.ok(plugin.videoPauseCalls >= 1, "leaving the selection pauses the video");
 });
 
 test("dragging defers viewport maintenance until the pointer is released", async () => {

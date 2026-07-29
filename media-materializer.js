@@ -96,6 +96,8 @@
       node.startPlayback = null;
       node.videoElement = null;
       node.togglePlayback = null;
+      node.playPlayback = null;
+      node.pausePlayback = null;
       node.stopVideoControls = null;
       node.revealVideoControls = null;
       node.mediaElement = null;
@@ -163,6 +165,21 @@
     function rotate(node, degrees) {
       node.rotation = (node.rotation + degrees + 360) % 360;
       applyMediaRotation(node);
+    }
+
+    function play(node) {
+      if (!node?.isVideo) return;
+      if (node.videoElement) {
+        node.playPlayback?.();
+        return;
+      }
+      node.startPlayback?.();
+    }
+
+    function pause(node) {
+      if (!node) return;
+      if (node.pausePlayback) node.pausePlayback();
+      else node.videoElement?.pause();
     }
 
     function createMediaCard(node) {
@@ -450,6 +467,8 @@
     return Object.freeze({
       mount,
       preloadSelected,
+      pause,
+      play,
       releaseAll,
       reposition,
       rotate,
