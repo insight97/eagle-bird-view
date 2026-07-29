@@ -1708,8 +1708,8 @@ function updateSeamlessModeUI() {
   }
 }
 
-function getSettingsSnapshot() {
-  return {
+function getSettingsSnapshot({ includeActivePreset = false } = {}) {
+  const snapshot = {
     version: 1,
     unratedEnabled: state.unratedEnabled,
     board: {
@@ -1730,6 +1730,10 @@ function getSettingsSnapshot() {
     },
     autoExploreFilter: autoExploreSettings.getFilter(),
   };
+  if (includeActivePreset && state.selectedPresetName) {
+    snapshot.activePresetName = state.selectedPresetName;
+  }
+  return snapshot;
 }
 
 function applySettingsSnapshotValues(settings, { restoreAutoExploreState = false } = {}) {
@@ -1834,6 +1838,14 @@ function restoreSavedSettings() {
     const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
     if (!stored) return;
     const saved = JSON.parse(stored);
+    const activePreset = saved?.activePresetName
+      ? settingsPresetStore?.get(saved.activePresetName)
+      : null;
+    if (activePreset) {
+      state.selectedPresetName = activePreset.name;
+      applySettingsSnapshotValues(activePreset.settings, { restoreAutoExploreState: true });
+      return;
+    }
     applySettingsSnapshotValues(saved);
   } catch (error) {
     console.warn("Failed to restore Bird View settings", error);
@@ -1843,7 +1855,10 @@ function restoreSavedSettings() {
 function saveSettings() {
   try {
     if (typeof localStorage === "undefined") return;
-    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(getSettingsSnapshot()));
+    localStorage.setItem(
+      SETTINGS_STORAGE_KEY,
+      JSON.stringify(getSettingsSnapshot({ includeActivePreset: true })),
+    );
   } catch (error) {
     console.warn("Failed to save Bird View settings", error);
   }
@@ -1911,6 +1926,7 @@ function handlePresetSelection(event) {
     renderPresetOptions();
     updatePresetControls();
     setPresetStatus("");
+    saveSettings();
     return;
   }
 
@@ -1940,6 +1956,7 @@ function saveNewPreset() {
   state.selectedPresetName = result.preset.name;
   if (elements.settingsPresetName) elements.settingsPresetName.value = result.preset.name;
   renderPresetOptions();
+  saveSettings();
   setPresetStatus(`已儲存「${result.preset.name}」。`);
   showToast(`已儲存 preset「${result.preset.name}」。`, false);
 }
@@ -1959,6 +1976,7 @@ function updateSelectedPreset() {
 
   state.selectedPresetName = result.preset.name;
   renderPresetOptions();
+  saveSettings();
   setPresetStatus(`已更新「${result.preset.name}」。`);
   showToast(`已更新 preset「${result.preset.name}」。`, false);
 }
@@ -1982,6 +2000,7 @@ function deleteSelectedPreset() {
   state.selectedPresetName = "";
   if (elements.settingsPresetName) elements.settingsPresetName.value = "";
   renderPresetOptions();
+  saveSettings();
   setPresetStatus(`已刪除「${result.preset.name}」。`);
   showToast(`已刪除 preset「${result.preset.name}」。`, false);
 }

@@ -81,6 +81,10 @@ test("saves a preset, applies it, and updates the selected preset", async () => 
   await flush();
   assert.equal(autoExploreStatus.textContent, "開");
   assert.equal(plugin.unratedRequests, 2);
+  assert.equal(
+    JSON.parse(storage.getItem("bird-view-settings")).activePresetName,
+    "Auto view",
+  );
 
   assert.equal(deleteButton.disabled, false);
   deleteButton.click();
@@ -106,4 +110,56 @@ test("saves a preset, applies it, and updates the selected preset", async () => 
   );
   assert.deepEqual(folderPreset.settings.autoExploreFilter.folders, ["root"]);
   assert.equal(folderPreset.settings.autoExploreFilter.includeSubfolders, true);
+});
+
+test("restores the last active preset when the plugin starts", async () => {
+  const storage = createStorage();
+  storage.setItem(
+    "bird-view-presets",
+    JSON.stringify({
+      version: 1,
+      presets: [
+        {
+          name: "Focus view",
+          settings: { board: { layoutWidth: 1600 } },
+        },
+      ],
+    }),
+  );
+  storage.setItem(
+    "bird-view-settings",
+    JSON.stringify({
+      version: 1,
+      activePresetName: "Focus view",
+      board: { layoutWidth: 900 },
+    }),
+  );
+
+  const plugin = createPluginHarness({ selectedItems: [], storage });
+  plugin.start();
+  await flush();
+
+  assert.equal(plugin.elements.get("#board-layout-width").value, "1600");
+  assert.equal(plugin.elements.get("#settings-preset-select").value, "Focus view");
+  assert.equal(plugin.elements.get("#toolbar-preset-select").value, "Focus view");
+});
+
+test("falls back to general settings when the last preset no longer exists", async () => {
+  const storage = createStorage();
+  storage.setItem("bird-view-presets", JSON.stringify({ version: 1, presets: [] }));
+  storage.setItem(
+    "bird-view-settings",
+    JSON.stringify({
+      version: 1,
+      activePresetName: "Deleted view",
+      board: { layoutWidth: 1400 },
+    }),
+  );
+
+  const plugin = createPluginHarness({ selectedItems: [], storage });
+  plugin.start();
+  await flush();
+
+  assert.equal(plugin.elements.get("#board-layout-width").value, "1400");
+  assert.equal(plugin.elements.get("#settings-preset-select").value, "");
 });
