@@ -2267,7 +2267,7 @@ function updateExploreButton() {
     state.explorationLoading || !state.explorationSource || !state.selectedNode;
   elements.exploreButton.textContent = state.explorationLoading
     ? "探索中…"
-    : "探索下一列";
+    : "探索";
   for (const button of elements.selectionStatus?.querySelectorAll(
     ".selection-explore-target, .selection-tag-overflow-button",
   ) || []) {
@@ -2416,6 +2416,7 @@ function updateSelectionStatus() {
   elements.selectionEmpty.hidden = hasSelection;
   elements.selectionDetails.hidden = !hasSelection;
   if (!item) {
+    elements.selectionDetails.classList.remove("has-selection-tags");
     renderSelectionTags([]);
     return;
   }
@@ -2424,6 +2425,7 @@ function updateSelectionStatus() {
   const dimensions = formatItemDimensions(item);
   const rating = getItemRating(item);
   const tags = normalizeTags(item.tags);
+  elements.selectionDetails.classList.toggle("has-selection-tags", tags.length > 0);
   const folders = normalizeTags(item.folders)
     .map((folderId) => ({
       id: folderId,

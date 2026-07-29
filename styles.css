@@ -1,4 +1,7 @@
 :root {
+  --toolbar-control-gap: 6px;
+  --toolbar-edge-padding: 10px;
+  --toolbar-zone-gap: 12px;
   color-scheme: dark;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
@@ -36,8 +39,8 @@ button {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 20px;
-  padding: 0 12px;
+  gap: var(--toolbar-zone-gap);
+  padding: 0 var(--toolbar-edge-padding);
   border-bottom: 1px solid #303338;
   background: rgb(24 26 29 / 96%);
   box-shadow: 0 2px 16px rgb(0 0 0 / 18%);
@@ -50,7 +53,7 @@ button {
 }
 
 .brand {
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
   font-size: 14px;
   font-weight: 700;
@@ -71,7 +74,7 @@ button {
 
 .toolbar-meta {
   justify-content: flex-end;
-  gap: 10px;
+  gap: var(--toolbar-control-gap);
   color: #a8abb1;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
@@ -90,7 +93,7 @@ button {
 }
 
 .toolbar-preset-select {
-  width: 96px;
+  width: 80px;
   height: 24px;
   min-width: 0;
   padding: 0 4px;
@@ -117,13 +120,13 @@ button {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
 }
 
 .settings-button {
   display: grid;
-  width: 24px;
-  height: 26px;
+  width: 22px;
+  height: 24px;
   flex: none;
   padding: 0;
   place-items: center;
@@ -763,7 +766,7 @@ button {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   width: 100%;
 }
 
@@ -780,8 +783,20 @@ button {
   white-space: nowrap;
 }
 
+.selection-details.has-selection-tags .selection-name {
+  flex: 1 1 96px;
+  min-width: 48px;
+}
+
 .selection-dimensions,
-.selection-rating,
+.selection-rating {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
 .selection-tags,
 .selection-folders {
   display: flex;
@@ -793,7 +808,6 @@ button {
 
 .selection-tags {
   min-width: 0;
-  max-width: min(400px, 36vw);
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -831,7 +845,7 @@ button {
 
 .selection-folders {
   min-width: 0;
-  max-width: min(280px, 24vw);
+  max-width: min(180px, 18vw);
   overflow: hidden;
   color: #a8abb1;
   text-overflow: ellipsis;
@@ -839,6 +853,7 @@ button {
 
 .selection-explore-target {
   display: inline-flex;
+  flex: none;
   min-width: 0;
   align-items: center;
   padding: 0;
@@ -910,7 +925,7 @@ button {
 
 .explore-button {
   height: 24px;
-  padding: 0 9px;
+  padding: 0 8px;
   border: 1px solid #454950;
   border-radius: 5px;
   background: #292c31;
@@ -932,15 +947,17 @@ button {
 
 .mode-toggle {
   display: flex;
-  height: 26px;
+  width: auto;
+  height: 24px;
   align-items: center;
-  gap: 7px;
-  padding: 0 8px;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 6px;
   border: 1px solid #454950;
   border-radius: 6px;
   background: #24272b;
   color: #a8abb1;
-  font-size: 11px;
+  font-size: 10px;
   cursor: pointer;
 }
 
@@ -961,8 +978,8 @@ button {
 
 .mode-toggle-track {
   position: relative;
-  width: 30px;
-  height: 16px;
+  width: 26px;
+  height: 14px;
   flex: none;
   border: 1px solid #5b6068;
   border-radius: 999px;
@@ -972,8 +989,8 @@ button {
 
 .mode-toggle-knob {
   position: absolute;
-  top: 2px;
-  left: 2px;
+  top: 1px;
+  left: 1px;
   width: 10px;
   height: 10px;
   border-radius: 50%;
@@ -992,18 +1009,12 @@ button {
 }
 
 .mode-toggle.is-active .mode-toggle-knob {
-  transform: translateX(14px);
+  transform: translateX(12px);
   background: #fff;
 }
 
 .mode-toggle-status {
-  width: 12px;
-  color: #8f949c;
-  text-align: center;
-}
-
-.mode-toggle.is-active .mode-toggle-status {
-  color: #c8c4ff;
+  display: none;
 }
 
 .explore-button:disabled {
@@ -1854,6 +1865,6 @@ button {
   }
 
   .toolbar-preset-select {
-    width: 84px;
+    width: 72px;
   }
 }

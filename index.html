@@ -67,13 +67,14 @@
             type="button"
             role="switch"
             aria-checked="false"
+            aria-label="緊鄰模式"
             title="開啟緊鄰模式（Del）"
           >
             <span>緊鄰</span>
             <span class="mode-toggle-track" aria-hidden="true">
               <span class="mode-toggle-knob"></span>
             </span>
-            <span id="seamless-mode-status" class="mode-toggle-status">關</span>
+            <span id="seamless-mode-status" class="mode-toggle-status" aria-hidden="true">關</span>
           </button>
           <div class="auto-explore-controls">
             <button
@@ -82,13 +83,14 @@
               type="button"
               role="switch"
               aria-checked="false"
+              aria-label="自動探索"
               disabled
             >
               <span>自動探索</span>
               <span class="mode-toggle-track" aria-hidden="true">
                 <span class="mode-toggle-knob"></span>
               </span>
-              <span id="auto-explore-status" class="mode-toggle-status">關</span>
+              <span id="auto-explore-status" class="mode-toggle-status" aria-hidden="true">關</span>
             </button>
             <button
               id="auto-explore-settings-button"
@@ -570,7 +572,7 @@
               </div>
             </div>
           </div>
-          <button id="explore-button" class="explore-button" type="button" disabled>探索下一列</button>
+          <button id="explore-button" class="explore-button" type="button" disabled>探索</button>
           <button id="folder-load-more-button" class="explore-button" type="button" hidden>
             載入更多
           </button>

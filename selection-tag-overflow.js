@@ -12,7 +12,6 @@
   const { AnchoredPopover } = popover;
   const MAX_TAG_OPTIONS = 80;
   const DEFAULT_TAG_GAP = 4;
-  const DEFAULT_MAX_VISIBLE_TAGS = 3;
 
   class SelectionTagOverflow extends AnchoredPopover {
     open(node, anchor, tags) {
@@ -77,11 +76,15 @@
     tagWidths,
     availableWidth,
     overflowWidths,
-    { gap = DEFAULT_TAG_GAP, maxVisible = DEFAULT_MAX_VISIBLE_TAGS } = {},
+    { gap = DEFAULT_TAG_GAP, maxVisible = Number.POSITIVE_INFINITY } = {},
   ) {
     const widths = tagWidths.map((width) => Math.max(0, Number(width) || 0));
     const available = Math.max(0, Number(availableWidth) || 0);
-    const maxCount = Math.min(widths.length, Math.max(0, Math.floor(maxVisible)));
+    const requestedMax = Number(maxVisible);
+    const maxCount = Math.min(
+      widths.length,
+      Number.isFinite(requestedMax) ? Math.max(0, Math.floor(requestedMax)) : widths.length,
+    );
     const gapSize = Math.max(0, Number(gap) || 0);
     const overflowSize = (hiddenCount) =>
       Math.max(0, Number(overflowWidths?.[hiddenCount]) || 0);
@@ -101,7 +104,6 @@
   }
 
   return Object.freeze({
-    DEFAULT_MAX_VISIBLE_TAGS,
     SelectionTagOverflow,
     getVisibleTagCount,
   });
