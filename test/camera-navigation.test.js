@@ -23,9 +23,11 @@ function createHarness(focusTargetHeight = 180, focusCallbacks = {}) {
     smoothPanLastTimestamp: null,
     smoothZoomEnabled: false,
     smoothZoomSpeed: 1.5,
+    smoothZoomAcceleration: 16,
     smoothZoomKeys: new Set(),
     smoothZoomFrame: null,
     smoothZoomLastTimestamp: null,
+    smoothZoomVelocity: 0,
   };
   const elements = {
     viewport: { clientWidth: 800, clientHeight: 600 },
@@ -270,7 +272,7 @@ test("fitting a row does nothing without a selected node or a matching row", () 
   assert.equal(harness.updates.length, 0);
 });
 
-test("smooth keyboard zoom accelerates while held and stops on key release", () => {
+test("smooth keyboard zoom accelerates while held and decelerates after release", () => {
   const harness = createHarness();
   harness.state.smoothZoomEnabled = true;
   harness.navigation.startSmoothKeyboardZoom("PageUp");
@@ -285,11 +287,64 @@ test("smooth keyboard zoom accelerates while held and stops on key release", () 
   assert.ok(harness.state.camera.scale > zoomedIn);
 
   harness.navigation.handleKeyUp("PageUp");
-  assert.equal(harness.state.smoothZoomFrame, null);
+  assert.notEqual(harness.state.smoothZoomFrame, null);
   assert.equal(harness.state.smoothZoomKeys.size, 0);
+
+  const scaleAtRelease = harness.state.camera.scale;
+  const releaseFrame = harness.state.smoothZoomFrame;
+  harness.frames.get(releaseFrame)(48);
+  assert.ok(harness.state.camera.scale > scaleAtRelease);
+
+  for (let timestamp = 64; timestamp <= 1000; timestamp += 16) {
+    const frame = harness.state.smoothZoomFrame;
+    if (frame === null) break;
+    harness.frames.get(frame)(timestamp);
+  }
+  assert.equal(harness.state.smoothZoomFrame, null);
+  assert.equal(harness.state.smoothZoomVelocity, 0);
 });
 
-test("smooth keyboard zoom reverses for PageDown and cancels when both keys are held", () => {
+test("smooth keyboard zoom uses the configured acceleration response", () => {
+  const slow = createHarness();
+  const fast = createHarness();
+  slow.state.smoothZoomEnabled = true;
+  slow.state.smoothZoomAcceleration = 6;
+  fast.state.smoothZoomEnabled = true;
+  fast.state.smoothZoomAcceleration = 24;
+
+  slow.navigation.startSmoothKeyboardZoom("PageUp");
+  fast.navigation.startSmoothKeyboardZoom("PageUp");
+  slow.frames.get(slow.state.smoothZoomFrame)(16);
+  fast.frames.get(fast.state.smoothZoomFrame)(16);
+
+  assert.ok(fast.state.camera.scale > slow.state.camera.scale);
+});
+
+test("smooth keyboard zoom reports its active lifecycle", () => {
+  let starts = 0;
+  let ends = 0;
+  const harness = createHarness(180, {
+    onSmoothZoomStart: () => { starts += 1; },
+    onSmoothZoomEnd: () => { ends += 1; },
+  });
+
+  harness.state.smoothZoomEnabled = true;
+  harness.navigation.startSmoothKeyboardZoom("PageUp");
+  assert.equal(starts, 1);
+  assert.equal(ends, 0);
+
+  harness.navigation.handleKeyUp("PageUp");
+  for (let timestamp = 16; timestamp <= 1000; timestamp += 16) {
+    const frame = harness.state.smoothZoomFrame;
+    if (frame === null) break;
+    harness.frames.get(frame)(timestamp);
+  }
+
+  assert.equal(starts, 1);
+  assert.equal(ends, 1);
+});
+
+test("smooth keyboard zoom brakes when both directions are held", () => {
   const harness = createHarness();
   harness.state.smoothZoomEnabled = true;
   harness.navigation.startSmoothKeyboardZoom("PageDown");
@@ -300,7 +355,7 @@ test("smooth keyboard zoom reverses for PageDown and cancels when both keys are 
 
   harness.navigation.startSmoothKeyboardZoom("PageUp");
   harness.frames.get(harness.state.smoothZoomFrame)(32);
-  assert.equal(harness.state.camera.scale, zoomedOut);
+  assert.ok(harness.state.camera.scale < zoomedOut);
 });
 
 test("smooth keyboard zoom stops itself once the setting is turned off", () => {

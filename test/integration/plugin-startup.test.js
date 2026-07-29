@@ -90,6 +90,43 @@ test("AI exploration is controlled by the per-row item limit", async () => {
   assert.equal(plugin.elements.get("#ai-exploration-max-items-value").textContent, "關閉");
 });
 
+test("smooth zoom speed accepts the expanded upper limit", async () => {
+  const plugin = await startEmptyPlugin();
+  const speed = plugin.elements.get("#smooth-zoom-speed");
+
+  speed.value = "30";
+  speed.emit("input");
+
+  assert.equal(speed.value, "30");
+  assert.equal(plugin.elements.get("#smooth-zoom-speed-value").textContent, "30.00×/秒");
+});
+
+test("smooth zoom acceleration can be changed and is persisted", async () => {
+  const stored = [];
+  const plugin = createPluginHarness({
+    selectedItems: [],
+    storage: {
+      getItem() {
+        return null;
+      },
+      setItem(key, value) {
+        stored.push([key, JSON.parse(value)]);
+      },
+    },
+  });
+  plugin.start();
+  await flush();
+
+  const acceleration = plugin.elements.get("#smooth-zoom-acceleration");
+  assert.equal(acceleration.value, "16");
+
+  acceleration.value = "24";
+  acceleration.emit("change");
+
+  assert.equal(acceleration.value, "24");
+  assert.equal(stored.at(-1)[1].board.smoothZoomAcceleration, 24);
+});
+
 test("F11 toggles Eagle fullscreen and ignores auto-repeat", async () => {
   const plugin = await startEmptyPlugin();
 

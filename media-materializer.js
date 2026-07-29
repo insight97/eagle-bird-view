@@ -170,7 +170,7 @@
     function play(node) {
       if (!node?.isVideo) return;
       if (node.videoElement) {
-        node.playPlayback?.();
+        if (node.videoElement.paused) node.playPlayback?.();
         return;
       }
       node.startPlayback?.();

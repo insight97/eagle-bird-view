@@ -55,7 +55,9 @@ const MIN_SMOOTH_PAN_SPEED = 120;
 const MAX_SMOOTH_PAN_SPEED = 3000;
 const DEFAULT_SMOOTH_ZOOM_SPEED = 1.5;
 const MIN_SMOOTH_ZOOM_SPEED = 1.05;
-const MAX_SMOOTH_ZOOM_SPEED = 12;
+const MAX_SMOOTH_ZOOM_SPEED = 30;
+const SMOOTH_ZOOM_ACCELERATION_LEVELS = Object.freeze([6, 16, 24]);
+const DEFAULT_SMOOTH_ZOOM_ACCELERATION = 16;
 const DEFAULT_FOCUS_MEDIA_SIZE = TARGET_ROW_HEIGHT;
 const MIN_FOCUS_MEDIA_SIZE = 80;
 const MAX_FOCUS_MEDIA_SIZE = 400;
@@ -101,6 +103,7 @@ const state = {
   smoothPanSpeed: DEFAULT_SMOOTH_PAN_SPEED,
   smoothZoomEnabled: false,
   smoothZoomSpeed: DEFAULT_SMOOTH_ZOOM_SPEED,
+  smoothZoomAcceleration: DEFAULT_SMOOTH_ZOOM_ACCELERATION,
   focusMediaSize: DEFAULT_FOCUS_MEDIA_SIZE,
   videoAutoplayEnabled: false,
   layoutDirection: DEFAULT_LAYOUT_DIRECTION,
@@ -117,6 +120,8 @@ const state = {
   smoothZoomKeys: new Set(),
   smoothZoomFrame: null,
   smoothZoomLastTimestamp: null,
+  smoothZoomVelocity: 0,
+  isSmoothZooming: false,
   toastTimer: null,
   cameraFrame: null,
   cameraFocusFrame: null,
@@ -256,6 +261,7 @@ function setup() {
   elements.smoothZoomToggle = document.querySelector("#smooth-zoom-toggle");
   elements.smoothZoomSpeed = document.querySelector("#smooth-zoom-speed");
   elements.smoothZoomSpeedValue = document.querySelector("#smooth-zoom-speed-value");
+  elements.smoothZoomAcceleration = document.querySelector("#smooth-zoom-acceleration");
   elements.focusMediaSize = document.querySelector("#focus-media-size");
   elements.focusMediaSizeValue = document.querySelector("#focus-media-size-value");
   elements.videoAutoplayToggle = document.querySelector("#video-autoplay-toggle");
@@ -334,6 +340,19 @@ function setup() {
     getFocusRowEmphasis: () =>
       state.seamlessMode ? TIGHT_FOCUS_ROW_EMPHASIS : undefined,
     getFocusTargetHeight: () => state.focusMediaSize,
+    onSmoothZoomStart: () => {
+      state.isSmoothZooming = true;
+      if (state.viewportWorkTimer !== null) {
+        window.clearTimeout(state.viewportWorkTimer);
+        state.viewportWorkTimer = null;
+      }
+      elements.labels?.classList.add("is-smooth-zooming");
+    },
+    onSmoothZoomEnd: () => {
+      state.isSmoothZooming = false;
+      elements.labels?.classList.remove("is-smooth-zooming");
+      flushViewportWork();
+    },
   });
 
   elements.viewport.addEventListener("pointerdown", beginPan);
@@ -355,6 +374,7 @@ function setup() {
   elements.smoothPanSpeed?.addEventListener("input", updateBoardSettings);
   elements.smoothZoomToggle?.addEventListener("change", updateBoardSettings);
   elements.smoothZoomSpeed?.addEventListener("input", updateBoardSettings);
+  elements.smoothZoomAcceleration?.addEventListener("change", updateBoardSettings);
   elements.focusMediaSize?.addEventListener("input", updateBoardSettings);
   elements.videoAutoplayToggle?.addEventListener("change", updateBoardSettings);
   elements.toolbarPresetSelect?.addEventListener("change", handlePresetSelection);
@@ -1585,6 +1605,11 @@ function updateBoardSettings() {
       MAX_SMOOTH_ZOOM_SPEED,
     );
   }
+  if (elements.smoothZoomAcceleration) {
+    state.smoothZoomAcceleration = normalizeSmoothZoomAcceleration(
+      elements.smoothZoomAcceleration.value,
+    );
+  }
   if (elements.focusMediaSize) {
     state.focusMediaSize = normalizeFocusMediaSize(elements.focusMediaSize.value);
   }
@@ -1643,6 +1668,9 @@ function updateBoardSettingsUI() {
   if (elements.smoothZoomSpeedValue) {
     elements.smoothZoomSpeedValue.textContent = `${state.smoothZoomSpeed.toFixed(2)}×/秒`;
   }
+  if (elements.smoothZoomAcceleration) {
+    elements.smoothZoomAcceleration.value = String(state.smoothZoomAcceleration);
+  }
   if (elements.focusMediaSize) {
     elements.focusMediaSize.value = String(state.focusMediaSize);
   }
@@ -1696,6 +1724,7 @@ function getSettingsSnapshot() {
       smoothPanSpeed: state.smoothPanSpeed,
       smoothZoomEnabled: state.smoothZoomEnabled,
       smoothZoomSpeed: state.smoothZoomSpeed,
+      smoothZoomAcceleration: state.smoothZoomAcceleration,
       focusMediaSize: state.focusMediaSize,
       videoAutoplayEnabled: state.videoAutoplayEnabled,
     },
@@ -1722,6 +1751,9 @@ function applySettingsSnapshotValues(settings, { restoreAutoExploreState = false
       MIN_SMOOTH_ZOOM_SPEED,
       MAX_SMOOTH_ZOOM_SPEED,
       DEFAULT_SMOOTH_ZOOM_SPEED,
+    );
+    state.smoothZoomAcceleration = normalizeSmoothZoomAcceleration(
+      board.smoothZoomAcceleration,
     );
     state.focusMediaSize = normalizeFocusMediaSize(board.focusMediaSize);
     state.videoAutoplayEnabled = Boolean(board.videoAutoplayEnabled);
@@ -2014,6 +2046,14 @@ function normalizeFocusMediaSize(size) {
   return Number.isFinite(value)
     ? clamp(Math.round(value / 10) * 10, MIN_FOCUS_MEDIA_SIZE, MAX_FOCUS_MEDIA_SIZE)
     : DEFAULT_FOCUS_MEDIA_SIZE;
+}
+
+function normalizeSmoothZoomAcceleration(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return DEFAULT_SMOOTH_ZOOM_ACCELERATION;
+  return SMOOTH_ZOOM_ACCELERATION_LEVELS.reduce((closest, candidate) =>
+    Math.abs(candidate - number) < Math.abs(closest - number) ? candidate : closest,
+  );
 }
 
 function getBoardLayoutWidth() {
@@ -2369,8 +2409,10 @@ function renderCamera() {
     GRID_LAYER_OVERFLOW,
   );
   elements.grid.style.transform = `translate3d(${gridTranslation.x}px, ${gridTranslation.y}px, 0)`;
-  if (scaleChanged && state.cameraFocusFrame === null) updateMountedLabelPositions();
-  else updateLabelLayerTransform();
+  if (!state.isSmoothZooming) {
+    if (scaleChanged && state.cameraFocusFrame === null) updateMountedLabelPositions();
+    else updateLabelLayerTransform();
+  }
   scheduleViewportWork();
 }
 
@@ -2391,7 +2433,7 @@ function keepCameraLayerPromoted() {
 function scheduleViewportWork() {
   // Pointer movement should stay on the camera transform path. Mounting,
   // releasing, relabelling, and auto-exploring happen once the gesture ends.
-  if (state.isPanning || state.viewportWorkTimer !== null) return;
+  if (state.isPanning || state.isSmoothZooming || state.viewportWorkTimer !== null) return;
   const elapsed = performance.now() - state.lastViewportWork;
   const delay = Math.max(0, getViewportWorkInterval(state.isPanning) - elapsed);
   state.viewportWorkTimer = window.setTimeout(runViewportWork, delay);
@@ -2411,7 +2453,7 @@ function flushViewportWork() {
 
 function runViewportWork() {
   state.viewportWorkTimer = null;
-  if (state.isPanning) return;
+  if (state.isPanning || state.isSmoothZooming) return;
   if (state.cameraFocusFrame !== null) return;
   state.lastViewportWork = performance.now();
   updateMediaVisibility();

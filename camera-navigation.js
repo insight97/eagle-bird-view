@@ -31,6 +31,9 @@
   const DEFAULT_VIDEO_CONTROLS_HEIGHT = 8;
   const DEFAULT_SMOOTH_PAN_SPEED = 480;
   const DEFAULT_SMOOTH_ZOOM_SPEED = 1.5;
+  const DEFAULT_SMOOTH_ZOOM_ACCELERATION = 16;
+  const SMOOTH_ZOOM_DECELERATION = 14;
+  const SMOOTH_ZOOM_VELOCITY_EPSILON = 0.001;
 
   function createCameraNavigation(options = {}) {
     const {
@@ -47,6 +50,8 @@
       getVideoControlsHeight = () => DEFAULT_VIDEO_CONTROLS_HEIGHT,
       onFocusStart = () => {},
       onFocusEnd = () => {},
+      onSmoothZoomStart = () => {},
+      onSmoothZoomEnd = () => {},
     } = options;
     const getRows = options.getRows || (() => state.rows);
 
@@ -55,6 +60,19 @@
     }
 
     let focusActive = false;
+    let smoothZoomActive = false;
+
+    function beginSmoothZoom() {
+      if (smoothZoomActive) return;
+      smoothZoomActive = true;
+      onSmoothZoomStart();
+    }
+
+    function finishSmoothZoom() {
+      if (!smoothZoomActive) return;
+      smoothZoomActive = false;
+      onSmoothZoomEnd();
+    }
 
     function finishCameraFocus() {
       if (!focusActive) return;
@@ -251,11 +269,14 @@
       state.smoothZoomKeys.add(key.toLowerCase());
       if (state.smoothZoomFrame !== null) return;
 
+      beginSmoothZoom();
       state.smoothZoomLastTimestamp = now();
       const step = (timestamp) => {
         if (!state.smoothZoomEnabled || !state.smoothZoomKeys.size) {
-          stopSmoothKeyboardZoom();
-          return;
+          if (!state.smoothZoomEnabled) {
+            stopSmoothKeyboardZoom();
+            return;
+          }
         }
 
         const elapsed = Math.min(Math.max(timestamp - state.smoothZoomLastTimestamp, 0), 50) / 1000;
@@ -264,16 +285,40 @@
         for (const pressedKey of state.smoothZoomKeys) {
           direction += pressedKey === "pageup" ? 1 : -1;
         }
-        if (direction) {
-          const speed = Number(state.smoothZoomSpeed || DEFAULT_SMOOTH_ZOOM_SPEED);
-          const factor = Math.pow(speed, direction * elapsed);
+
+        const speed = Math.max(
+          1.000001,
+          Number(state.smoothZoomSpeed || DEFAULT_SMOOTH_ZOOM_SPEED),
+        );
+        const targetVelocity = direction * Math.log(speed);
+        const acceleration = Math.max(
+          1,
+          Number(state.smoothZoomAcceleration || DEFAULT_SMOOTH_ZOOM_ACCELERATION),
+        );
+        const responseRate = direction ? acceleration : SMOOTH_ZOOM_DECELERATION;
+        const response = 1 - Math.exp(-responseRate * elapsed);
+        const currentVelocity = Number(state.smoothZoomVelocity) || 0;
+        state.smoothZoomVelocity =
+          currentVelocity + (targetVelocity - currentVelocity) * response;
+
+        if (Math.abs(state.smoothZoomVelocity) <= SMOOTH_ZOOM_VELOCITY_EPSILON) {
+          state.smoothZoomVelocity = 0;
+        } else {
+          const factor = Math.exp(state.smoothZoomVelocity * elapsed);
           zoomAtPoint(
             elements.viewport.clientWidth / 2,
             elements.viewport.clientHeight / 2,
             factor,
           );
         }
-        state.smoothZoomFrame = requestAnimationFrame?.(step) ?? null;
+
+        if (state.smoothZoomKeys.size || state.smoothZoomVelocity !== 0) {
+          state.smoothZoomFrame = requestAnimationFrame?.(step) ?? null;
+        } else {
+          state.smoothZoomFrame = null;
+          state.smoothZoomLastTimestamp = null;
+          finishSmoothZoom();
+        }
       };
       state.smoothZoomFrame = requestAnimationFrame?.(step) ?? null;
     }
@@ -283,6 +328,8 @@
       if (state.smoothZoomFrame !== null) cancelAnimationFrame?.(state.smoothZoomFrame);
       state.smoothZoomFrame = null;
       state.smoothZoomLastTimestamp = null;
+      state.smoothZoomVelocity = 0;
+      finishSmoothZoom();
     }
 
     function handleKeyUp(key) {
@@ -296,7 +343,6 @@
       }
       if (state.smoothZoomKeys.has(normalizedKey)) {
         state.smoothZoomKeys.delete(normalizedKey);
-        if (!state.smoothZoomKeys.size) stopSmoothKeyboardZoom();
       }
     }
 

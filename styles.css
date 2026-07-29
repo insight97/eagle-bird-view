@@ -1037,6 +1037,10 @@ button {
   visibility: hidden;
 }
 
+.labels-layer.is-smooth-zooming {
+  visibility: hidden;
+}
+
 .media-card {
   position: absolute;
   box-sizing: content-box;

@@ -71,6 +71,7 @@ const SELECTORS = [
   "#smooth-zoom-toggle",
   "#smooth-zoom-speed",
   "#smooth-zoom-speed-value",
+  "#smooth-zoom-acceleration",
   "#focus-media-size",
   "#focus-media-size-value",
   "#video-autoplay-toggle",
