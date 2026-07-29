@@ -52,12 +52,12 @@ const { createCameraNavigation } = BirdViewCamera;
 const { createSelectionNavigation } = BirdViewSelection;
 const DEFAULT_SMOOTH_PAN_SPEED = 480;
 const MIN_SMOOTH_PAN_SPEED = 120;
-const MAX_SMOOTH_PAN_SPEED = 3000;
+const MAX_SMOOTH_PAN_SPEED = 6000;
 const DEFAULT_SMOOTH_ZOOM_SPEED = 1.5;
 const MIN_SMOOTH_ZOOM_SPEED = 1.05;
-const MAX_SMOOTH_ZOOM_SPEED = 30;
-const SMOOTH_ZOOM_ACCELERATION_LEVELS = Object.freeze([6, 16, 24]);
-const DEFAULT_SMOOTH_ZOOM_ACCELERATION = 16;
+const MAX_SMOOTH_ZOOM_SPEED = 60;
+const KEYBOARD_ACCELERATION_LEVELS = Object.freeze([6, 16, 24]);
+const DEFAULT_KEYBOARD_ACCELERATION = 16;
 const DEFAULT_FOCUS_MEDIA_SIZE = TARGET_ROW_HEIGHT;
 const MIN_FOCUS_MEDIA_SIZE = 80;
 const MAX_FOCUS_MEDIA_SIZE = 400;
@@ -103,7 +103,7 @@ const state = {
   smoothPanSpeed: DEFAULT_SMOOTH_PAN_SPEED,
   smoothZoomEnabled: false,
   smoothZoomSpeed: DEFAULT_SMOOTH_ZOOM_SPEED,
-  smoothZoomAcceleration: DEFAULT_SMOOTH_ZOOM_ACCELERATION,
+  keyboardAcceleration: DEFAULT_KEYBOARD_ACCELERATION,
   focusMediaSize: DEFAULT_FOCUS_MEDIA_SIZE,
   videoAutoplayEnabled: false,
   layoutDirection: DEFAULT_LAYOUT_DIRECTION,
@@ -261,7 +261,7 @@ function setup() {
   elements.smoothZoomToggle = document.querySelector("#smooth-zoom-toggle");
   elements.smoothZoomSpeed = document.querySelector("#smooth-zoom-speed");
   elements.smoothZoomSpeedValue = document.querySelector("#smooth-zoom-speed-value");
-  elements.smoothZoomAcceleration = document.querySelector("#smooth-zoom-acceleration");
+  elements.keyboardAcceleration = document.querySelector("#keyboard-acceleration");
   elements.focusMediaSize = document.querySelector("#focus-media-size");
   elements.focusMediaSizeValue = document.querySelector("#focus-media-size-value");
   elements.videoAutoplayToggle = document.querySelector("#video-autoplay-toggle");
@@ -374,7 +374,7 @@ function setup() {
   elements.smoothPanSpeed?.addEventListener("input", updateBoardSettings);
   elements.smoothZoomToggle?.addEventListener("change", updateBoardSettings);
   elements.smoothZoomSpeed?.addEventListener("input", updateBoardSettings);
-  elements.smoothZoomAcceleration?.addEventListener("change", updateBoardSettings);
+  elements.keyboardAcceleration?.addEventListener("change", updateBoardSettings);
   elements.focusMediaSize?.addEventListener("input", updateBoardSettings);
   elements.videoAutoplayToggle?.addEventListener("change", updateBoardSettings);
   elements.toolbarPresetSelect?.addEventListener("change", handlePresetSelection);
@@ -1605,9 +1605,9 @@ function updateBoardSettings() {
       MAX_SMOOTH_ZOOM_SPEED,
     );
   }
-  if (elements.smoothZoomAcceleration) {
-    state.smoothZoomAcceleration = normalizeSmoothZoomAcceleration(
-      elements.smoothZoomAcceleration.value,
+  if (elements.keyboardAcceleration) {
+    state.keyboardAcceleration = normalizeKeyboardAcceleration(
+      elements.keyboardAcceleration.value,
     );
   }
   if (elements.focusMediaSize) {
@@ -1668,8 +1668,8 @@ function updateBoardSettingsUI() {
   if (elements.smoothZoomSpeedValue) {
     elements.smoothZoomSpeedValue.textContent = `${state.smoothZoomSpeed.toFixed(2)}×/秒`;
   }
-  if (elements.smoothZoomAcceleration) {
-    elements.smoothZoomAcceleration.value = String(state.smoothZoomAcceleration);
+  if (elements.keyboardAcceleration) {
+    elements.keyboardAcceleration.value = String(state.keyboardAcceleration);
   }
   if (elements.focusMediaSize) {
     elements.focusMediaSize.value = String(state.focusMediaSize);
@@ -1724,7 +1724,7 @@ function getSettingsSnapshot() {
       smoothPanSpeed: state.smoothPanSpeed,
       smoothZoomEnabled: state.smoothZoomEnabled,
       smoothZoomSpeed: state.smoothZoomSpeed,
-      smoothZoomAcceleration: state.smoothZoomAcceleration,
+      keyboardAcceleration: state.keyboardAcceleration,
       focusMediaSize: state.focusMediaSize,
       videoAutoplayEnabled: state.videoAutoplayEnabled,
     },
@@ -1752,8 +1752,8 @@ function applySettingsSnapshotValues(settings, { restoreAutoExploreState = false
       MAX_SMOOTH_ZOOM_SPEED,
       DEFAULT_SMOOTH_ZOOM_SPEED,
     );
-    state.smoothZoomAcceleration = normalizeSmoothZoomAcceleration(
-      board.smoothZoomAcceleration,
+    state.keyboardAcceleration = normalizeKeyboardAcceleration(
+      board.keyboardAcceleration ?? board.smoothZoomAcceleration,
     );
     state.focusMediaSize = normalizeFocusMediaSize(board.focusMediaSize);
     state.videoAutoplayEnabled = Boolean(board.videoAutoplayEnabled);
@@ -2048,10 +2048,10 @@ function normalizeFocusMediaSize(size) {
     : DEFAULT_FOCUS_MEDIA_SIZE;
 }
 
-function normalizeSmoothZoomAcceleration(value) {
+function normalizeKeyboardAcceleration(value) {
   const number = Number(value);
-  if (!Number.isFinite(number)) return DEFAULT_SMOOTH_ZOOM_ACCELERATION;
-  return SMOOTH_ZOOM_ACCELERATION_LEVELS.reduce((closest, candidate) =>
+  if (!Number.isFinite(number)) return DEFAULT_KEYBOARD_ACCELERATION;
+  return KEYBOARD_ACCELERATION_LEVELS.reduce((closest, candidate) =>
     Math.abs(candidate - number) < Math.abs(closest - number) ? candidate : closest,
   );
 }

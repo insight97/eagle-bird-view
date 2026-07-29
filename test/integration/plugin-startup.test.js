@@ -90,18 +90,23 @@ test("AI exploration is controlled by the per-row item limit", async () => {
   assert.equal(plugin.elements.get("#ai-exploration-max-items-value").textContent, "關閉");
 });
 
-test("smooth zoom speed accepts the expanded upper limit", async () => {
+test("smooth pan and zoom speeds accept the expanded upper limits", async () => {
   const plugin = await startEmptyPlugin();
+  const panSpeed = plugin.elements.get("#smooth-pan-speed");
   const speed = plugin.elements.get("#smooth-zoom-speed");
 
-  speed.value = "30";
+  panSpeed.value = "6000";
+  panSpeed.emit("input");
+  assert.equal(panSpeed.value, "6000");
+
+  speed.value = "60";
   speed.emit("input");
 
-  assert.equal(speed.value, "30");
-  assert.equal(plugin.elements.get("#smooth-zoom-speed-value").textContent, "30.00×/秒");
+  assert.equal(speed.value, "60");
+  assert.equal(plugin.elements.get("#smooth-zoom-speed-value").textContent, "60.00×/秒");
 });
 
-test("smooth zoom acceleration can be changed and is persisted", async () => {
+test("keyboard acceleration can be changed and is persisted", async () => {
   const stored = [];
   const plugin = createPluginHarness({
     selectedItems: [],
@@ -117,14 +122,32 @@ test("smooth zoom acceleration can be changed and is persisted", async () => {
   plugin.start();
   await flush();
 
-  const acceleration = plugin.elements.get("#smooth-zoom-acceleration");
+  const acceleration = plugin.elements.get("#keyboard-acceleration");
   assert.equal(acceleration.value, "16");
 
   acceleration.value = "24";
   acceleration.emit("change");
 
   assert.equal(acceleration.value, "24");
-  assert.equal(stored.at(-1)[1].board.smoothZoomAcceleration, 24);
+  assert.equal(stored.at(-1)[1].board.keyboardAcceleration, 24);
+});
+
+test("legacy smooth zoom acceleration settings restore into keyboard acceleration", async () => {
+  const plugin = createPluginHarness({
+    selectedItems: [],
+    storage: {
+      getItem(key) {
+        return key === "bird-view-settings"
+          ? JSON.stringify({ board: { smoothZoomAcceleration: 24 } })
+          : null;
+      },
+      setItem() {},
+    },
+  });
+  plugin.start();
+  await flush();
+
+  assert.equal(plugin.elements.get("#keyboard-acceleration").value, "24");
 });
 
 test("F11 toggles Eagle fullscreen and ignores auto-repeat", async () => {

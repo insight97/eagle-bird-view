@@ -469,7 +469,7 @@
                           class="auto-explore-range"
                           type="range"
                           min="120"
-                          max="3000"
+                          max="6000"
                           step="20"
                           value="480"
                         />
@@ -477,6 +477,21 @@
                           480
                         </output>
                       </div>
+                    </div>
+                    <div class="auto-explore-setting-row">
+                      <span class="settings-control-label">
+                        <span>鍵盤操作加速反應</span>
+                        <small>控制平滑移動與平滑縮放進入高速的速度。</small>
+                      </span>
+                      <select
+                        id="keyboard-acceleration"
+                        class="auto-explore-select"
+                        aria-label="鍵盤操作加速反應"
+                      >
+                        <option value="6">慢</option>
+                        <option value="16" selected>標準</option>
+                        <option value="24">快</option>
+                      </select>
                     </div>
                   </div>
                   <div class="settings-card">
@@ -496,7 +511,7 @@
                           class="auto-explore-range"
                           type="range"
                           min="1.05"
-                          max="30"
+                          max="60"
                           step="0.05"
                           value="1.5"
                         />
@@ -508,21 +523,6 @@
                           1.50×/秒
                         </output>
                       </div>
-                    </div>
-                    <div class="auto-explore-setting-row">
-                      <span class="settings-control-label">
-                        <span>加速反應</span>
-                        <small>控制按住縮放時進入高速的速度。</small>
-                      </span>
-                      <select
-                        id="smooth-zoom-acceleration"
-                        class="auto-explore-select"
-                        aria-label="縮放加速反應"
-                      >
-                        <option value="6">慢</option>
-                        <option value="16" selected>標準</option>
-                        <option value="24">快</option>
-                      </select>
                     </div>
                   </div>
                   <div class="settings-card">

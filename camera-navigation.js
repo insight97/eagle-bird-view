@@ -31,8 +31,9 @@
   const DEFAULT_VIDEO_CONTROLS_HEIGHT = 8;
   const DEFAULT_SMOOTH_PAN_SPEED = 480;
   const DEFAULT_SMOOTH_ZOOM_SPEED = 1.5;
-  const DEFAULT_SMOOTH_ZOOM_ACCELERATION = 16;
-  const SMOOTH_ZOOM_DECELERATION = 14;
+  const DEFAULT_KEYBOARD_ACCELERATION = 16;
+  const KEYBOARD_DECELERATION = 14;
+  const SMOOTH_PAN_VELOCITY_EPSILON = 0.5;
   const SMOOTH_ZOOM_VELOCITY_EPSILON = 0.001;
 
   function createCameraNavigation(options = {}) {
@@ -205,6 +206,15 @@
       return Math.round(Number(state.smoothPanSpeed || DEFAULT_SMOOTH_PAN_SPEED) / 2);
     }
 
+    function getKeyboardAcceleration() {
+      const configured = state.keyboardAcceleration ?? state.smoothZoomAcceleration;
+      const acceleration = Number(configured ?? DEFAULT_KEYBOARD_ACCELERATION);
+      return Math.max(
+        1,
+        Number.isFinite(acceleration) ? acceleration : DEFAULT_KEYBOARD_ACCELERATION,
+      );
+    }
+
     function panOneViewport(key) {
       const delta = getViewportPanDelta(
         key,
@@ -233,7 +243,7 @@
 
       state.smoothPanLastTimestamp = now();
       const step = (timestamp) => {
-        if (!state.smoothPanEnabled || !state.smoothPanKeys.size) {
+        if (!state.smoothPanEnabled) {
           stopSmoothKeyboardPan();
           return;
         }
@@ -249,11 +259,38 @@
           y += direction[1];
         }
         const length = Math.hypot(x, y);
-        if (length) {
-          const speed = Number(state.smoothPanSpeed || DEFAULT_SMOOTH_PAN_SPEED);
-          panBy((-x / length) * speed * elapsed, (-y / length) * speed * elapsed);
+        const speed = Number(state.smoothPanSpeed || DEFAULT_SMOOTH_PAN_SPEED);
+        const targetVelocity = length
+          ? {
+              x: (-x / length) * speed,
+              y: (-y / length) * speed,
+            }
+          : { x: 0, y: 0 };
+        const responseRate = length ? getKeyboardAcceleration() : KEYBOARD_DECELERATION;
+        const response = 1 - Math.exp(-responseRate * elapsed);
+        const currentVelocity = state.smoothPanVelocity || { x: 0, y: 0 };
+        const nextVelocity = {
+          x: currentVelocity.x + (targetVelocity.x - currentVelocity.x) * response,
+          y: currentVelocity.y + (targetVelocity.y - currentVelocity.y) * response,
+        };
+        state.smoothPanVelocity = nextVelocity;
+
+        if (Math.hypot(nextVelocity.x, nextVelocity.y) > SMOOTH_PAN_VELOCITY_EPSILON) {
+          panBy(nextVelocity.x * elapsed, nextVelocity.y * elapsed);
+        } else {
+          state.smoothPanVelocity = { x: 0, y: 0 };
         }
-        state.smoothPanFrame = requestAnimationFrame?.(step) ?? null;
+
+        if (
+          state.smoothPanKeys.size ||
+          Math.hypot(state.smoothPanVelocity.x, state.smoothPanVelocity.y) > 0
+        ) {
+          state.smoothPanFrame = requestAnimationFrame?.(step) ?? null;
+        } else {
+          state.smoothPanFrame = null;
+          state.smoothPanLastTimestamp = null;
+          selectNodeAtViewportCenter?.();
+        }
       };
       state.smoothPanFrame = requestAnimationFrame?.(step) ?? null;
     }
@@ -263,6 +300,7 @@
       if (state.smoothPanFrame !== null) cancelAnimationFrame?.(state.smoothPanFrame);
       state.smoothPanFrame = null;
       state.smoothPanLastTimestamp = null;
+      state.smoothPanVelocity = { x: 0, y: 0 };
     }
 
     function startSmoothKeyboardZoom(key) {
@@ -291,11 +329,7 @@
           Number(state.smoothZoomSpeed || DEFAULT_SMOOTH_ZOOM_SPEED),
         );
         const targetVelocity = direction * Math.log(speed);
-        const acceleration = Math.max(
-          1,
-          Number(state.smoothZoomAcceleration || DEFAULT_SMOOTH_ZOOM_ACCELERATION),
-        );
-        const responseRate = direction ? acceleration : SMOOTH_ZOOM_DECELERATION;
+        const responseRate = direction ? getKeyboardAcceleration() : KEYBOARD_DECELERATION;
         const response = 1 - Math.exp(-responseRate * elapsed);
         const currentVelocity = Number(state.smoothZoomVelocity) || 0;
         state.smoothZoomVelocity =
@@ -336,10 +370,6 @@
       const normalizedKey = String(key || "").toLowerCase();
       if (state.smoothPanKeys.has(normalizedKey)) {
         state.smoothPanKeys.delete(normalizedKey);
-        if (!state.smoothPanKeys.size) {
-          stopSmoothKeyboardPan();
-          if (state.smoothPanEnabled) selectNodeAtViewportCenter?.();
-        }
       }
       if (state.smoothZoomKeys.has(normalizedKey)) {
         state.smoothZoomKeys.delete(normalizedKey);

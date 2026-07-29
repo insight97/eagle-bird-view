@@ -21,9 +21,10 @@ function createHarness(focusTargetHeight = 180, focusCallbacks = {}) {
     smoothPanKeys: new Set(),
     smoothPanFrame: null,
     smoothPanLastTimestamp: null,
+    smoothPanVelocity: { x: 0, y: 0 },
     smoothZoomEnabled: false,
     smoothZoomSpeed: 1.5,
-    smoothZoomAcceleration: 16,
+    keyboardAcceleration: 16,
     smoothZoomKeys: new Set(),
     smoothZoomFrame: null,
     smoothZoomLastTimestamp: null,
@@ -181,7 +182,7 @@ test("camera navigation uses the configured focus media size", () => {
   assert.ok(Math.abs(harness.state.camera.scale - 2.16) < Number.EPSILON * 10);
 });
 
-test("smooth keyboard pan keeps moving until the key is released", () => {
+test("smooth keyboard pan accelerates and decelerates around key release", () => {
   const harness = createHarness();
   harness.state.smoothPanEnabled = true;
   harness.navigation.startSmoothKeyboardPan("arrowright");
@@ -189,10 +190,37 @@ test("smooth keyboard pan keeps moving until the key is released", () => {
   const firstFrame = harness.state.smoothPanFrame;
   harness.frames.get(firstFrame)(16);
   assert.ok(harness.state.camera.x < 0);
+  const xAtRelease = harness.state.camera.x;
 
   harness.navigation.handleKeyUp("ArrowRight");
+  assert.notEqual(harness.state.smoothPanFrame, null);
+  assert.equal(harness.centeredSelections(), 0);
+  harness.frames.get(harness.state.smoothPanFrame)(32);
+  assert.ok(harness.state.camera.x < xAtRelease);
+
+  for (let timestamp = 48; timestamp <= 1000; timestamp += 16) {
+    const frame = harness.state.smoothPanFrame;
+    if (frame === null) break;
+    harness.frames.get(frame)(timestamp);
+  }
   assert.equal(harness.state.smoothPanFrame, null);
   assert.equal(harness.centeredSelections(), 1);
+});
+
+test("smooth keyboard pan uses the shared keyboard acceleration", () => {
+  const slow = createHarness();
+  const fast = createHarness();
+  slow.state.smoothPanEnabled = true;
+  slow.state.keyboardAcceleration = 6;
+  fast.state.smoothPanEnabled = true;
+  fast.state.keyboardAcceleration = 24;
+
+  slow.navigation.startSmoothKeyboardPan("arrowright");
+  fast.navigation.startSmoothKeyboardPan("arrowright");
+  slow.frames.get(slow.state.smoothPanFrame)(16);
+  fast.frames.get(fast.state.smoothPanFrame)(16);
+
+  assert.ok(fast.state.camera.x < slow.state.camera.x);
 });
 
 test("Shift+arrow pans two thirds of a viewport and derives the key pan step", () => {
@@ -308,9 +336,9 @@ test("smooth keyboard zoom uses the configured acceleration response", () => {
   const slow = createHarness();
   const fast = createHarness();
   slow.state.smoothZoomEnabled = true;
-  slow.state.smoothZoomAcceleration = 6;
+  slow.state.keyboardAcceleration = 6;
   fast.state.smoothZoomEnabled = true;
-  fast.state.smoothZoomAcceleration = 24;
+  fast.state.keyboardAcceleration = 24;
 
   slow.navigation.startSmoothKeyboardZoom("PageUp");
   fast.navigation.startSmoothKeyboardZoom("PageUp");
@@ -383,4 +411,5 @@ test("losing window focus stops both smooth pan and smooth zoom", () => {
   assert.equal(harness.state.smoothZoomFrame, null);
   assert.equal(harness.state.smoothPanKeys.size, 0);
   assert.equal(harness.state.smoothZoomKeys.size, 0);
+  assert.deepEqual(harness.state.smoothPanVelocity, { x: 0, y: 0 });
 });
