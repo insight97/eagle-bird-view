@@ -114,13 +114,13 @@
 
     function preloadSelected(node) {
       const snapshot = mediaLoadQueue.snapshot(node);
-      if (
-        !snapshot ||
-        snapshot.readyQuality ||
-        snapshot.loading ||
-        snapshot.queued ||
-        snapshot.pendingQuality
-      ) {
+      if (!snapshot) return;
+      if (!node.isVideo) {
+        if (snapshot.readyQuality === "original" || snapshot.originalFailed) return;
+        requestMediaByNode.get(node)?.("original");
+        return;
+      }
+      if (snapshot.readyQuality || snapshot.loading || snapshot.queued || snapshot.pendingQuality) {
         return;
       }
       requestMediaByNode.get(node)?.("thumbnail");
@@ -158,6 +158,17 @@
 
       for (const node of visible) mount(node);
       for (const node of loadNodes) {
+        requestMediaByNode.get(node)?.(getQuality(node));
+      }
+    }
+
+    function syncQuality({ loadNodes = [], getQuality = () => "thumbnail" } = {}) {
+      for (const node of materializedNodes) {
+        if (getQuality(node) !== "original") mediaLoadQueue.cancel(node, "original");
+      }
+
+      for (const node of loadNodes) {
+        if (!materializedNodes.has(node)) continue;
         requestMediaByNode.get(node)?.(getQuality(node));
       }
     }
@@ -474,6 +485,7 @@
       rotate,
       retryOriginal,
       sync,
+      syncQuality,
     });
   }
 

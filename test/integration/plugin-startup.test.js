@@ -106,6 +106,63 @@ test("smooth pan and zoom speeds accept the expanded upper limits", async () => 
   assert.equal(plugin.elements.get("#smooth-zoom-speed-value").textContent, "60.00×/秒");
 });
 
+test("smooth zoom can request original quality before motion settles", async () => {
+  const plugin = createPluginHarness({
+    selectedItems: imageItems(1),
+    runAnimationFrames: true,
+    smoothZoomProbe: true,
+    storage: {
+      getItem(key) {
+        return key === "bird-view-settings"
+          ? JSON.stringify({ board: { smoothZoomEnabled: true } })
+          : null;
+      },
+      setItem() {},
+    },
+  });
+  plugin.elements.get("#viewport").clientHeight = 200;
+
+  plugin.start();
+  await flush();
+  plugin.flushTimers();
+
+  assert.equal(plugin.createdElementsOfTag("img").length, 1);
+
+  plugin.keyDown({
+    key: "PageUp",
+    ctrlKey: true,
+    target: null,
+    preventDefault() {},
+  });
+  plugin.flushTimers();
+
+  const thumbnailImage = plugin.createdElementsOfTag("img")[0];
+  thumbnailImage.emit("load");
+  await flush();
+
+  assert.equal(plugin.createdElementsOfTag("img").length, 2);
+});
+
+test("the selected image preloads original quality below the display threshold", async () => {
+  const plugin = createPluginHarness({
+    selectedItems: imageItems(1),
+    runAnimationFrames: true,
+    navigationProbe: true,
+  });
+  plugin.elements.get("#viewport").clientHeight = 200;
+
+  plugin.start();
+  await flush();
+  plugin.fireTimer(0);
+
+  const thumbnailImage = plugin.createdElementsOfTag("img")[0];
+  assert.ok(thumbnailImage);
+  thumbnailImage.emit("load");
+  await flush();
+
+  assert.equal(plugin.createdElementsOfTag("img").length, 2);
+});
+
 test("keyboard acceleration can be changed and is persisted", async () => {
   const stored = [];
   const plugin = createPluginHarness({

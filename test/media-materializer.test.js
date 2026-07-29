@@ -101,7 +101,7 @@ test("media materializer owns card mounting, loading, and release", () => {
 
   assert.equal(harness.world.children.length, 1);
   assert.equal(node.element.className, "media-card");
-  assert.deepEqual(harness.queue.requests.map(({ quality }) => quality), ["thumbnail"]);
+  assert.deepEqual(harness.queue.requests.map(({ quality }) => quality), ["original"]);
 
   harness.materializer.sync({
     visibleNodes: [],
@@ -113,4 +113,23 @@ test("media materializer owns card mounting, loading, and release", () => {
   assert.equal(harness.world.children.length, 0);
   assert.equal(node.element, null);
   assert.deepEqual(harness.queue.disposed, [node]);
+});
+
+test("quality sync requests a better source without remounting the card", () => {
+  const harness = createHarness();
+  const node = createNode();
+
+  harness.materializer.mount(node);
+  const card = node.element;
+  harness.queue.requests.length = 0;
+
+  harness.materializer.syncQuality({
+    loadNodes: [node],
+    getQuality: () => "original",
+  });
+
+  assert.equal(node.element, card);
+  assert.equal(harness.world.children.length, 1);
+  assert.deepEqual(harness.queue.requests, [{ node, quality: "original" }]);
+  assert.deepEqual(harness.queue.disposed, []);
 });

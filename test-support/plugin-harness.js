@@ -287,6 +287,7 @@ function createPluginHarness({
   folderTree = [],
   runAnimationFrames = false,
   navigationProbe = false,
+  smoothZoomProbe = false,
   // Tests that exercise plugin.js error paths can mute the expected logging so
   // a passing run does not look like a failing one.
   quiet = false,
@@ -386,7 +387,7 @@ function createPluginHarness({
     BirdViewTagEditor: { TagEditor },
     BirdViewFolderPicker: { FolderPicker },
     BirdViewCamera: {
-      createCameraNavigation() {
+      createCameraNavigation(options) {
         return {
           animateCameraTo() {},
           cancelCameraFocus() {},
@@ -395,14 +396,23 @@ function createPluginHarness({
             if (navigationProbe) focusedNodeId = node?.item?.id || null;
           },
           getKeyboardPanStep() { return 240; },
-          handleKeyUp() {},
+          handleKeyUp() {
+            if (smoothZoomProbe) options.onSmoothZoomEnd?.();
+          },
           handleWindowBlur() {},
           panBy() {},
           panOneViewport() {},
           startSmoothKeyboardPan() {},
-          startSmoothKeyboardZoom() {},
+          startSmoothKeyboardZoom() {
+            options.onSmoothZoomStart?.();
+            if (!smoothZoomProbe) return;
+            options.state.camera.scale = 2;
+            options.updateCamera?.();
+          },
           stopSmoothKeyboardPan() {},
-          stopSmoothKeyboardZoom() {},
+          stopSmoothKeyboardZoom() {
+            options.onSmoothZoomEnd?.();
+          },
           zoomAtPoint() {},
         };
       },

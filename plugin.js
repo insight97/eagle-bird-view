@@ -76,6 +76,7 @@ const KEYBOARD_SEEK_STEP = 5;
 const KEYBOARD_VOLUME_STEP = 0.05;
 const PAN_START_THRESHOLD = 4;
 const CAMERA_SETTLE_DELAY = 200;
+const SMOOTH_ZOOM_QUALITY_INTERVAL = 120;
 // How tall a card has to paint on screen before Eagle's thumbnail stops being
 // enough. Measured in screen pixels so the decision does not depend on how the
 // row happened to be laid out: a lone selection lands on an unjustified row at
@@ -128,7 +129,9 @@ const state = {
   cameraFocusFrame: null,
   cameraSettleTimer: null,
   viewportWorkTimer: null,
+  smoothZoomQualityTimer: null,
   lastViewportWork: -Infinity,
+  lastSmoothZoomQualityWork: -Infinity,
   isPanning: false,
   explorationSource: null,
   explorationLoading: false,
@@ -352,14 +355,25 @@ function setup() {
     getFocusTargetHeight: () => state.focusMediaSize,
     onSmoothZoomStart: () => {
       state.isSmoothZooming = true;
+      state.lastSmoothZoomQualityWork = -Infinity;
+      if (state.smoothZoomQualityTimer !== null) {
+        window.clearTimeout(state.smoothZoomQualityTimer);
+        state.smoothZoomQualityTimer = null;
+      }
       if (state.viewportWorkTimer !== null) {
         window.clearTimeout(state.viewportWorkTimer);
         state.viewportWorkTimer = null;
       }
       elements.labels?.classList.add("is-smooth-zooming");
+      scheduleSmoothZoomQualityWork();
     },
     onSmoothZoomEnd: () => {
       state.isSmoothZooming = false;
+      if (state.smoothZoomQualityTimer !== null) {
+        window.clearTimeout(state.smoothZoomQualityTimer);
+        state.smoothZoomQualityTimer = null;
+      }
+      state.lastSmoothZoomQualityWork = -Infinity;
       elements.labels?.classList.remove("is-smooth-zooming");
       flushViewportWork();
     },
@@ -2538,12 +2552,39 @@ function keepCameraLayerPromoted() {
 }
 
 function scheduleViewportWork() {
-  // Pointer movement should stay on the camera transform path. Mounting,
+  // Pointer movement should stay on the camera transform path. Smooth zoom
+  // can request better media quality at a low cadence, while mounting,
   // releasing, relabelling, and auto-exploring happen once the gesture ends.
-  if (state.isPanning || state.isSmoothZooming || state.viewportWorkTimer !== null) return;
+  if (state.isPanning) return;
+  if (state.isSmoothZooming) {
+    scheduleSmoothZoomQualityWork();
+    return;
+  }
+  if (state.viewportWorkTimer !== null) return;
   const elapsed = performance.now() - state.lastViewportWork;
   const delay = Math.max(0, getViewportWorkInterval(state.isPanning) - elapsed);
   state.viewportWorkTimer = window.setTimeout(runViewportWork, delay);
+}
+
+function scheduleSmoothZoomQualityWork() {
+  if (
+    !state.isSmoothZooming ||
+    state.isPanning ||
+    state.smoothZoomQualityTimer !== null
+  ) {
+    return;
+  }
+  const elapsed = performance.now() - state.lastSmoothZoomQualityWork;
+  const delay = Math.max(0, SMOOTH_ZOOM_QUALITY_INTERVAL - elapsed);
+  state.smoothZoomQualityTimer = window.setTimeout(runSmoothZoomQualityWork, delay);
+}
+
+function runSmoothZoomQualityWork() {
+  state.smoothZoomQualityTimer = null;
+  if (!state.isSmoothZooming || state.isPanning) return;
+  state.lastSmoothZoomQualityWork = performance.now();
+  updateMediaQuality();
+  scheduleSmoothZoomQualityWork();
 }
 
 function rescheduleViewportWork() {
@@ -2570,6 +2611,16 @@ function runViewportWork() {
 }
 
 function updateMediaVisibility() {
+  const plan = getViewportMediaPlan();
+  mediaMaterializer.sync(plan);
+}
+
+function updateMediaQuality() {
+  const { loadNodes, getQuality } = getViewportMediaPlan();
+  mediaMaterializer.syncQuality({ loadNodes, getQuality });
+}
+
+function getViewportMediaPlan() {
   const preloadMargin = 120;
   const viewportWidth = elements.viewport.clientWidth;
   const viewportHeight = elements.viewport.clientHeight;
@@ -2594,13 +2645,16 @@ function updateMediaVisibility() {
     if (isNearViewport) loadNodes.push(node);
   }
 
-  mediaMaterializer.sync({
+  return {
     visibleNodes,
     retainedNodes,
     loadNodes,
     selectedNode: state.selectedNode,
-    getQuality: (node) => (wantsOriginalImage(node, scale) ? "original" : "thumbnail"),
-  });
+    getQuality: (node) => {
+      if (node === state.selectedNode && !node.isVideo) return "original";
+      return wantsOriginalImage(node, scale) ? "original" : "thumbnail";
+    },
+  };
 }
 
 function wantsOriginalImage(node, scale) {
