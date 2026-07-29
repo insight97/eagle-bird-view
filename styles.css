@@ -772,7 +772,8 @@ button {
 }
 
 .selection-name {
-  min-width: 0;
+  flex: 1 1 120px;
+  min-width: 80px;
   overflow: hidden;
   color: #e2e4e7;
   text-overflow: ellipsis;
@@ -784,7 +785,7 @@ button {
 .selection-tags,
 .selection-folders {
   display: flex;
-  flex: none;
+  flex: 0 1 auto;
   align-items: center;
   gap: 4px;
   white-space: nowrap;
@@ -795,6 +796,37 @@ button {
   max-width: min(400px, 36vw);
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.selection-tag-overflow-button {
+  display: inline-flex;
+  min-height: 16px;
+  flex: none;
+  align-items: center;
+  padding: 0 5px;
+  border: 1px solid #555b64;
+  border-radius: 3px;
+  background: #25282d;
+  color: #b7bbc2;
+  font: inherit;
+  line-height: 14px;
+  cursor: pointer;
+}
+
+.selection-tag-overflow-button[hidden] {
+  display: none;
+}
+
+.selection-tag-overflow-button:hover,
+.selection-tag-overflow-button:focus-visible {
+  border-color: #7971ed;
+  background: #34333f;
+  color: #f1f0ff;
+}
+
+.selection-tag-overflow-button:disabled {
+  cursor: wait;
+  opacity: 0.55;
 }
 
 .selection-folders {

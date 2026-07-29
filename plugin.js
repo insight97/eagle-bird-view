@@ -48,6 +48,7 @@ const { createSettingsPresetStore } = BirdViewSettingsPresets;
 const { FolderItemSource } = BirdViewFolder;
 const { FolderPicker } = BirdViewFolderPicker;
 const { TagEditor } = BirdViewTagEditor;
+const { SelectionTagOverflow, getVisibleTagCount } = BirdViewSelectionTags;
 const { createCameraNavigation } = BirdViewCamera;
 const { createSelectionNavigation } = BirdViewSelection;
 const DEFAULT_SMOOTH_PAN_SPEED = 480;
@@ -142,6 +143,9 @@ const state = {
   lastUnratedTriggerRow: null,
   tagColors: new Map(),
   tagColorGeneration: 0,
+  selectionTags: [],
+  selectionTagButtons: [],
+  selectionTagOverflowButton: null,
   folderNames: new Map(),
   folderNameGeneration: 0,
   folderOptions: [],
@@ -186,6 +190,12 @@ const folderPicker = new FolderPicker({
   getViewport: () => elements.viewport,
   onSelect: addSelectedItemToFolder,
   onEmpty: () => showToast("目前沒有可用的 Eagle 資料夾。", false),
+});
+const selectionTagOverflow = new SelectionTagOverflow({
+  getViewport: () => elements.viewport,
+  createTagChip,
+  onSelect: ({ tag }) =>
+    exploreFromSelectionTarget({ type: "tag", value: tag, label: tag }),
 });
 
 if (typeof eagle !== "undefined" && typeof eagle.onPluginCreate === "function") {
@@ -860,6 +870,84 @@ function renderTagChips(tags, values) {
   tags.replaceChildren(...tagValues.map(createTagChip));
   tags.title = tagValues.join(", ");
   tags.hidden = tagValues.length === 0;
+}
+
+function renderSelectionTags(tags) {
+  const tagValues = normalizeTags(tags);
+  state.selectionTags = tagValues;
+  state.selectionTagButtons = tagValues.map((tag) =>
+    createSelectionExploreButton({ type: "tag", value: tag, label: tag }),
+  );
+  state.selectionTagOverflowButton = createSelectionTagOverflowButton();
+  selectionTagOverflow.close();
+  elements.selectionTags.style.width = "";
+
+  elements.selectionTags.hidden = tagValues.length === 0;
+  elements.selectionTagsDivider.hidden = tagValues.length === 0;
+  elements.selectionTags.title = tagValues.join(", ");
+  if (!tagValues.length) {
+    elements.selectionTags.replaceChildren();
+    return;
+  }
+
+  elements.selectionTags.replaceChildren(
+    ...state.selectionTagButtons,
+    state.selectionTagOverflowButton,
+  );
+  fitSelectionTags();
+}
+
+function createSelectionTagOverflowButton() {
+  const button = document.createElement("button");
+  button.className = "selection-tag-overflow-button";
+  button.type = "button";
+  button.hidden = true;
+  button.setAttribute("aria-haspopup", "dialog");
+  button.addEventListener("pointerdown", (event) => event.stopPropagation());
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (!state.selectionTagOverflowButton || button.hidden) return;
+    selectionTagOverflow.open(state.selectedNode, button, state.selectionTags);
+  });
+  return button;
+}
+
+function fitSelectionTags() {
+  const buttons = state.selectionTagButtons;
+  const overflowButton = state.selectionTagOverflowButton;
+  if (!elements.selectionTags || !buttons.length || !overflowButton) return;
+
+  elements.selectionTags.style.width = "";
+  elements.selectionTags.replaceChildren(...buttons, overflowButton);
+  overflowButton.hidden = false;
+  const tagWidths = buttons.map(getElementWidth);
+  const overflowWidths = {};
+  for (let hidden = 1; hidden <= buttons.length; hidden += 1) {
+    overflowButton.textContent = `+${hidden}`;
+    overflowWidths[hidden] = getElementWidth(overflowButton);
+  }
+
+  const visibleCount = getVisibleTagCount(
+    tagWidths,
+    elements.selectionTags.clientWidth,
+    overflowWidths,
+  );
+  const availableWidth = elements.selectionTags.clientWidth;
+  const hiddenCount = buttons.length - visibleCount;
+  if (hiddenCount) elements.selectionTags.style.width = `${availableWidth}px`;
+  overflowButton.hidden = hiddenCount === 0;
+  overflowButton.textContent = `+${hiddenCount}`;
+  overflowButton.title = `顯示其餘 ${hiddenCount} 個 Tag`;
+  overflowButton.setAttribute("aria-label", `顯示其餘 ${hiddenCount} 個 Tag`);
+  elements.selectionTags.replaceChildren(
+    ...buttons.slice(0, visibleCount),
+    ...(hiddenCount ? [overflowButton] : []),
+  );
+}
+
+function getElementWidth(element) {
+  const rect = element.getBoundingClientRect?.();
+  return rect?.width || element.offsetWidth || element.scrollWidth || 0;
 }
 
 function createTagChip(tag) {
@@ -2181,7 +2269,7 @@ function updateExploreButton() {
     ? "探索中…"
     : "探索下一列";
   for (const button of elements.selectionStatus?.querySelectorAll(
-    ".selection-explore-target",
+    ".selection-explore-target, .selection-tag-overflow-button",
   ) || []) {
     button.disabled = state.explorationLoading;
   }
@@ -2327,7 +2415,10 @@ function updateSelectionStatus() {
   const hasSelection = Boolean(item);
   elements.selectionEmpty.hidden = hasSelection;
   elements.selectionDetails.hidden = !hasSelection;
-  if (!item) return;
+  if (!item) {
+    renderSelectionTags([]);
+    return;
+  }
 
   const name = item.name || "未命名";
   const dimensions = formatItemDimensions(item);
@@ -2356,14 +2447,7 @@ function updateSelectionStatus() {
   );
   elements.selectionRating.title = `評分 ${rating} / 5`;
   elements.selectionRating.setAttribute("aria-label", `評分 ${rating} 顆星`);
-  elements.selectionTags.hidden = tags.length === 0;
-  elements.selectionTagsDivider.hidden = tags.length === 0;
-  elements.selectionTags.replaceChildren(
-    ...tags.map((tag) =>
-      createSelectionExploreButton({ type: "tag", value: tag, label: tag }),
-    ),
-  );
-  elements.selectionTags.title = tags.join(", ");
+  renderSelectionTags(tags);
   elements.selectionFolders.hidden = folders.length === 0;
   elements.selectionFoldersDivider.hidden = folders.length === 0;
   elements.selectionFolders.replaceChildren(
@@ -2382,6 +2466,7 @@ function updateCamera() {
 function handleResize() {
   tagEditor.close();
   folderPicker.close();
+  selectionTagOverflow.close();
   const previousViewport = state.viewportSize || getViewportSize();
   const previousBaseScale = getBaseScale();
   const nextViewport = getViewportSize();
@@ -2395,6 +2480,7 @@ function handleResize() {
   );
   state.viewportSize = nextViewport;
   updateCamera();
+  fitSelectionTags();
 }
 
 function getViewportSize() {
