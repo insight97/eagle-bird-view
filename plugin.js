@@ -78,7 +78,7 @@ const KEYBOARD_SEEK_STEP = 5;
 const KEYBOARD_VOLUME_STEP = 0.05;
 const PAN_START_THRESHOLD = 4;
 const CAMERA_SETTLE_DELAY = 100;
-const SMOOTH_ZOOM_RASTER_VELOCITY_THRESHOLD = 0.08;
+const SMOOTH_ZOOM_RASTER_VELOCITY_THRESHOLD = 0.12;
 const SMOOTH_ZOOM_QUALITY_INTERVAL = 120;
 // How tall a card has to paint on screen before Eagle's thumbnail stops being
 // enough. Measured in screen pixels so the decision does not depend on how the

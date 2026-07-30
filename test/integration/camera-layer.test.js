@@ -5,7 +5,7 @@ const assert = require("node:assert/strict");
 const { createPluginHarness } = require("../../test-support/plugin-harness.js");
 
 const CAMERA_SETTLE_DELAY = 100;
-const SMOOTH_ZOOM_RASTER_VELOCITY_THRESHOLD = 0.08;
+const SMOOTH_ZOOM_RASTER_VELOCITY_THRESHOLD = 0.12;
 
 function jpgItem() {
   return {
