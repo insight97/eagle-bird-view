@@ -44,6 +44,15 @@ test("selection tag targets keep their intrinsic width in a narrow toolbar", () 
   );
 });
 
+test("media metadata targets remain interactive above the labels layer", () => {
+  const styles = fs.readFileSync(path.resolve(__dirname, "../styles.css"), "utf8");
+  assert.match(
+    styles,
+    /\.media-metadata-target\s*\{[^}]*\bpointer-events:\s*auto\s*;/s,
+    "media metadata targets must receive pointer and context-menu events",
+  );
+});
+
 test("selection filename is not capped while tags are present", () => {
   const styles = fs.readFileSync(path.resolve(__dirname, "../styles.css"), "utf8");
   const rule = styles.match(

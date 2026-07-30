@@ -27,10 +27,11 @@ function labelledItem(overrides = {}) {
   return item;
 }
 
-async function startWithItem(item, { quiet = false } = {}) {
+async function startWithItem(item, { quiet = false, navigationProbe = false } = {}) {
   const plugin = createPluginHarness({
     selectedItems: [item],
     runAnimationFrames: true,
+    navigationProbe,
     quiet,
   });
   plugin.start();
@@ -57,7 +58,56 @@ test("a mounted media label renders the current rating and tags", async () => {
 
   const tags = label.querySelector(".media-tags");
   assert.equal(tags.hidden, false);
-  assert.deepEqual(tags.children.map(({ textContent }) => textContent), ["UI", "Web"]);
+  assert.deepEqual(
+    tags.querySelectorAll(".media-tag").map(({ textContent }) => textContent),
+    ["UI", "Web"],
+  );
+});
+
+test("the toolbar and media label expose tag and folder add controls", async () => {
+  const plugin = await startWithItem(labelledItem(), { navigationProbe: true });
+  const label = findLabel(plugin);
+
+  assert.equal(plugin.elements.get("#selection-add-tag").hidden, false);
+  assert.equal(plugin.elements.get("#selection-add-folder").hidden, false);
+  assert.ok(label.querySelector(".media-metadata-add-tag"));
+  assert.ok(label.querySelector(".media-metadata-add-folder"));
+
+  plugin.elements.get("#selection-add-tag").click();
+  plugin.elements.get("#selection-add-folder").click();
+  label.querySelector(".media-metadata-add-folder").click();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(plugin.tagEditorOpenCalls, 1);
+  assert.equal(plugin.folderPickerOpenCalls, 2);
+});
+
+test("right-clicking a media label tag removes it from the item", async () => {
+  const item = labelledItem();
+  const plugin = await startWithItem(item, { navigationProbe: true });
+  const label = findLabel(plugin);
+
+  label.querySelector(".media-metadata-tag-target").emit("contextmenu");
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(item.tags, ["Web"]);
+  assert.equal(item.saveCalls, 1);
+});
+
+test("a media label renders folders and can remove one with the right click", async () => {
+  const item = labelledItem({ folders: ["folder-1"] });
+  const plugin = await startWithItem(item, { navigationProbe: true });
+  plugin.resolveFolder(0, [{ id: "folder-1", name: "Reference" }]);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const label = findLabel(plugin);
+  const folder = label.querySelector(".media-metadata-folder-target");
+  assert.ok(folder);
+  folder.emit("contextmenu");
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(item.folders, []);
+  assert.equal(item.saveCalls, 1);
 });
 
 test("clicking a rating star saves the item and repaints the label", async () => {
@@ -75,6 +125,52 @@ test("clicking a rating star saves the item and repaints the label", async () =>
     [true, true, true, true, false],
   );
   assert.equal(label.querySelector(".media-rating").getAttribute("aria-label"), "評分 4 顆星");
+});
+
+test("clicking a toolbar rating star saves the selected item", async () => {
+  const item = labelledItem();
+  const plugin = await startWithItem(item, { navigationProbe: true });
+  const stars = plugin.elements.get("#selection-rating").querySelectorAll(".media-rating-star");
+
+  stars[4].click();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(item.star, 5);
+  assert.equal(item.saveCalls, 1);
+  assert.deepEqual(
+    plugin.elements.get("#selection-rating").querySelectorAll(".media-rating-star")
+      .map((star) => star.classList.contains("is-filled")),
+    [true, true, true, true, true],
+  );
+  assert.equal(plugin.elements.get("#selection-rating").getAttribute("aria-label"), "評分 5 顆星");
+});
+
+test("right-clicking a toolbar tag removes it from the selected item", async () => {
+  const item = labelledItem();
+  const plugin = await startWithItem(item, { navigationProbe: true });
+  const tag = plugin.state.selectionTagButtons[0];
+
+  tag.emit("contextmenu");
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(item.tags, ["Web"]);
+  assert.equal(item.saveCalls, 1);
+  assert.deepEqual(plugin.state.selectionTags, ["Web"]);
+});
+
+test("right-clicking a toolbar folder removes it from the selected item", async () => {
+  const item = labelledItem({ folders: ["folder-1"] });
+  const plugin = await startWithItem(item, { navigationProbe: true });
+  plugin.resolveFolder(0, [{ id: "folder-1", name: "Reference" }]);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const folder = plugin.elements.get("#selection-folders").querySelector(".selection-folder-target");
+  folder.emit("contextmenu");
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(item.folders, []);
+  assert.equal(item.saveCalls, 1);
+  assert.equal(plugin.elements.get("#selection-folders").hidden, true);
 });
 
 test("a rejected save rolls the rating back on the label", async () => {

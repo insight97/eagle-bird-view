@@ -881,6 +881,56 @@ button {
   opacity: 0.55;
 }
 
+.media-metadata-target {
+  display: inline-flex;
+  min-width: 0;
+  flex: none;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.media-metadata-target:hover .media-tag,
+.media-metadata-target:focus-visible .media-tag {
+  border-color: #c8c4ff;
+  box-shadow: 0 0 0 2px rgb(121 113 237 / 22%);
+}
+
+.media-metadata-target:focus-visible {
+  outline: 1px solid #9d96ff;
+  outline-offset: 2px;
+}
+
+.media-metadata-target:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.media-metadata-folder-target {
+  max-width: 150px;
+  min-height: 18px;
+  gap: 4px;
+  overflow: hidden;
+  padding: 1px 5px;
+  border: 1px solid #4a4e57;
+  background: #292d33;
+  color: #b9bdc5;
+  font-size: 10px;
+}
+
+.media-metadata-folder-target:hover,
+.media-metadata-folder-target:focus-visible {
+  border-color: #8178f1;
+  background: #34333f;
+  color: #f1f0ff;
+}
+
 .selection-folder-target {
   max-width: 150px;
   min-height: 18px;
@@ -913,7 +963,7 @@ button {
 }
 
 .selection-rating .media-rating-star {
-  cursor: default;
+  cursor: pointer;
 }
 
 .selection-divider {
@@ -1506,7 +1556,8 @@ button {
 }
 
 .media-rating-star:focus-visible,
-.media-tag-edit:focus-visible {
+.media-tag-edit:focus-visible,
+.selection-metadata-add:focus-visible {
   outline: 1px solid #9d96ff;
   outline-offset: 1px;
 }

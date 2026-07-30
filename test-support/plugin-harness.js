@@ -32,8 +32,10 @@ const SELECTORS = [
   "#selection-rating",
   "#selection-tags-divider",
   "#selection-tags",
+  "#selection-add-tag",
   "#selection-folders-divider",
   "#selection-folders",
+  "#selection-add-folder",
   "#auto-explore-toggle",
   "#auto-explore-status",
   "#seamless-mode-toggle",
@@ -307,6 +309,8 @@ function createPluginHarness({
   let videoStartRequests = 0;
   let videoPlayCalls = 0;
   let videoPauseCalls = 0;
+  let tagEditorOpenCalls = 0;
+  let folderPickerOpenCalls = 0;
   let navigationState = null;
   let cameraUpdate = null;
   let nextTimerId = 1;
@@ -330,11 +334,13 @@ function createPluginHarness({
     }
   }
   class TagEditor {
+    open() { tagEditorOpenCalls += 1; }
     close() {}
     closeForNode() {}
     refresh() {}
   }
   class FolderPicker {
+    open() { folderPickerOpenCalls += 1; }
     close() {}
     closeForNode() {}
   }
@@ -578,6 +584,8 @@ function createPluginHarness({
     get videoStartRequests() { return videoStartRequests; },
     get videoPlayCalls() { return videoPlayCalls; },
     get videoPauseCalls() { return videoPauseCalls; },
+    get tagEditorOpenCalls() { return tagEditorOpenCalls; },
+    get folderPickerOpenCalls() { return folderPickerOpenCalls; },
     get keyDown() { return windowListeners.get("keydown"); },
     get selectedRequests() { return selectedRequests; },
     get selectedNodeId() { return selectedNodeId; },

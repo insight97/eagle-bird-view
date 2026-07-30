@@ -234,8 +234,10 @@ function setup() {
   elements.selectionRating = document.querySelector("#selection-rating");
   elements.selectionTagsDivider = document.querySelector("#selection-tags-divider");
   elements.selectionTags = document.querySelector("#selection-tags");
+  elements.selectionAddTag = document.querySelector("#selection-add-tag");
   elements.selectionFoldersDivider = document.querySelector("#selection-folders-divider");
   elements.selectionFolders = document.querySelector("#selection-folders");
+  elements.selectionAddFolder = document.querySelector("#selection-add-folder");
   elements.autoExploreToggle = document.querySelector("#auto-explore-toggle");
   elements.autoExploreStatus = document.querySelector("#auto-explore-status");
   elements.seamlessModeToggle = document.querySelector("#seamless-mode-toggle");
@@ -390,6 +392,14 @@ function setup() {
   window.addEventListener("resize", handleResize);
   elements.autoExploreToggle.addEventListener("click", toggleUnratedExploration);
   elements.seamlessModeToggle?.addEventListener("click", toggleSeamlessMode);
+  elements.selectionAddTag?.addEventListener("click", () => {
+    const node = state.selectedNode;
+    if (node) openTagEditorForNode(node, elements.selectionAddTag);
+  });
+  elements.selectionAddFolder?.addEventListener("click", () => {
+    const node = state.selectedNode;
+    if (node) void openFolderPickerForNode(node, elements.selectionAddFolder);
+  });
   elements.folderLoadMoreButton?.addEventListener("click", () => {
     void loadMoreFolderItems();
   });
@@ -760,6 +770,8 @@ function createMediaLabel(node) {
   const rating = document.createElement("span");
   const tags = document.createElement("span");
   const editTags = document.createElement("button");
+  const folders = document.createElement("span");
+  const editFolders = document.createElement("button");
   const identity = document.createElement("span");
   const name = document.createElement("span");
   const dimensions = document.createElement("span");
@@ -774,19 +786,32 @@ function createMediaLabel(node) {
   main.className = "media-label-main";
   metadata.className = "media-metadata";
   rating.className = "media-rating";
-  tags.className = "media-tags";
-  editTags.className = "media-tag-edit";
+  tags.className = "media-tags media-metadata-tags";
+  editTags.className = "media-tag-edit media-metadata-add-tag";
   editTags.type = "button";
   editTags.textContent = "+";
   editTags.title = "新增或移除標籤";
   editTags.setAttribute("aria-label", `編輯 ${item.name || "素材"} 的標籤`);
   editTags.dataset.editControl = "true";
+  folders.className = "media-tags media-metadata-folders";
+  editFolders.className = "media-tag-edit media-metadata-add-folder";
+  editFolders.type = "button";
+  editFolders.textContent = "+";
+  editFolders.title = "加入資料夾";
+  editFolders.setAttribute("aria-label", `將 ${item.name || "素材"} 加入資料夾`);
+  editFolders.dataset.editControl = "true";
   createRatingControls(rating, node);
-  renderTagChips(tags, item.tags);
+  renderMediaMetadataTargets(tags, node, "tag");
+  renderMediaMetadataTargets(folders, node, "folder");
   editTags.addEventListener("pointerdown", (event) => event.stopPropagation());
   editTags.addEventListener("click", (event) => {
     event.stopPropagation();
-    if (!node.isSaving) tagEditor.open(node, editTags);
+    openTagEditorForNode(node, editTags);
+  });
+  editFolders.addEventListener("pointerdown", (event) => event.stopPropagation());
+  editFolders.addEventListener("click", (event) => {
+    event.stopPropagation();
+    void openFolderPickerForNode(node, editFolders);
   });
   identity.className = "media-identity";
   name.className = "media-name";
@@ -818,7 +843,7 @@ function createMediaLabel(node) {
   identity.append(name, dimensions);
   fileInfo.append(basicInfo, type);
   actions.append(fileInfo, rotateLeft, rotateRight);
-  metadata.append(rating, tags, editTags);
+  metadata.append(rating, tags, editTags, folders, editFolders);
   main.append(identity, actions);
   label.append(main, metadata);
   return label;
@@ -835,6 +860,7 @@ function createRatingControls(rating, node) {
     star.title = `${index} 顆星${index === currentRating ? "（再次點擊可清除）" : ""}`;
     star.setAttribute("aria-label", `設定為 ${index} 顆星`);
     star.dataset.editControl = "true";
+    star.disabled = Boolean(node.isSaving);
     star.addEventListener("pointerdown", (event) => event.stopPropagation());
     star.addEventListener("pointerenter", () => paintRating(rating, index));
     star.addEventListener("pointerleave", () => paintRating(rating, getItemRating(node.item)));
@@ -890,11 +916,40 @@ function updateRatingControl(rating, node) {
   paintRating(rating, value);
 }
 
-function renderTagChips(tags, values) {
-  const tagValues = normalizeTags(values);
-  tags.replaceChildren(...tagValues.map(createTagChip));
-  tags.title = tagValues.join(", ");
-  tags.hidden = tagValues.length === 0;
+function getFolderMetadataEntries(item) {
+  return normalizeTags(item?.folders).map((id) => ({
+    value: id,
+    label: state.folderNames.get(id) || id,
+  }));
+}
+
+function renderMediaMetadataTargets(container, node, type) {
+  if (!container || !node) return;
+  const entries =
+    type === "tag"
+      ? normalizeTags(node.item.tags).map((tag) => ({ value: tag, label: tag }))
+      : getFolderMetadataEntries(node.item);
+  container.replaceChildren(
+    ...entries.map(({ value, label }) =>
+      createMetadataTarget({ node, type, value, label }),
+    ),
+  );
+  container.hidden = entries.length === 0;
+  container.title = entries.map(({ label }) => label).join(type === "folder" ? " / " : ", ");
+}
+
+function refreshMediaMetadata(node) {
+  if (!node?.label) return;
+  renderMediaMetadataTargets(
+    node.label.querySelector(".media-metadata-tags"),
+    node,
+    "tag",
+  );
+  renderMediaMetadataTargets(
+    node.label.querySelector(".media-metadata-folders"),
+    node,
+    "folder",
+  );
 }
 
 function renderSelectionTags(tags) {
@@ -993,14 +1048,27 @@ function createFolderChip(folder) {
 }
 
 function createSelectionExploreButton({ type, value, label }) {
+  return createMetadataTarget({
+    node: state.selectedNode,
+    type,
+    value,
+    label,
+    selection: true,
+  });
+}
+
+function createMetadataTarget({ node, type, value, label, selection = false }) {
   const button = document.createElement("button");
-  button.className = `selection-explore-target selection-${type}-target`;
+  button.className = selection
+    ? `selection-explore-target selection-${type}-target`
+    : `media-metadata-target media-metadata-${type}-target`;
   button.type = "button";
   button.disabled = state.explorationLoading;
-  button.title = `從${type === "tag" ? "Tag" : "資料夾"}「${label}」探索素材`;
+  const targetLabel = type === "tag" ? "Tag" : "資料夾";
+  button.title = `左鍵從${targetLabel}「${label}」探索素材；右鍵移除`;
   button.setAttribute(
     "aria-label",
-    `從${type === "tag" ? "Tag" : "資料夾"}「${label}」探索素材`,
+    `從${targetLabel}「${label}」探索素材；右鍵移除${targetLabel}`,
   );
 
   if (type === "tag") {
@@ -1019,7 +1087,13 @@ function createSelectionExploreButton({ type, value, label }) {
   button.addEventListener("pointerdown", (event) => event.stopPropagation());
   button.addEventListener("click", (event) => {
     event.stopPropagation();
+    if (node) selectionNavigation.setSelectedNode(node);
     void exploreFromSelectionTarget({ type, value, label });
+  });
+  button.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    void removeSelectionTarget(node, { type, value, label });
   });
   return button;
 }
@@ -1057,18 +1131,24 @@ function setLabelSaving(node, isSaving) {
   for (const control of node.label?.querySelectorAll("[data-edit-control]") || []) {
     control.disabled = isSaving;
   }
+  if (node !== state.selectedNode) return;
+  for (const control of [
+    elements.selectionAddTag,
+    elements.selectionAddFolder,
+    ...(elements.selectionRating?.querySelectorAll("[data-edit-control]") || []),
+  ]) {
+    if (control) control.disabled = isSaving;
+  }
 }
 
 async function commitNodeTags(node, nextTags, previousTags) {
   node.item.tags = nextTags;
-  const tags = node.label?.querySelector(".media-tags");
-  if (tags) renderTagChips(tags, nextTags);
+  refreshMediaMetadata(node);
   const saved = await saveItemMetadata(node, {
     successMessage: `已更新「${node.item.name || "素材"}」的標籤。`,
     rollback: () => {
       node.item.tags = previousTags;
-      const currentTags = node.label?.querySelector(".media-tags");
-      if (currentTags) renderTagChips(currentTags, previousTags);
+      refreshMediaMetadata(node);
       updateSelectionStatus();
     },
   });
@@ -1076,6 +1156,31 @@ async function commitNodeTags(node, nextTags, previousTags) {
     updateSelectionStatus();
     void loadTagColors();
   }
+}
+
+async function removeSelectionTarget(node, { type, value, label }) {
+  if (!node || node.isSaving) return;
+  const property = type === "tag" ? "tags" : "folders";
+  const targetValue = String(value ?? "").trim();
+  const previousValues = normalizeTags(node.item[property]);
+  const nextValues = previousValues.filter((entry) => entry !== targetValue);
+  if (!targetValue || nextValues.length === previousValues.length) return;
+
+  const refresh = () => {
+    refreshMediaMetadata(node);
+    updateSelectionStatus();
+  };
+
+  node.item[property] = nextValues;
+  refresh();
+  await saveItemMetadata(node, {
+    successMessage: `已從「${node.item.name || "素材"}」移除${type === "tag" ? "Tag" : "資料夾"}「${label}」。`,
+    rollback: () => {
+      node.item[property] = previousValues;
+      refreshMediaMetadata(node);
+      updateSelectionStatus();
+    },
+  });
 }
 
 async function addSelectedItemToFolder(node, folder) {
@@ -1091,10 +1196,14 @@ async function addSelectedItemToFolder(node, folder) {
 
   const nextFolders = [...previousFolders, folderId];
   node.item.folders = nextFolders;
+  refreshMediaMetadata(node);
+  updateSelectionStatus();
   const saved = await saveItemMetadata(node, {
     successMessage: `已將「${node.item.name || "素材"}」加入「${folder?.name || "資料夾"}」。`,
     rollback: () => {
       node.item.folders = previousFolders;
+      refreshMediaMetadata(node);
+      updateSelectionStatus();
     },
   });
   if (saved) {
@@ -1119,10 +1228,7 @@ async function loadTagColors() {
         .filter(({ name }) => name)
         .map(({ name, color }) => [name, normalizeTagColor(color)]),
     );
-    for (const node of state.mountedLabelNodes) {
-      const tags = node.label?.querySelector(".media-tags");
-      if (tags) renderTagChips(tags, node.item.tags);
-    }
+    for (const node of state.mountedLabelNodes) refreshMediaMetadata(node);
     autoExploreSettings.update();
     updateSelectionStatus();
     tagEditor.refresh();
@@ -1447,18 +1553,24 @@ async function toggleFullScreen() {
   }
 }
 
-function openSelectedTagEditor() {
-  const node = state.selectedNode;
+function openTagEditorForNode(node, anchor) {
   if (!node || node.isSaving) return;
   folderPicker.close();
-  const anchor = state.seamlessMode
-    ? node.element
-    : node.label?.querySelector(".media-tag-edit") || node.element;
-  tagEditor.open(node, anchor);
+  tagEditor.open(node, anchor || node.element);
 }
 
-async function openSelectedFolderPicker() {
+function openSelectedTagEditor() {
   const node = state.selectedNode;
+  if (!node) return;
+  const anchor = state.seamlessMode
+    ? node.element
+    : elements.selectionAddTag ||
+      node.label?.querySelector(".media-metadata-add-tag") ||
+      node.element;
+  openTagEditorForNode(node, anchor);
+}
+
+async function openFolderPickerForNode(node, anchor) {
   if (!node || node.isSaving) return;
   if (typeof eagle === "undefined" || typeof eagle.folder?.getAll !== "function") {
     showToast("目前的 Eagle 版本不支援搜尋全部資料夾。", true);
@@ -1468,15 +1580,23 @@ async function openSelectedFolderPicker() {
   tagEditor.close();
   try {
     const folders = await eagle.folder.getAll();
-    if (node !== state.selectedNode) return;
-    const anchor = state.seamlessMode
-      ? node.element
-      : node.label?.querySelector(".media-tag-edit") || node.element;
-    folderPicker.open(node, anchor, folders);
+    if (!node.label?.isConnected && node !== state.selectedNode) return;
+    folderPicker.open(node, anchor || node.element, folders);
   } catch (error) {
     console.error("Failed to load Eagle folders", error);
     showToast(`無法讀取 Eagle 資料夾：${error.message || error}`, true);
   }
+}
+
+function openSelectedFolderPicker() {
+  const node = state.selectedNode;
+  if (!node) return;
+  const anchor = state.seamlessMode
+    ? node.element
+    : elements.selectionAddFolder ||
+      node.label?.querySelector(".media-metadata-add-folder") ||
+      node.element;
+  void openFolderPickerForNode(node, anchor);
 }
 
 function applyClearedSelection(previousNode) {
@@ -2298,6 +2418,9 @@ function updateExploreButton() {
   ) || []) {
     button.disabled = state.explorationLoading;
   }
+  for (const button of elements.labels?.querySelectorAll(".media-metadata-target") || []) {
+    button.disabled = state.explorationLoading;
+  }
 }
 
 function syncSelectedVideoAutoplay() {
@@ -2428,6 +2551,7 @@ async function loadFolderNames(items) {
       const name = String(folder?.name || "").trim();
       if (id && name) state.folderNames.set(id, name);
     }
+    for (const node of state.mountedLabelNodes) refreshMediaMetadata(node);
     updateSelectionStatus();
   } catch (error) {
     console.warn("Failed to load Eagle folder names", error);
@@ -2443,6 +2567,11 @@ function updateSelectionStatus() {
   if (!item) {
     elements.selectionDetails.classList.remove("has-selection-tags");
     renderSelectionTags([]);
+    elements.selectionFolders.replaceChildren();
+    elements.selectionFolders.hidden = true;
+    elements.selectionFoldersDivider.hidden = true;
+    elements.selectionAddTag.hidden = true;
+    elements.selectionAddFolder.hidden = true;
     return;
   }
 
@@ -2451,38 +2580,29 @@ function updateSelectionStatus() {
   const rating = getItemRating(item);
   const tags = normalizeTags(item.tags);
   elements.selectionDetails.classList.toggle("has-selection-tags", tags.length > 0);
-  const folders = normalizeTags(item.folders)
-    .map((folderId) => ({
-      id: folderId,
-      name: state.folderNames.get(folderId),
-    }))
-    .filter(({ name }) => name);
+  const folders = getFolderMetadataEntries(item);
 
   elements.selectionName.textContent = name;
   elements.selectionName.title = name;
   elements.selectionDimensions.hidden = !dimensions;
   elements.selectionDimensionsDivider.hidden = !dimensions;
   elements.selectionDimensions.textContent = dimensions;
-  elements.selectionRating.replaceChildren(
-    ...Array.from({ length: 5 }, (_, index) => {
-      const star = document.createElement("span");
-      star.className = "media-rating-star";
-      star.textContent = "★";
-      star.classList.toggle("is-filled", index < rating);
-      return star;
-    }),
-  );
+  elements.selectionRating.replaceChildren();
+  createRatingControls(elements.selectionRating, state.selectedNode);
   elements.selectionRating.title = `評分 ${rating} / 5`;
-  elements.selectionRating.setAttribute("aria-label", `評分 ${rating} 顆星`);
   renderSelectionTags(tags);
+  elements.selectionAddTag.hidden = false;
+  elements.selectionAddTag.disabled = Boolean(state.selectedNode.isSaving);
   elements.selectionFolders.hidden = folders.length === 0;
   elements.selectionFoldersDivider.hidden = folders.length === 0;
+  elements.selectionAddFolder.hidden = false;
+  elements.selectionAddFolder.disabled = Boolean(state.selectedNode.isSaving);
   elements.selectionFolders.replaceChildren(
-    ...folders.map(({ id, name }) =>
-      createSelectionExploreButton({ type: "folder", value: id, label: name }),
+    ...folders.map(({ value, label }) =>
+      createSelectionExploreButton({ type: "folder", value, label }),
     ),
   );
-  elements.selectionFolders.title = folders.map(({ name }) => name).join(" / ");
+  elements.selectionFolders.title = folders.map(({ label }) => label).join(" / ");
 }
 
 function updateCamera() {
