@@ -16,6 +16,7 @@ const {
   findNodesNearViewport,
   formatFileSize,
   formatItemDimensions,
+  getAiExplorationItemLimit,
   getArrowKeyAction,
   getItemRating,
   getNextRating,
@@ -28,9 +29,11 @@ const {
   getTagColorStyle,
   isPlayingVideo,
   normalizeTags,
+  normalizeAiExplorationRatio,
   normalizeTagColor,
   reanchorCameraToNode,
   resizeCamera,
+  selectAiExplorationItems,
   selectDiverseExplorationRow,
   shouldAutoplayVideo,
   shouldLoadUnratedRow,
@@ -66,9 +69,10 @@ const MIN_FOCUS_MEDIA_SIZE = 80;
 const MAX_FOCUS_MEDIA_SIZE = 400;
 const DEFAULT_LAYOUT_DIRECTION = "ltr";
 const DEFAULT_LAYOUT_WIDTH = LAYOUT_WIDTH;
-const DEFAULT_MAX_AI_EXPLORATION_ITEMS = 0;
-const MIN_AI_EXPLORATION_ITEMS = 0;
-const MAX_AI_EXPLORATION_ITEMS = 12;
+const DEFAULT_AI_EXPLORATION_RATIO = 0;
+const DEFAULT_AI_SIMILARITY_MAX = 100;
+const MIN_AI_SIMILARITY_MAX = 0;
+const MAX_AI_SIMILARITY_MAX = 100;
 const SEAMLESS_LAYOUT_GAP = 0;
 const SEAMLESS_ROW_GAP = 0;
 const TIGHT_FOCUS_ROW_EMPHASIS = 1.1;
@@ -116,7 +120,8 @@ const state = {
   layoutWidthUnlimited: false,
   seamlessMode: false,
   maxExplorationItems: DEFAULT_MAX_EXPLORATION_ITEMS,
-  maxAiExplorationItems: DEFAULT_MAX_AI_EXPLORATION_ITEMS,
+  aiExplorationRatio: DEFAULT_AI_EXPLORATION_RATIO,
+  aiSimilarityMax: DEFAULT_AI_SIMILARITY_MAX,
   aiExplorationAvailable: false,
   videoVolume: 1,
   smoothPanKeys: new Set(),
@@ -296,10 +301,10 @@ function setup() {
   elements.autoExploreSelectedExcludedTags = document.querySelector("#auto-explore-selected-excluded-tags");
   elements.autoExploreControls = document.querySelector(".auto-explore-controls");
   elements.autoExploreSettingsReset = document.querySelector("#auto-explore-settings-reset");
-  elements.maxAiExplorationItems = document.querySelector("#ai-exploration-max-items");
-  elements.maxAiExplorationItemsValue = document.querySelector(
-    "#ai-exploration-max-items-value",
-  );
+  elements.aiExplorationRatio = document.querySelector("#ai-exploration-ratio");
+  elements.aiExplorationRatioValue = document.querySelector("#ai-exploration-ratio-value");
+  elements.aiSimilarityMax = document.querySelector("#ai-similarity-max");
+  elements.aiSimilarityMaxValue = document.querySelector("#ai-similarity-max-value");
   elements.autoExploreFolderSummary = document.querySelector("#auto-explore-folder-summary");
   elements.autoExploreFilterSummary = document.querySelector("#auto-explore-filter-summary");
   elements.exploreButton = document.querySelector("#explore-button");
@@ -406,7 +411,8 @@ function setup() {
   elements.layoutDirection?.addEventListener("change", updateBoardSettings);
   elements.layoutWidth?.addEventListener("input", updateBoardSettings);
   elements.maxExplorationItems?.addEventListener("input", updateBoardSettings);
-  elements.maxAiExplorationItems?.addEventListener("input", updateBoardSettings);
+  elements.aiExplorationRatio?.addEventListener("input", updateBoardSettings);
+  elements.aiSimilarityMax?.addEventListener("input", updateBoardSettings);
   elements.smoothPanToggle?.addEventListener("change", updateBoardSettings);
   elements.smoothPanSpeed?.addEventListener("input", updateBoardSettings);
   elements.smoothZoomToggle?.addEventListener("change", updateBoardSettings);
@@ -1630,6 +1636,27 @@ function insertExplorationItemsAfterNode(pivotNode, items) {
   return true;
 }
 
+function selectExplorationItems(candidates, pivot, maxAiItems) {
+  const aiItems = selectAiExplorationItems(candidates, maxAiItems);
+  const aiIds = new Set(aiItems.map(({ id }) => id));
+  const nonAiCandidates = candidates.filter((candidate) => {
+    const item = candidate?.item?.id ? candidate.item : candidate;
+    return !Number.isFinite(Number(candidate?.aiScore)) && !aiIds.has(item?.id);
+  });
+  const remainingSlots = Math.max(0, state.maxExplorationItems - aiItems.length);
+  if (!remainingSlots) return aiItems;
+
+  const relatedItems = selectDiverseExplorationRow(
+    nonAiCandidates,
+    pivot,
+    Math.random,
+    getBoardLayoutWidth(),
+    remainingSlots,
+    { maxAiItems: 0 },
+  );
+  return [...aiItems, ...relatedItems.slice(0, remainingSlots)];
+}
+
 async function exploreNextRow() {
   const pivotNode = state.selectedNode;
   const source = state.explorationSource;
@@ -1642,21 +1669,15 @@ async function exploreNextRow() {
 
   const boardNodes = board.nodes;
   const excludedIds = new Set(boardNodes.map(({ item }) => item.id));
+  const maxAiItems = getConfiguredAiExplorationItems();
   const result = await rowLoadCoordinator.load("exploration", {
     find: () =>
       source.findCandidates(pivot, excludedIds, {
-        aiEnabled: state.maxAiExplorationItems > 0,
-        maxAiItems: state.maxAiExplorationItems,
+        aiEnabled: maxAiItems > 0,
+        maxAiItems,
+        maxAiSimilarity: state.aiSimilarityMax / 100,
       }),
-    select: (candidates) =>
-      selectDiverseExplorationRow(
-        candidates,
-        pivot,
-        Math.random,
-        getBoardLayoutWidth(),
-        state.maxExplorationItems,
-        { maxAiItems: state.maxAiExplorationItems },
-      ),
+    select: (candidates) => selectExplorationItems(candidates, pivot, maxAiItems),
     hydrate: (candidates) => source.hydrate(candidates),
     isRelevant: () => board.nodes === boardNodes && state.selectedNode === pivotNode,
   });
@@ -1691,21 +1712,15 @@ async function exploreFromSelectionTarget({ type, value, label }) {
   const criterion = type === "tag" ? { tags: [value] } : { folders: [value] };
   const boardNodes = board.nodes;
   const excludedIds = new Set(boardNodes.map(({ item }) => item.id));
+  const maxAiItems = getConfiguredAiExplorationItems();
   const result = await rowLoadCoordinator.load("exploration", {
     find: () =>
       source.findCandidates(criterion, excludedIds, {
-        aiEnabled: state.maxAiExplorationItems > 0,
-        maxAiItems: state.maxAiExplorationItems,
+        aiEnabled: maxAiItems > 0,
+        maxAiItems,
+        maxAiSimilarity: state.aiSimilarityMax / 100,
       }),
-    select: (candidates) =>
-      selectDiverseExplorationRow(
-        candidates,
-        criterion,
-        Math.random,
-        getBoardLayoutWidth(),
-        state.maxExplorationItems,
-        { maxAiItems: state.maxAiExplorationItems },
-      ),
+    select: (candidates) => selectExplorationItems(candidates, criterion, maxAiItems),
     hydrate: (candidates) => source.hydrate(candidates),
     isRelevant: () => board.nodes === boardNodes && state.selectedNode === pivotNode,
   });
@@ -1818,12 +1833,17 @@ function updateBoardSettings() {
     ? normalizeMaxExplorationItems(elements.maxExplorationItems.value)
     : state.maxExplorationItems;
   state.maxExplorationItems = nextMaxExplorationItems;
-  const nextMaxAiExplorationItems = elements.maxAiExplorationItems
-    ? normalizeMaxAiExplorationItems(elements.maxAiExplorationItems.value)
-    : state.maxAiExplorationItems;
+  const nextAiExplorationRatio = elements.aiExplorationRatio
+    ? normalizeAiExplorationRatio(elements.aiExplorationRatio.value)
+    : state.aiExplorationRatio;
+  const nextAiSimilarityMax = elements.aiSimilarityMax
+    ? normalizeAiSimilarityMax(elements.aiSimilarityMax.value)
+    : state.aiSimilarityMax;
   const aiExplorationSettingsChanged =
-    nextMaxAiExplorationItems !== state.maxAiExplorationItems;
-  state.maxAiExplorationItems = nextMaxAiExplorationItems;
+    nextAiExplorationRatio !== state.aiExplorationRatio ||
+    nextAiSimilarityMax !== state.aiSimilarityMax;
+  state.aiExplorationRatio = nextAiExplorationRatio;
+  state.aiSimilarityMax = nextAiSimilarityMax;
   state.smoothPanEnabled = Boolean(elements.smoothPanToggle?.checked);
   const speed = Number(elements.smoothPanSpeed?.value);
   if (Number.isFinite(speed)) {
@@ -1881,14 +1901,23 @@ function updateBoardSettingsUI() {
   if (elements.maxExplorationItemsValue) {
     elements.maxExplorationItemsValue.textContent = `${state.maxExplorationItems} 個`;
   }
-  if (elements.maxAiExplorationItems) {
-    elements.maxAiExplorationItems.value = String(state.maxAiExplorationItems);
-    elements.maxAiExplorationItems.disabled = !state.aiExplorationAvailable;
+  if (elements.aiExplorationRatio) {
+    elements.aiExplorationRatio.value = String(state.aiExplorationRatio);
+    elements.aiExplorationRatio.disabled = !state.aiExplorationAvailable;
   }
-  if (elements.maxAiExplorationItemsValue) {
-    elements.maxAiExplorationItemsValue.textContent = state.maxAiExplorationItems > 0
-      ? `${state.maxAiExplorationItems} 個`
+  if (elements.aiExplorationRatioValue) {
+    elements.aiExplorationRatioValue.textContent = state.aiExplorationRatio > 0
+      ? `${state.aiExplorationRatio}%`
       : "關閉";
+  }
+  if (elements.aiSimilarityMax) {
+    elements.aiSimilarityMax.value = String(state.aiSimilarityMax);
+    elements.aiSimilarityMax.disabled = !state.aiExplorationAvailable;
+  }
+  if (elements.aiSimilarityMaxValue) {
+    elements.aiSimilarityMaxValue.textContent = state.aiSimilarityMax >= MAX_AI_SIMILARITY_MAX
+      ? "不限"
+      : `${state.aiSimilarityMax}%`;
   }
   if (elements.smoothPanToggle) elements.smoothPanToggle.checked = state.smoothPanEnabled;
   if (elements.smoothPanSpeed) elements.smoothPanSpeed.value = String(state.smoothPanSpeed);
@@ -1951,8 +1980,9 @@ function getSettingsSnapshot({ includeActivePreset = false } = {}) {
       layoutWidthUnlimited: state.layoutWidthUnlimited,
       seamlessMode: state.seamlessMode,
       maxExplorationItems: state.maxExplorationItems,
-      aiExplorationEnabled: state.maxAiExplorationItems > 0,
-      maxAiExplorationItems: state.maxAiExplorationItems,
+      aiExplorationEnabled: state.aiExplorationRatio > 0,
+      aiExplorationRatio: state.aiExplorationRatio,
+      aiSimilarityMax: state.aiSimilarityMax,
       smoothPanEnabled: state.smoothPanEnabled,
       smoothPanSpeed: state.smoothPanSpeed,
       smoothZoomEnabled: state.smoothZoomEnabled,
@@ -1999,12 +2029,19 @@ function applySettingsSnapshotValues(settings, { restoreAutoExploreState = false
     state.layoutWidthUnlimited = Boolean(board.layoutWidthUnlimited);
     state.seamlessMode = Boolean(board.seamlessMode);
     state.maxExplorationItems = normalizeMaxExplorationItems(board.maxExplorationItems);
-    const configuredMaxAiExplorationItems = normalizeMaxAiExplorationItems(
+    const hasAiExplorationRatio = Object.prototype.hasOwnProperty.call(
+      board,
+      "aiExplorationRatio",
+    );
+    const legacyMaxAiExplorationItems = normalizeLegacyMaxAiExplorationItems(
       board.maxAiExplorationItems,
     );
-    state.maxAiExplorationItems = board.aiExplorationEnabled === false
-      ? 0
-      : configuredMaxAiExplorationItems;
+    state.aiExplorationRatio = hasAiExplorationRatio
+      ? normalizeAiExplorationRatio(board.aiExplorationRatio)
+      : board.aiExplorationEnabled === false
+        ? DEFAULT_AI_EXPLORATION_RATIO
+        : ratioFromLegacyMaxAiItems(legacyMaxAiExplorationItems, state.maxExplorationItems);
+    state.aiSimilarityMax = normalizeAiSimilarityMax(board.aiSimilarityMax);
   }
   if (settings?.autoExploreFilter && typeof settings.autoExploreFilter === "object") {
     autoExploreSettings.setFilter(settings.autoExploreFilter);
@@ -2021,7 +2058,8 @@ function applySettingsSnapshot(settings, { persist = true } = {}) {
     previous.board.layoutWidthUnlimited !== next.board.layoutWidthUnlimited ||
     previous.board.seamlessMode !== next.board.seamlessMode;
   const aiExplorationSettingsChanged =
-    previous.board.maxAiExplorationItems !== next.board.maxAiExplorationItems;
+    previous.board.aiExplorationRatio !== next.board.aiExplorationRatio ||
+    previous.board.aiSimilarityMax !== next.board.aiSimilarityMax;
   const autoExploreFilterChanged = !unratedFiltersEqual(
     previous.autoExploreFilter,
     next.autoExploreFilter,
@@ -2268,7 +2306,8 @@ function handleAutoExploreFilterChange(nextFilter, { changed }) {
 }
 
 function resetAiExplorationSettings() {
-  state.maxAiExplorationItems = 0;
+  state.aiExplorationRatio = DEFAULT_AI_EXPLORATION_RATIO;
+  state.aiSimilarityMax = DEFAULT_AI_SIMILARITY_MAX;
   rowLoadCoordinator.invalidate("exploration");
   state.explorationSource?.clear();
   updateBoardSettingsUI();
@@ -2345,11 +2384,30 @@ function normalizeMaxExplorationItems(value) {
     : DEFAULT_MAX_EXPLORATION_ITEMS;
 }
 
-function normalizeMaxAiExplorationItems(value) {
+function normalizeLegacyMaxAiExplorationItems(value) {
   const number = Number(value);
   return Number.isFinite(number)
-    ? clamp(Math.floor(number), MIN_AI_EXPLORATION_ITEMS, MAX_AI_EXPLORATION_ITEMS)
-    : DEFAULT_MAX_AI_EXPLORATION_ITEMS;
+    ? clamp(Math.floor(number), 0, MAX_EXPLORATION_ITEMS)
+    : 0;
+}
+
+function ratioFromLegacyMaxAiItems(maxItems, totalItems) {
+  if (maxItems < 1 || totalItems < 1) return DEFAULT_AI_EXPLORATION_RATIO;
+  return Math.max(
+    25,
+    normalizeAiExplorationRatio((maxItems / totalItems) * 100),
+  );
+}
+
+function normalizeAiSimilarityMax(value) {
+  const number = Number(value);
+  return Number.isFinite(number)
+    ? clamp(Math.round(number / 5) * 5, MIN_AI_SIMILARITY_MAX, MAX_AI_SIMILARITY_MAX)
+    : DEFAULT_AI_SIMILARITY_MAX;
+}
+
+function getConfiguredAiExplorationItems() {
+  return getAiExplorationItemLimit(state.maxExplorationItems, state.aiExplorationRatio);
 }
 
 function getAutoExploreKnownTags() {

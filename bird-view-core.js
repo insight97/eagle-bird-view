@@ -26,6 +26,7 @@
   const CROSS_ROW_FOCUS_DISTANCE_FACTOR = 0.1;
   const CROSS_ROW_FOCUS_SCALE_FACTOR = 100;
   const EXPLORATION_RANK_WEIGHTS = Object.freeze([40, 25, 17, 11, 7]);
+  const AI_EXPLORATION_RATIOS = Object.freeze([0, 25, 50, 75, 100]);
   const DEFAULT_MAX_EXPLORATION_ITEMS = 12;
   const MIN_EXPLORATION_ITEMS = 3;
   const MAX_EXPLORATION_ITEMS = 50;
@@ -425,6 +426,22 @@
     return width / height;
   }
 
+  function selectAiExplorationItems(candidates, maxItems = 0) {
+    const normalizedMaxItems = normalizeMaxAiExplorationItems(maxItems);
+    if (!Array.isArray(candidates) || normalizedMaxItems < 1) return [];
+    const selected = [];
+    const selectedIds = new Set();
+    for (const candidate of candidates) {
+      const item = candidate?.item?.id ? candidate.item : null;
+      if (!item?.id || !Number.isFinite(Number(candidate.aiScore))) continue;
+      if (selectedIds.has(item.id)) continue;
+      selectedIds.add(item.id);
+      selected.push(item);
+      if (selected.length >= normalizedMaxItems) break;
+    }
+    return selected;
+  }
+
   function selectDiverseExplorationRow(
     candidates,
     pivot,
@@ -604,6 +621,19 @@
     if (maxItems === Infinity) return Infinity;
     const value = Number(maxItems);
     return Number.isFinite(value) ? clamp(Math.floor(value), 0, MAX_EXPLORATION_ITEMS) : Infinity;
+  }
+
+  function normalizeAiExplorationRatio(ratio) {
+    const value = Number(ratio);
+    if (!Number.isFinite(value)) return 0;
+    return AI_EXPLORATION_RATIOS.reduce((closest, candidate) =>
+      Math.abs(candidate - value) < Math.abs(closest - value) ? candidate : closest,
+    );
+  }
+
+  function getAiExplorationItemLimit(maxItems, ratio) {
+    const normalizedMaxItems = normalizeExplorationItemLimit(maxItems);
+    return Math.round(normalizedMaxItems * normalizeAiExplorationRatio(ratio) / 100);
   }
 
   function normalizeLayoutDirection(direction) {
@@ -892,6 +922,7 @@
   }
 
   return Object.freeze({
+    AI_EXPLORATION_RATIOS,
     LAYOUT_GAP,
     ROW_GAP,
     DEFAULT_MAX_EXPLORATION_ITEMS,
@@ -919,6 +950,7 @@
     formatFileSize,
     formatItemDimensions,
     getAspectRatio,
+    getAiExplorationItemLimit,
     getItemRating,
     getNextRating,
     getRowFocusScale,
@@ -929,6 +961,7 @@
     getViewportWorkInterval,
     getTagColorStyle,
     normalizeTags,
+    normalizeAiExplorationRatio,
     normalizeTagColor,
     rankTagMatches,
     resizeCamera,
@@ -939,6 +972,7 @@
     interpolateCamera,
     isPlayingVideo,
     selectDiverseExplorationRow,
+    selectAiExplorationItems,
     selectRandomExplorationRow,
     shouldLoadUnratedRow,
     zoomCameraAtPoint,

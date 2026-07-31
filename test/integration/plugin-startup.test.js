@@ -68,7 +68,7 @@ test("the board asks Eagle for the selection and leaves auto exploration off", a
   assert.equal(plugin.elements.get("#video-autoplay-toggle").checked, false);
 });
 
-test("AI exploration is controlled by the per-row item limit", async () => {
+test("AI exploration is controlled by ratio and similarity settings", async () => {
   const plugin = createPluginHarness({
     selectedItems: [],
     aiSearch: { searchByItemId: async () => ({ results: [] }) },
@@ -76,19 +76,77 @@ test("AI exploration is controlled by the per-row item limit", async () => {
   plugin.start();
   await flush();
 
-  const maxItems = plugin.elements.get("#ai-exploration-max-items");
-  assert.equal(maxItems.disabled, false);
-  assert.equal(maxItems.value, "0");
+  const ratio = plugin.elements.get("#ai-exploration-ratio");
+  const similarity = plugin.elements.get("#ai-similarity-max");
+  assert.equal(ratio.disabled, false);
+  assert.equal(ratio.value, "0");
+  assert.equal(similarity.value, "100");
 
-  maxItems.value = "5";
-  maxItems.emit("input");
+  ratio.value = "50";
+  ratio.emit("input");
+  similarity.value = "80";
+  similarity.emit("input");
 
-  assert.equal(maxItems.value, "5");
-  assert.equal(plugin.elements.get("#ai-exploration-max-items-value").textContent, "5 個");
+  assert.equal(ratio.value, "50");
+  assert.equal(plugin.elements.get("#ai-exploration-ratio-value").textContent, "50%");
+  assert.equal(plugin.elements.get("#ai-similarity-max-value").textContent, "80%");
 
-  maxItems.value = "0";
-  maxItems.emit("input");
-  assert.equal(plugin.elements.get("#ai-exploration-max-items-value").textContent, "關閉");
+  ratio.value = "0";
+  ratio.emit("input");
+  assert.equal(plugin.elements.get("#ai-exploration-ratio-value").textContent, "關閉");
+});
+
+test("legacy AI item limits migrate to a staged ratio", async () => {
+  const plugin = createPluginHarness({
+    selectedItems: [],
+    aiSearch: { searchByItemId: async () => ({ results: [] }) },
+    storage: {
+      getItem(key) {
+        return key === "bird-view-settings"
+          ? JSON.stringify({
+              board: {
+                maxExplorationItems: 12,
+                aiExplorationEnabled: true,
+                maxAiExplorationItems: 5,
+              },
+            })
+          : null;
+      },
+      setItem() {},
+    },
+  });
+  plugin.start();
+  await flush();
+
+  assert.equal(plugin.elements.get("#ai-exploration-ratio").value, "50");
+  assert.equal(plugin.elements.get("#ai-similarity-max").value, "100");
+});
+
+test("AI ratio and similarity settings are persisted", async () => {
+  const saved = [];
+  const plugin = createPluginHarness({
+    selectedItems: [],
+    aiSearch: { searchByItemId: async () => ({ results: [] }) },
+    storage: {
+      getItem() {
+        return null;
+      },
+      setItem(key, value) {
+        if (key === "bird-view-settings") saved.push(JSON.parse(value));
+      },
+    },
+  });
+  plugin.start();
+  await flush();
+
+  plugin.elements.get("#ai-exploration-ratio").value = "75";
+  plugin.elements.get("#ai-exploration-ratio").emit("input");
+  plugin.elements.get("#ai-similarity-max").value = "85";
+  plugin.elements.get("#ai-similarity-max").emit("input");
+
+  const boardSettings = saved.at(-1).board;
+  assert.equal(boardSettings.aiExplorationRatio, 75);
+  assert.equal(boardSettings.aiSimilarityMax, 85);
 });
 
 test("smooth pan and zoom speeds accept the expanded upper limits", async () => {

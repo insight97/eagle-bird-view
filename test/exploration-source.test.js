@@ -242,7 +242,39 @@ test("AI source searches by pivot, caches ready results, and filters unsupported
 
   assert.deepEqual(first.map(({ item, aiScore }) => [item.id, aiScore]), [["similar", 0.82]]);
   assert.deepEqual(second.map(({ item }) => item.id), ["similar", "excluded"]);
+  const capped = await source.findCandidates(
+    { id: "pivot" },
+    new Set(),
+    { limit: 32, maxSimilarity: 0.8 },
+  );
+  assert.deepEqual(capped.map(({ item }) => item.id), ["excluded"]);
   assert.deepEqual(calls, [{ itemId: "pivot", options: { limit: 32 } }]);
+});
+
+test("hybrid exploration forwards the AI similarity cap", async () => {
+  let options;
+  const hybrid = new HybridExplorationSource(
+    {
+      findCandidates: async () => [],
+      hydrate: async (items) => items,
+      clear() {},
+    },
+    {
+      findCandidates: async (...args) => {
+        options = args[2];
+        return [];
+      },
+      clear() {},
+    },
+  );
+
+  await hybrid.findCandidates(
+    { id: "pivot" },
+    new Set(),
+    { aiEnabled: true, maxAiItems: 2, maxAiSimilarity: 0.75 },
+  );
+
+  assert.equal(options.maxSimilarity, 0.75);
 });
 
 test("AI source retries after the service becomes ready", async () => {

@@ -217,9 +217,14 @@
       this.#aiSearch = aiSearch;
     }
 
-    async findCandidates(pivot, excludedIds = new Set(), { limit } = {}) {
+    async findCandidates(
+      pivot,
+      excludedIds = new Set(),
+      { limit, maxSimilarity = 1 } = {},
+    ) {
       if (!pivot?.id || typeof this.#aiSearch?.searchByItemId !== "function") return [];
       const normalizedLimit = normalizeAiSearchLimit(limit);
+      const normalizedMaxSimilarity = normalizeAiSimilarityMax(maxSimilarity);
       const generation = this.#generation;
       const cacheKey = `${pivot.id}:${normalizedLimit}`;
       let request = this.#cache.get(cacheKey);
@@ -237,7 +242,10 @@
         return [];
       }
       if (generation !== this.#generation) return [];
-      return result.candidates.filter(({ item }) => !excludedIds.has(item.id));
+      return result.candidates.filter(
+        ({ item, aiScore }) =>
+          !excludedIds.has(item.id) && aiScore <= normalizedMaxSimilarity,
+      );
     }
 
     clear() {
@@ -279,7 +287,7 @@
     async findCandidates(
       pivot,
       excludedIds = new Set(),
-      { aiEnabled = false, maxAiItems = 0 } = {},
+      { aiEnabled = false, maxAiItems = 0, maxAiSimilarity = 1 } = {},
     ) {
       const relatedPromise = this.#relatedSource.findCandidates(pivot, excludedIds);
       if (!aiEnabled || !this.#aiSource || maxAiItems < 1) return relatedPromise;
@@ -288,6 +296,7 @@
         relatedPromise,
         this.#aiSource.findCandidates(pivot, excludedIds, {
           limit: Math.max(DEFAULT_AI_SEARCH_LIMIT, maxAiItems * 4),
+          maxSimilarity: maxAiSimilarity,
         }),
       ]);
       if (relatedResult.status === "rejected") throw relatedResult.reason;
@@ -545,30 +554,29 @@
     return Number.isFinite(value) ? clamp(value, 0, 1) : null;
   }
 
+  function normalizeAiSimilarityMax(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? clamp(number, 0, 1) : 1;
+  }
+
   function getExplorationCandidateItem(candidate) {
     return candidate?.item?.id ? candidate.item : candidate;
   }
 
   function mergeExplorationCandidates(relatedItems, aiCandidates) {
-    const candidatesById = new Map(
-      relatedItems
-        .filter((item) => item?.id)
-        .map((item) => [item.id, { item }]),
-    );
+    const aiCandidatesById = new Map();
     for (const candidate of aiCandidates) {
       const item = getExplorationCandidateItem(candidate);
       if (!item?.id) continue;
-      const existing = candidatesById.get(item.id);
-      if (!existing) {
-        candidatesById.set(item.id, { item, aiScore: candidate.aiScore });
-        continue;
-      }
-      candidatesById.set(item.id, {
-        ...existing,
-        aiScore: Math.max(existing.aiScore || 0, candidate.aiScore || 0),
-      });
+      if (!aiCandidatesById.has(item.id)) aiCandidatesById.set(item.id, candidate);
     }
-    return [...candidatesById.values()];
+    const relatedCandidatesById = new Map();
+    for (const item of relatedItems) {
+      if (item?.id && !aiCandidatesById.has(item.id) && !relatedCandidatesById.has(item.id)) {
+        relatedCandidatesById.set(item.id, { item });
+      }
+    }
+    return [...relatedCandidatesById.values(), ...aiCandidatesById.values()];
   }
 
   function uniqueValues(values = []) {

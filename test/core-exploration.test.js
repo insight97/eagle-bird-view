@@ -4,10 +4,12 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   DEFAULT_MAX_EXPLORATION_ITEMS,
+  getAiExplorationItemLimit,
   MAX_EXPLORATION_ITEMS,
   MIN_EXPLORATION_ITEMS,
   MIN_LAYOUT_WIDTH,
   selectDiverseExplorationRow,
+  selectAiExplorationItems,
   selectRandomExplorationRow,
   shouldLoadUnratedRow,
 } = require("../bird-view-core.js");
@@ -15,6 +17,28 @@ const {
 function item(id, folders, tags, width = 200, height = 100) {
   return { id, folders, tags, width, height, ext: "jpg" };
 }
+
+test("AI exploration ratio converts the row limit into staged AI counts", () => {
+  assert.equal(getAiExplorationItemLimit(12, 0), 0);
+  assert.equal(getAiExplorationItemLimit(12, 25), 3);
+  assert.equal(getAiExplorationItemLimit(12, 50), 6);
+  assert.equal(getAiExplorationItemLimit(12, 75), 9);
+  assert.equal(getAiExplorationItemLimit(12, 100), 12);
+  assert.equal(getAiExplorationItemLimit(5, 25), 1);
+});
+
+test("AI exploration preserves the returned order without diversity scoring", () => {
+  const candidates = [
+    { item: item("first", [], []), aiScore: 0.72 },
+    { item: item("second", ["unrelated"], ["unrelated"]), aiScore: 0.91 },
+    { item: item("first", [], []), aiScore: 0.99 },
+  ];
+
+  assert.deepEqual(
+    selectAiExplorationItems(candidates, 2).map(({ id }) => id),
+    ["first", "second"],
+  );
+});
 
 test("exploration prefers bridge items and excludes unrelated items", () => {
   const pivot = item("pivot", ["ui"], ["dark", "dashboard"]);

@@ -216,25 +216,48 @@
                   <p class="settings-intro">設定探索來源與自動探索要載入哪些素材。</p>
                   <div class="settings-card">
                     <div class="settings-card-title">探索來源</div>
-                    <div class="settings-card-help">每列最多 AI 素材；設定為 0 即關閉 AI 探索。</div>
+                    <div class="settings-card-help">
+                      AI 比例依每列探索素材數量計算；相似度上限越低，結果越不容易集中在外觀相近的素材。
+                    </div>
                     <div class="auto-explore-setting-row auto-explore-speed-row">
-                      <span>每列最多 AI 素材</span>
+                      <span>AI 探索比例</span>
                       <div class="auto-explore-speed-control">
                         <input
-                          id="ai-exploration-max-items"
+                          id="ai-exploration-ratio"
                           class="auto-explore-range"
                           type="range"
                           min="0"
-                          max="12"
-                          step="1"
+                          max="100"
+                          step="25"
                           value="0"
                         />
                         <output
-                          id="ai-exploration-max-items-value"
+                          id="ai-exploration-ratio-value"
                           class="auto-explore-exploration-limit-value"
-                          for="ai-exploration-max-items"
+                          for="ai-exploration-ratio"
                         >
                           關閉
+                        </output>
+                      </div>
+                    </div>
+                    <div class="auto-explore-setting-row auto-explore-speed-row">
+                      <span>相似度上限</span>
+                      <div class="auto-explore-speed-control">
+                        <input
+                          id="ai-similarity-max"
+                          class="auto-explore-range"
+                          type="range"
+                          min="0"
+                          max="100"
+                          step="5"
+                          value="100"
+                        />
+                        <output
+                          id="ai-similarity-max-value"
+                          class="auto-explore-exploration-limit-value"
+                          for="ai-similarity-max"
+                        >
+                          不限
                         </output>
                       </div>
                     </div>
