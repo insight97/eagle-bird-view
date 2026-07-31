@@ -30,6 +30,7 @@ const {
   isPlayingVideo,
   normalizeTags,
   normalizeAiExplorationRatio,
+  normalizeExplorationDiversityStrength,
   normalizeTagColor,
   reanchorCameraToNode,
   resizeCamera,
@@ -71,6 +72,7 @@ const DEFAULT_LAYOUT_DIRECTION = "ltr";
 const DEFAULT_LAYOUT_WIDTH = LAYOUT_WIDTH;
 const DEFAULT_AI_EXPLORATION_RATIO = 0;
 const DEFAULT_AI_SIMILARITY_MAX = 100;
+const DEFAULT_EXPLORATION_DIVERSITY_STRENGTH = 0;
 const MIN_AI_SIMILARITY_MAX = 0;
 const MAX_AI_SIMILARITY_MAX = 100;
 const SEAMLESS_LAYOUT_GAP = 0;
@@ -122,6 +124,7 @@ const state = {
   maxExplorationItems: DEFAULT_MAX_EXPLORATION_ITEMS,
   aiExplorationRatio: DEFAULT_AI_EXPLORATION_RATIO,
   aiSimilarityMax: DEFAULT_AI_SIMILARITY_MAX,
+  explorationDiversityStrength: DEFAULT_EXPLORATION_DIVERSITY_STRENGTH,
   aiExplorationAvailable: false,
   videoVolume: 1,
   smoothPanKeys: new Set(),
@@ -305,6 +308,12 @@ function setup() {
   elements.aiExplorationRatioValue = document.querySelector("#ai-exploration-ratio-value");
   elements.aiSimilarityMax = document.querySelector("#ai-similarity-max");
   elements.aiSimilarityMaxValue = document.querySelector("#ai-similarity-max-value");
+  elements.explorationDiversityStrength = document.querySelector(
+    "#exploration-diversity-strength",
+  );
+  elements.explorationDiversityStrengthValue = document.querySelector(
+    "#exploration-diversity-strength-value",
+  );
   elements.autoExploreFolderSummary = document.querySelector("#auto-explore-folder-summary");
   elements.autoExploreFilterSummary = document.querySelector("#auto-explore-filter-summary");
   elements.exploreButton = document.querySelector("#explore-button");
@@ -413,6 +422,7 @@ function setup() {
   elements.maxExplorationItems?.addEventListener("input", updateBoardSettings);
   elements.aiExplorationRatio?.addEventListener("input", updateBoardSettings);
   elements.aiSimilarityMax?.addEventListener("input", updateBoardSettings);
+  elements.explorationDiversityStrength?.addEventListener("input", updateBoardSettings);
   elements.smoothPanToggle?.addEventListener("change", updateBoardSettings);
   elements.smoothPanSpeed?.addEventListener("input", updateBoardSettings);
   elements.smoothZoomToggle?.addEventListener("change", updateBoardSettings);
@@ -1637,7 +1647,9 @@ function insertExplorationItemsAfterNode(pivotNode, items) {
 }
 
 function selectExplorationItems(candidates, pivot, maxAiItems) {
-  const aiItems = selectAiExplorationItems(candidates, maxAiItems);
+  const aiItems = selectAiExplorationItems(candidates, maxAiItems, {
+    diversityStrength: state.explorationDiversityStrength,
+  });
   const aiIds = new Set(aiItems.map(({ id }) => id));
   const nonAiCandidates = candidates.filter((candidate) => {
     const item = candidate?.item?.id ? candidate.item : candidate;
@@ -1652,7 +1664,7 @@ function selectExplorationItems(candidates, pivot, maxAiItems) {
     Math.random,
     getBoardLayoutWidth(),
     remainingSlots,
-    { maxAiItems: 0 },
+    { maxAiItems: 0, diversityStrength: state.explorationDiversityStrength },
   );
   return [...aiItems, ...relatedItems.slice(0, remainingSlots)];
 }
@@ -1839,11 +1851,16 @@ function updateBoardSettings() {
   const nextAiSimilarityMax = elements.aiSimilarityMax
     ? normalizeAiSimilarityMax(elements.aiSimilarityMax.value)
     : state.aiSimilarityMax;
-  const aiExplorationSettingsChanged =
+  const nextExplorationDiversityStrength = elements.explorationDiversityStrength
+    ? normalizeExplorationDiversityStrength(elements.explorationDiversityStrength.value)
+    : state.explorationDiversityStrength;
+  const explorationSettingsChanged =
     nextAiExplorationRatio !== state.aiExplorationRatio ||
-    nextAiSimilarityMax !== state.aiSimilarityMax;
+    nextAiSimilarityMax !== state.aiSimilarityMax ||
+    nextExplorationDiversityStrength !== state.explorationDiversityStrength;
   state.aiExplorationRatio = nextAiExplorationRatio;
   state.aiSimilarityMax = nextAiSimilarityMax;
+  state.explorationDiversityStrength = nextExplorationDiversityStrength;
   state.smoothPanEnabled = Boolean(elements.smoothPanToggle?.checked);
   const speed = Number(elements.smoothPanSpeed?.value);
   if (Number.isFinite(speed)) {
@@ -1872,7 +1889,7 @@ function updateBoardSettings() {
   saveSettings();
   updateBoardSettingsUI();
   syncSelectedVideoAutoplay();
-  if (aiExplorationSettingsChanged) {
+  if (explorationSettingsChanged) {
     rowLoadCoordinator.invalidate("exploration");
     state.explorationSource?.clear();
   }
@@ -1918,6 +1935,15 @@ function updateBoardSettingsUI() {
     elements.aiSimilarityMaxValue.textContent = state.aiSimilarityMax >= MAX_AI_SIMILARITY_MAX
       ? "不限"
       : `${state.aiSimilarityMax}%`;
+  }
+  if (elements.explorationDiversityStrength) {
+    elements.explorationDiversityStrength.value = String(state.explorationDiversityStrength);
+  }
+  if (elements.explorationDiversityStrengthValue) {
+    elements.explorationDiversityStrengthValue.textContent =
+      state.explorationDiversityStrength > 0
+        ? `${state.explorationDiversityStrength}%`
+        : "基本";
   }
   if (elements.smoothPanToggle) elements.smoothPanToggle.checked = state.smoothPanEnabled;
   if (elements.smoothPanSpeed) elements.smoothPanSpeed.value = String(state.smoothPanSpeed);
@@ -1983,6 +2009,7 @@ function getSettingsSnapshot({ includeActivePreset = false } = {}) {
       aiExplorationEnabled: state.aiExplorationRatio > 0,
       aiExplorationRatio: state.aiExplorationRatio,
       aiSimilarityMax: state.aiSimilarityMax,
+      explorationDiversityStrength: state.explorationDiversityStrength,
       smoothPanEnabled: state.smoothPanEnabled,
       smoothPanSpeed: state.smoothPanSpeed,
       smoothZoomEnabled: state.smoothZoomEnabled,
@@ -2042,6 +2069,9 @@ function applySettingsSnapshotValues(settings, { restoreAutoExploreState = false
         ? DEFAULT_AI_EXPLORATION_RATIO
         : ratioFromLegacyMaxAiItems(legacyMaxAiExplorationItems, state.maxExplorationItems);
     state.aiSimilarityMax = normalizeAiSimilarityMax(board.aiSimilarityMax);
+    state.explorationDiversityStrength = normalizeExplorationDiversityStrength(
+      board.explorationDiversityStrength,
+    );
   }
   if (settings?.autoExploreFilter && typeof settings.autoExploreFilter === "object") {
     autoExploreSettings.setFilter(settings.autoExploreFilter);
@@ -2057,9 +2087,10 @@ function applySettingsSnapshot(settings, { persist = true } = {}) {
     previous.board.layoutWidth !== next.board.layoutWidth ||
     previous.board.layoutWidthUnlimited !== next.board.layoutWidthUnlimited ||
     previous.board.seamlessMode !== next.board.seamlessMode;
-  const aiExplorationSettingsChanged =
+  const explorationSettingsChanged =
     previous.board.aiExplorationRatio !== next.board.aiExplorationRatio ||
-    previous.board.aiSimilarityMax !== next.board.aiSimilarityMax;
+    previous.board.aiSimilarityMax !== next.board.aiSimilarityMax ||
+    previous.board.explorationDiversityStrength !== next.board.explorationDiversityStrength;
   const autoExploreFilterChanged = !unratedFiltersEqual(
     previous.autoExploreFilter,
     next.autoExploreFilter,
@@ -2075,7 +2106,7 @@ function applySettingsSnapshot(settings, { persist = true } = {}) {
   updateBoardSettingsUI();
   autoExploreSettings.update();
 
-  if (aiExplorationSettingsChanged) {
+  if (explorationSettingsChanged) {
     rowLoadCoordinator.invalidate("exploration");
     state.explorationSource?.clear();
   }
@@ -2308,6 +2339,7 @@ function handleAutoExploreFilterChange(nextFilter, { changed }) {
 function resetAiExplorationSettings() {
   state.aiExplorationRatio = DEFAULT_AI_EXPLORATION_RATIO;
   state.aiSimilarityMax = DEFAULT_AI_SIMILARITY_MAX;
+  state.explorationDiversityStrength = DEFAULT_EXPLORATION_DIVERSITY_STRENGTH;
   rowLoadCoordinator.invalidate("exploration");
   state.explorationSource?.clear();
   updateBoardSettingsUI();

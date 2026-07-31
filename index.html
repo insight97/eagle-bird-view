@@ -217,7 +217,7 @@
                   <div class="settings-card">
                     <div class="settings-card-title">探索來源</div>
                     <div class="settings-card-help">
-                      AI 比例依每列探索素材數量計算；相似度上限越低，結果越不容易集中在外觀相近的素材。
+                      AI 比例依每列探索素材數量計算；相似度上限越低，結果越不容易集中在外觀相近的素材；多樣性強度會同時影響一般與 AI 探索。
                     </div>
                     <div class="auto-explore-setting-row auto-explore-speed-row">
                       <span>AI 探索比例</span>
@@ -258,6 +258,27 @@
                           for="ai-similarity-max"
                         >
                           不限
+                        </output>
+                      </div>
+                    </div>
+                    <div class="auto-explore-setting-row auto-explore-speed-row">
+                      <span>探索多樣性強度</span>
+                      <div class="auto-explore-speed-control">
+                        <input
+                          id="exploration-diversity-strength"
+                          class="auto-explore-range"
+                          type="range"
+                          min="0"
+                          max="100"
+                          step="25"
+                          value="0"
+                        />
+                        <output
+                          id="exploration-diversity-strength-value"
+                          class="auto-explore-exploration-limit-value"
+                          for="exploration-diversity-strength"
+                        >
+                          基本
                         </output>
                       </div>
                     </div>

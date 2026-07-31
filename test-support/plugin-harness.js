@@ -65,6 +65,8 @@ const SELECTORS = [
   "#ai-exploration-ratio-value",
   "#ai-similarity-max",
   "#ai-similarity-max-value",
+  "#exploration-diversity-strength",
+  "#exploration-diversity-strength-value",
   "#board-layout-direction",
   "#board-layout-width",
   "#board-layout-width-value",

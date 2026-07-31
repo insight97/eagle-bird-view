@@ -78,18 +78,23 @@ test("AI exploration is controlled by ratio and similarity settings", async () =
 
   const ratio = plugin.elements.get("#ai-exploration-ratio");
   const similarity = plugin.elements.get("#ai-similarity-max");
+  const diversity = plugin.elements.get("#exploration-diversity-strength");
   assert.equal(ratio.disabled, false);
   assert.equal(ratio.value, "0");
   assert.equal(similarity.value, "100");
+  assert.equal(diversity.value, "0");
 
   ratio.value = "50";
   ratio.emit("input");
   similarity.value = "80";
   similarity.emit("input");
+  diversity.value = "75";
+  diversity.emit("input");
 
   assert.equal(ratio.value, "50");
   assert.equal(plugin.elements.get("#ai-exploration-ratio-value").textContent, "50%");
   assert.equal(plugin.elements.get("#ai-similarity-max-value").textContent, "80%");
+  assert.equal(plugin.elements.get("#exploration-diversity-strength-value").textContent, "75%");
 
   ratio.value = "0";
   ratio.emit("input");
@@ -143,10 +148,13 @@ test("AI ratio and similarity settings are persisted", async () => {
   plugin.elements.get("#ai-exploration-ratio").emit("input");
   plugin.elements.get("#ai-similarity-max").value = "85";
   plugin.elements.get("#ai-similarity-max").emit("input");
+  plugin.elements.get("#exploration-diversity-strength").value = "50";
+  plugin.elements.get("#exploration-diversity-strength").emit("input");
 
   const boardSettings = saved.at(-1).board;
   assert.equal(boardSettings.aiExplorationRatio, 75);
   assert.equal(boardSettings.aiSimilarityMax, 85);
+  assert.equal(boardSettings.explorationDiversityStrength, 50);
 });
 
 test("smooth pan and zoom speeds accept the expanded upper limits", async () => {

@@ -27,6 +27,7 @@
   const CROSS_ROW_FOCUS_SCALE_FACTOR = 100;
   const EXPLORATION_RANK_WEIGHTS = Object.freeze([40, 25, 17, 11, 7]);
   const AI_EXPLORATION_RATIOS = Object.freeze([0, 25, 50, 75, 100]);
+  const EXPLORATION_DIVERSITY_STRENGTHS = Object.freeze([0, 25, 50, 75, 100]);
   const DEFAULT_MAX_EXPLORATION_ITEMS = 12;
   const MIN_EXPLORATION_ITEMS = 3;
   const MAX_EXPLORATION_ITEMS = 50;
@@ -426,18 +427,67 @@
     return width / height;
   }
 
-  function selectAiExplorationItems(candidates, maxItems = 0) {
+  function selectAiExplorationItems(
+    candidates,
+    maxItems = 0,
+    { diversityStrength = 0 } = {},
+  ) {
     const normalizedMaxItems = normalizeMaxAiExplorationItems(maxItems);
     if (!Array.isArray(candidates) || normalizedMaxItems < 1) return [];
-    const selected = [];
-    const selectedIds = new Set();
+    const uniqueCandidates = [];
+    const candidateIds = new Set();
     for (const candidate of candidates) {
       const item = candidate?.item?.id ? candidate.item : null;
       if (!item?.id || !Number.isFinite(Number(candidate.aiScore))) continue;
-      if (selectedIds.has(item.id)) continue;
-      selectedIds.add(item.id);
-      selected.push(item);
-      if (selected.length >= normalizedMaxItems) break;
+      if (candidateIds.has(item.id)) continue;
+      candidateIds.add(item.id);
+      uniqueCandidates.push({
+        item,
+        aiScore: clamp(Number(candidate.aiScore), 0, 1),
+        responseIndex: uniqueCandidates.length,
+      });
+      if (uniqueCandidates.length >= MAX_EXPLORATION_ITEMS * 4) break;
+    }
+    const normalizedDiversityStrength = normalizeExplorationDiversityStrength(diversityStrength);
+    if (normalizedDiversityStrength === 0) {
+      return uniqueCandidates.slice(0, normalizedMaxItems).map(({ item }) => item);
+    }
+
+    const remaining = [...uniqueCandidates];
+    const selected = [];
+    const representedKeys = new Set();
+    const connectionCounts = new Map();
+    while (remaining.length && selected.length < normalizedMaxItems) {
+      const scored = remaining
+        .map((candidate) => {
+          const keys = getCandidateDiversityKeys(candidate.item);
+          const novelKeys = keys.filter((key) => !representedKeys.has(key));
+          const repeatedKeys = keys.filter((key) => representedKeys.has(key));
+          const responseRank =
+            1 - candidate.responseIndex / Math.max(1, uniqueCandidates.length - 1);
+          const relevance = (candidate.aiScore + responseRank) / 2;
+          const novelty = Math.min(1, novelKeys.length / 3);
+          const repetition = repeatedKeys.reduce(
+            (sum, key) => sum + (connectionCounts.get(key) || 0),
+            0,
+          );
+          const diversity = novelty - Math.min(1, repetition / 2) * 0.7;
+          const strength = normalizedDiversityStrength / 100;
+          return {
+            candidate,
+            index: candidate.responseIndex,
+            score: relevance * (1 - strength * 0.5) + diversity * strength * 0.5,
+          };
+        })
+        .sort((a, b) => b.score - a.score || a.index - b.index);
+      const [{ candidate }] = scored;
+      const candidateIndex = remaining.indexOf(candidate);
+      remaining.splice(candidateIndex, 1);
+      selected.push(candidate.item);
+      for (const key of getCandidateDiversityKeys(candidate.item)) {
+        representedKeys.add(key);
+        connectionCounts.set(key, (connectionCounts.get(key) || 0) + 1);
+      }
     }
     return selected;
   }
@@ -448,11 +498,12 @@
     random = Math.random,
     layoutWidth = LAYOUT_WIDTH,
     maxItems = DEFAULT_MAX_EXPLORATION_ITEMS,
-    { maxAiItems = Infinity } = {},
+    { maxAiItems = Infinity, diversityStrength = 0 } = {},
   ) {
     const normalizedLayoutWidth = normalizeLayoutWidth(layoutWidth);
     const normalizedMaxItems = normalizeExplorationItemLimit(maxItems);
     const normalizedMaxAiItems = normalizeMaxAiExplorationItems(maxAiItems);
+    const normalizedDiversityStrength = normalizeExplorationDiversityStrength(diversityStrength);
     const pivotFolders = new Set(pivot.folders || []);
     const pivotTags = new Set(pivot.tags || []);
     const eligible = candidates
@@ -474,14 +525,21 @@
       const bridgeCandidates = pool.filter(({ novelKeys }) => novelKeys.length > 0);
       if (bridgeCandidates.length) pool = bridgeCandidates;
       const underConnectionLimit = pool.filter(({ sharedKeys }) =>
-        sharedKeys.every((key) => (connectionCounts.get(key) || 0) < 2),
+        sharedKeys.every((key) =>
+          (connectionCounts.get(key) || 0) < getExplorationConnectionLimit(normalizedDiversityStrength),
+        ),
       );
       if (underConnectionLimit.length) pool = underConnectionLimit;
 
       const scored = pool
         .map((candidate) => ({
           candidate,
-          score: getExplorationScore(candidate, representedNovelKeys, connectionCounts),
+          score: getExplorationScore(
+            candidate,
+            representedNovelKeys,
+            connectionCounts,
+            normalizedDiversityStrength,
+          ),
           tieBreaker: random(),
         }))
         .sort(
@@ -554,9 +612,18 @@
     return screenCenter >= 0 && screenCenter <= viewport.height;
   }
 
-  function getExplorationScore(candidate, representedNovelKeys, connectionCounts) {
+  function getExplorationScore(
+    candidate,
+    representedNovelKeys,
+    connectionCounts,
+    diversityStrength = 0,
+  ) {
     const unrepresentedKeys = candidate.novelKeys.filter(
       (key) => !representedNovelKeys.has(key),
+    );
+    const repeatedKeys = candidate.sharedKeys.reduce(
+      (sum, key) => sum + (connectionCounts.get(key) || 0),
+      0,
     );
     return {
       gain:
@@ -567,6 +634,9 @@
         0,
         ...candidate.sharedKeys.map((key) => connectionCounts.get(key) || 0),
       ),
+      diversityBonus:
+        (unrepresentedKeys.filter((key) => !key.startsWith("source:")).length - repeatedKeys) *
+        (diversityStrength / 100),
       overlap: candidate.rowOverlap,
       aiScore: candidate.aiScore || 0,
     };
@@ -575,6 +645,7 @@
   function compareExplorationScores(a, b) {
     return (
       b.gain - a.gain ||
+      b.diversityBonus - a.diversityBonus ||
       a.repeated - b.repeated ||
       b.aiScore - a.aiScore ||
       a.overlap - b.overlap
@@ -629,6 +700,25 @@
     return AI_EXPLORATION_RATIOS.reduce((closest, candidate) =>
       Math.abs(candidate - value) < Math.abs(closest - value) ? candidate : closest,
     );
+  }
+
+  function normalizeExplorationDiversityStrength(strength) {
+    const value = Number(strength);
+    if (!Number.isFinite(value)) return 0;
+    return EXPLORATION_DIVERSITY_STRENGTHS.reduce((closest, candidate) =>
+      Math.abs(candidate - value) < Math.abs(closest - value) ? candidate : closest,
+    );
+  }
+
+  function getExplorationConnectionLimit(diversityStrength) {
+    return diversityStrength >= 75 ? 1 : 2;
+  }
+
+  function getCandidateDiversityKeys(item) {
+    return [...new Set([
+      ...(item?.folders || []).map((value) => `folder:${value}`),
+      ...(item?.tags || []).map((value) => `tag:${value}`),
+    ])];
   }
 
   function getAiExplorationItemLimit(maxItems, ratio) {
@@ -923,6 +1013,7 @@
 
   return Object.freeze({
     AI_EXPLORATION_RATIOS,
+    EXPLORATION_DIVERSITY_STRENGTHS,
     LAYOUT_GAP,
     ROW_GAP,
     DEFAULT_MAX_EXPLORATION_ITEMS,
@@ -962,6 +1053,7 @@
     getTagColorStyle,
     normalizeTags,
     normalizeAiExplorationRatio,
+    normalizeExplorationDiversityStrength,
     normalizeTagColor,
     rankTagMatches,
     resizeCamera,

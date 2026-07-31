@@ -8,6 +8,7 @@ const {
   MAX_EXPLORATION_ITEMS,
   MIN_EXPLORATION_ITEMS,
   MIN_LAYOUT_WIDTH,
+  normalizeExplorationDiversityStrength,
   selectDiverseExplorationRow,
   selectAiExplorationItems,
   selectRandomExplorationRow,
@@ -37,6 +38,53 @@ test("AI exploration preserves the returned order without diversity scoring", ()
   assert.deepEqual(
     selectAiExplorationItems(candidates, 2).map(({ id }) => id),
     ["first", "second"],
+  );
+});
+
+test("AI diversity strength re-ranks only when it is enabled", () => {
+  const candidates = [
+    { item: item("same-1", [], ["same"]), aiScore: 0.95 },
+    { item: item("same-2", [], ["same"]), aiScore: 0.9 },
+    { item: item("diverse", [], ["one", "two"]), aiScore: 0.8 },
+  ];
+
+  assert.deepEqual(
+    selectAiExplorationItems(candidates, 3, { diversityStrength: 0 }).map(({ id }) => id),
+    ["same-1", "same-2", "diverse"],
+  );
+  assert.deepEqual(
+    selectAiExplorationItems(candidates, 3, { diversityStrength: 100 }).map(({ id }) => id),
+    ["same-1", "diverse", "same-2"],
+  );
+  assert.equal(normalizeExplorationDiversityStrength(62), 50);
+});
+
+test("general exploration diversity strength favors candidates with more novel keys", () => {
+  const pivot = item("pivot", ["ui"], []);
+  const oneNovelTag = item("one", ["ui"], ["one"], 400, 100);
+  const twoNovelTags = item("two", ["ui"], ["two", "three"], 400, 100);
+
+  assert.equal(
+    selectDiverseExplorationRow(
+      [oneNovelTag, twoNovelTags],
+      pivot,
+      () => 0,
+      1200,
+      3,
+      { diversityStrength: 0 },
+    )[0].id,
+    "one",
+  );
+  assert.equal(
+    selectDiverseExplorationRow(
+      [oneNovelTag, twoNovelTags],
+      pivot,
+      () => 0,
+      1200,
+      3,
+      { diversityStrength: 100 },
+    )[0].id,
+    "two",
   );
 });
 
