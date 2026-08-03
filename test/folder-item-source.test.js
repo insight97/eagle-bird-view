@@ -44,6 +44,39 @@ test("folder item source loads selected folders and nested children without dupl
   assert.deepEqual(result.folders.map(({ id }) => id), ["root"]);
 });
 
+test("folder item source reports completed folder results before all queries finish", async () => {
+  let releaseRoot;
+  const rootDone = new Promise((resolve) => {
+    releaseRoot = resolve;
+  });
+  const streamedItems = [];
+  const source = new FolderItemSource(
+    {
+      async get({ folders }) {
+        if (folders[0] === "root") await rootDone;
+        return [{ id: `item-${folders[0]}`, name: `${folders[0]}.jpg` }];
+      },
+    },
+    null,
+  );
+  const loading = source.loadFolders(
+    [{ id: "root", children: [{ id: "child" }] }],
+    { onItems: (items) => streamedItems.push(...items) },
+  );
+
+  await new Promise((resolve) => setImmediate(resolve));
+  let assertionError = null;
+  try {
+    assert.deepEqual(streamedItems.map(({ id }) => id), ["item-child"]);
+  } catch (error) {
+    assertionError = error;
+  } finally {
+    releaseRoot();
+  }
+  await loading;
+  if (assertionError) throw assertionError;
+});
+
 test("folder item source hydrates a batch in the original order", async () => {
   const source = new FolderItemSource(
     {

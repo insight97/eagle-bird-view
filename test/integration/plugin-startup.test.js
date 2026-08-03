@@ -426,6 +426,75 @@ test("folder browser replaces the board with the selected folder contents", asyn
   assert.equal(plugin.elements.get("#item-count").textContent, "1 個素材");
 });
 
+test("folder browser renders the first progressive batch before descendant loading finishes", async () => {
+  let releaseRemaining;
+  const remainingDone = new Promise((resolve) => {
+    releaseRemaining = resolve;
+  });
+  class ProgressiveFolderItemSource {
+    async loadSelected() {
+      return { folders: [], items: [] };
+    }
+    async loadFolders(folders, options) {
+      await options.onItems?.([
+        {
+          id: "first-folder-item",
+          name: "first.jpg",
+          ext: "jpg",
+          width: 100,
+          height: 100,
+        },
+      ]);
+      await options.onItems?.([
+        {
+          id: "second-folder-item",
+          name: "second.jpg",
+          ext: "jpg",
+          width: 100,
+          height: 100,
+        },
+      ]);
+      await remainingDone;
+      return {
+        folders,
+        items: [
+          {
+            id: "first-folder-item",
+            name: "first.jpg",
+            ext: "jpg",
+            width: 100,
+            height: 100,
+          },
+          {
+            id: "second-folder-item",
+            name: "second.jpg",
+            ext: "jpg",
+            width: 100,
+            height: 100,
+          },
+        ],
+      };
+    }
+    async hydrate(items) {
+      return items;
+    }
+  }
+  const plugin = createPluginHarness({
+    selectedItems: [],
+    folderTree: [{ id: "root", name: "Design" }],
+    folderSourceImplementation: ProgressiveFolderItemSource,
+  });
+
+  plugin.start();
+  await flush();
+  plugin.elements.get("#folder-browser-tree").querySelectorAll(".folder-browser-item")[0].click();
+  await flush();
+
+  assert.equal(plugin.elements.get("#item-count").textContent, "1 個素材");
+  releaseRemaining();
+  await flush();
+});
+
 test("folder browser works when Eagle only exposes getAll for folders", async () => {
   const plugin = createPluginHarness({
     selectedItems: [],

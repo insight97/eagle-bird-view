@@ -27,16 +27,16 @@
       this.#folderApi = folderApi;
     }
 
-    async loadSelected() {
+    async loadSelected(options = {}) {
       if (typeof this.#itemApi?.get !== "function") {
         return { folders: [], items: [] };
       }
 
       const folders = await getSelectedFolders(this.#folderApi);
-      return this.loadFolders(folders);
+      return this.loadFolders(folders, options);
     }
 
-    async loadFolders(folders, { includeSubfolders = true } = {}) {
+    async loadFolders(folders, { includeSubfolders = true, onItems } = {}) {
       if (typeof this.#itemApi?.get !== "function") {
         return { folders: [], items: [] };
       }
@@ -44,11 +44,24 @@
       const folderIds = collectFolderIds(folders, { includeSubfolders });
       if (!folderIds.length) return { folders, items: [] };
 
+      const itemsById = new Map();
+      let notifications = Promise.resolve();
+      const reportItems = (items) => {
+        const addedItems = [];
+        for (const item of items || []) {
+          if (!item?.id || item.isDeleted || itemsById.has(item.id)) continue;
+          itemsById.set(item.id, item);
+          addedItems.push(item);
+        }
+        if (!addedItems.length || typeof onItems !== "function") return;
+        notifications = notifications.then(() => onItems(addedItems.sort(compareItems)));
+      };
       const responses = await queryFolders(
         (folderId) => this.#queryFolder(folderId),
         folderIds,
+        reportItems,
       );
-      const itemsById = new Map();
+      await notifications;
       for (const items of responses) {
         for (const item of items || []) {
           if (item?.id && !item.isDeleted) itemsById.set(item.id, item);
@@ -79,9 +92,8 @@
         return this.#folderQueryCache.get(folderId);
       }
 
-      const request = Promise.resolve(
-        this.#itemApi.get({ folders: [folderId], fields: FOLDER_ITEM_FIELDS }),
-      )
+      const request = Promise.resolve()
+        .then(() => this.#itemApi.get({ folders: [folderId], fields: FOLDER_ITEM_FIELDS }))
         .then((items) => items || [])
         .catch((error) => {
           this.#folderQueryCache.delete(folderId);
@@ -133,7 +145,7 @@
     return String(first?.id || "").localeCompare(String(second?.id || ""));
   }
 
-  async function queryFolders(queryFolder, folderIds) {
+  async function queryFolders(queryFolder, folderIds, onItems) {
     const responses = new Array(folderIds.length);
     let nextIndex = 0;
     const workerCount = Math.min(FOLDER_QUERY_CONCURRENCY, folderIds.length);
@@ -142,7 +154,9 @@
       while (nextIndex < folderIds.length) {
         const index = nextIndex;
         nextIndex += 1;
-        responses[index] = await queryFolder(folderIds[index]);
+        const items = await queryFolder(folderIds[index]);
+        responses[index] = items;
+        onItems?.(items);
       }
     }
 

@@ -149,6 +149,7 @@ const state = {
   explorationLoading: false,
   folderItemSource: null,
   folderItems: [],
+  folderItemIds: new Set(),
   folderItemOffset: 0,
   folderItemLoading: false,
   unratedSource: null,
@@ -582,7 +583,10 @@ async function loadSelectedItems({ append = false } = {}) {
     }
     if (!isCurrent()) return;
     if (selectedFolderItems?.folders?.length) {
-      await startFolderItemLoad(selectedFolderItems);
+      await loadFolderItemsProgressively(
+        (onItems) => state.folderItemSource.loadSelected({ onItems }),
+        { isCurrent },
+      );
       return;
     }
 
@@ -606,10 +610,11 @@ async function loadSelectedItems({ append = false } = {}) {
 
 async function startFolderItemLoad(
   { folders, items },
-  { isCurrent = () => true } = {},
+  { isCurrent = () => true, announce = true } = {},
 ) {
   resetFolderItemLoad();
   state.folderItems = items || [];
+  state.folderItemIds = new Set(state.folderItems.map(({ id }) => id).filter(Boolean));
   updateFolderLoadMoreUI();
 
   if (!state.folderItems.length) {
@@ -624,14 +629,28 @@ async function startFolderItemLoad(
   if (result.status === "success" && !result.value.items.length) {
     clearBoard();
   }
-  const progressMessage = `已載入資料夾${describeSelectedFolders(folders)}的 ${state.folderItemOffset} / ${state.folderItems.length} 個素材`;
-  showToast(
-    state.folderItems.length > state.folderItemOffset
-      ? `${progressMessage}，可按「載入更多」繼續。`
-      : `${progressMessage}。`,
-    false,
-  );
+  if (announce) announceFolderItemProgress(folders);
   return result;
+}
+
+async function loadFolderItemsProgressively(load, { folders = [], isCurrent = () => true } = {}) {
+  let hasStarted = false;
+  const onItems = async (items) => {
+    if (!isCurrent() || !items?.length) return;
+    if (!hasStarted) {
+      hasStarted = true;
+      folderBrowser?.setStatus("已顯示首批素材，正在載入子資料夾…");
+      await startFolderItemLoad({ folders, items }, { isCurrent, announce: false });
+      return;
+    }
+    appendFolderItemSummaries(items);
+  };
+  const result = await load(onItems);
+  if (!isCurrent()) return { status: "stale" };
+  if (!hasStarted) return startFolderItemLoad(result, { isCurrent });
+  appendFolderItemSummaries(result.items);
+  announceFolderItemProgress(result.folders || folders);
+  return { status: "success", value: result };
 }
 
 async function handleFolderBrowserSelect({ folder, includeSubfolders }) {
@@ -646,11 +665,14 @@ async function handleFolderBrowserSelect({ folder, includeSubfolders }) {
   folderBrowser?.setLoading(true);
   const selectionGeneration = rowLoadCoordinator.getGeneration("folder-selection") + 1;
   const result = await rowLoadCoordinator.run("folder-selection", async ({ isCurrent }) => {
-    const selectedFolderItems = await state.folderItemSource.loadFolders([folder], {
-      includeSubfolders,
-    });
-    if (!isCurrent()) return;
-    return startFolderItemLoad(selectedFolderItems, { isCurrent });
+    return loadFolderItemsProgressively(
+      (onItems) =>
+        state.folderItemSource.loadFolders([folder], {
+          includeSubfolders,
+          onItems,
+        }),
+      { folders: [folder], isCurrent },
+    );
   });
   if (rowLoadCoordinator.getGeneration("folder-selection") !== selectionGeneration) return;
   folderBrowser?.setLoading(false);
@@ -706,12 +728,35 @@ async function loadMoreFolderItems({ focus = false } = {}) {
   return result;
 }
 
+function appendFolderItemSummaries(items) {
+  const newItems = [];
+  for (const item of items || []) {
+    if (!item?.id || state.folderItemIds.has(item.id)) continue;
+    state.folderItemIds.add(item.id);
+    newItems.push(item);
+  }
+  if (!newItems.length) return;
+  state.folderItems.push(...newItems);
+  updateFolderLoadMoreUI();
+}
+
 function resetFolderItemLoad() {
   rowLoadCoordinator.invalidate("folder");
   state.folderItems = [];
+  state.folderItemIds = new Set();
   state.folderItemOffset = 0;
   state.folderItemLoading = false;
   updateFolderLoadMoreUI();
+}
+
+function announceFolderItemProgress(folders) {
+  const progressMessage = `已載入資料夾${describeSelectedFolders(folders)}的 ${state.folderItemOffset} / ${state.folderItems.length} 個素材`;
+  showToast(
+    state.folderItems.length > state.folderItemOffset
+      ? `${progressMessage}，可按「載入更多」繼續。`
+      : `${progressMessage}。`,
+    false,
+  );
 }
 
 function updateFolderLoadMoreUI() {

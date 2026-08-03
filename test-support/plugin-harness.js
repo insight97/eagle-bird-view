@@ -299,6 +299,7 @@ function createPluginHarness({
   storage = null,
   folderTree = [],
   folderSelectionApi = true,
+  folderSourceImplementation = null,
   runAnimationFrames = false,
   navigationProbe = false,
   smoothZoomProbe = false,
@@ -360,6 +361,20 @@ function createPluginHarness({
     closeForNode() {}
   }
 
+  const DefaultFolderItemSource = class {
+    async loadSelected() {
+      folderLoadRequests += 1;
+      return folderSourceResult;
+    }
+    async loadFolders(folders, options) {
+      folderSelectionRequests += 1;
+      folderSelectionOptions.push({ folders, options });
+      return folderSourceResult;
+    }
+    async hydrate(items) {
+      return items;
+    }
+  };
   const context = {
     BirdViewBoard,
     BirdViewCore,
@@ -373,20 +388,7 @@ function createPluginHarness({
     // Real filter helpers, stubbed item sources.
     BirdViewExploration: { ...BirdViewExploration, RelatedItemSource, UnratedItemSource },
     BirdViewFolder: {
-      FolderItemSource: class {
-        async loadSelected() {
-          folderLoadRequests += 1;
-          return folderSourceResult;
-        }
-        async loadFolders(folders, options) {
-          folderSelectionRequests += 1;
-          folderSelectionOptions.push({ folders, options });
-          return folderSourceResult;
-        }
-        async hydrate(items) {
-          return items;
-        }
-      },
+      FolderItemSource: folderSourceImplementation || DefaultFolderItemSource,
     },
     BirdViewVideo: {
       startVideoPlayer({ node }) {
