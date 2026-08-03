@@ -31,6 +31,12 @@ function createHarness() {
   return { browser, elements, selections };
 }
 
+function folderLabels(harness) {
+  return harness.elements.tree
+    .querySelectorAll(".folder-browser-label")
+    .map(({ textContent }) => textContent);
+}
+
 test("folder browser renders nested folders and reports the selected folder", () => {
   const harness = createHarness();
   harness.browser.setFolders([
@@ -38,39 +44,64 @@ test("folder browser renders nested folders and reports the selected folder", ()
   ]);
 
   assert.equal(harness.elements.tree.children.length, 1);
-  assert.deepEqual(
-    harness.elements.tree.querySelectorAll(".folder-browser-item").map(({ textContent }) => textContent),
-    ["Design"],
-  );
+  assert.deepEqual(folderLabels(harness), ["Design"]);
   harness.elements.tree.querySelectorAll(".folder-browser-disclosure")[0].click();
   const buttons = harness.elements.tree.querySelectorAll(".folder-browser-item");
-  assert.deepEqual(buttons.map(({ textContent }) => textContent), ["Design", "Icons"]);
+  assert.deepEqual(folderLabels(harness), ["Design", "Icons"]);
 
   harness.elements.includeSubfolders.checked = false;
   buttons[1].click();
 
   assert.deepEqual(harness.selections, [
     {
-      folder: { id: "child", name: "Icons", children: [] },
+      folder: { id: "child", name: "Icons", icon: "📁", iconColor: "", children: [] },
       includeSubfolders: false,
     },
   ]);
 });
 
+test("folder browser renders Eagle folder icons and colors with a fallback", () => {
+  const harness = createHarness();
+  harness.browser.setFolders([
+    {
+      id: "custom",
+      name: "Favorites",
+      icon: "C:\\Eagle\\icons\\favorites.png",
+      iconColor: "purple",
+    },
+    { id: "default", name: "Other" },
+  ]);
+
+  const buttons = harness.elements.tree.querySelectorAll(".folder-browser-item");
+  const icons = harness.elements.tree.querySelectorAll(".folder-browser-icon");
+  assert.equal(icons.length, 2);
+  assert.ok(icons.every(({ innerHTML }) => innerHTML.includes('fill="currentColor"')));
+  assert.equal(buttons[0].style["--folder-icon-color"], "#8b7bd8");
+  assert.equal(buttons[1].style["--folder-icon-color"], undefined);
+});
+
 test("folder browser search keeps matching ancestors visible", () => {
   const harness = createHarness();
   harness.browser.setFolders([
-    { id: "root", name: "Design", children: [{ id: "child", name: "Icons" }] },
+    {
+      id: "root",
+      name: "Design",
+      icon: "📦",
+      iconColor: "blue",
+      children: [{ id: "child", name: "Icons", icon: "⭐", iconColor: "purple" }],
+    },
     { id: "other", name: "Photos" },
   ]);
 
   harness.elements.search.value = "icons";
   harness.elements.search.emit("input");
 
-  assert.deepEqual(
-    harness.elements.tree.querySelectorAll(".folder-browser-item").map(({ textContent }) => textContent),
-    ["Design", "Icons"],
-  );
+  assert.deepEqual(folderLabels(harness), ["Design", "Icons"]);
+  const buttons = harness.elements.tree.querySelectorAll(".folder-browser-item");
+  assert.match(buttons[0].querySelector(".folder-browser-icon").innerHTML, /currentColor/);
+  assert.equal(buttons[0].style["--folder-icon-color"], "#5d91d8");
+  assert.match(buttons[1].querySelector(".folder-browser-icon").innerHTML, /currentColor/);
+  assert.equal(buttons[1].style["--folder-icon-color"], "#8b7bd8");
 });
 
 test("folder browser can be collapsed without removing the folder tree", () => {
@@ -114,17 +145,11 @@ test("folder browser can collapse a folder without hiding its siblings", () => {
     { id: "other", name: "Photos" },
   ]);
 
-  assert.deepEqual(
-    harness.elements.tree.querySelectorAll(".folder-browser-item").map(({ textContent }) => textContent),
-    ["Design", "Photos"],
-  );
+  assert.deepEqual(folderLabels(harness), ["Design", "Photos"]);
   const disclosure = harness.elements.tree.querySelectorAll(".folder-browser-disclosure")[0];
   assert.equal(disclosure.classList.contains("is-expanded"), false);
   disclosure.click();
-  assert.deepEqual(
-    harness.elements.tree.querySelectorAll(".folder-browser-item").map(({ textContent }) => textContent),
-    ["Design", "Icons", "Photos"],
-  );
+  assert.deepEqual(folderLabels(harness), ["Design", "Icons", "Photos"]);
   assert.equal(
     harness.elements.tree.querySelectorAll(".folder-browser-disclosure")[0].classList.contains(
       "is-expanded",
@@ -139,8 +164,5 @@ test("folder browser can collapse a folder without hiding its siblings", () => {
     false,
   );
 
-  assert.deepEqual(
-    harness.elements.tree.querySelectorAll(".folder-browser-item").map(({ textContent }) => textContent),
-    ["Design", "Photos"],
-  );
+  assert.deepEqual(folderLabels(harness), ["Design", "Photos"]);
 });

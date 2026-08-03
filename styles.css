@@ -1286,10 +1286,12 @@ button {
 }
 
 .folder-browser-item {
-  display: block;
+  display: flex;
+  align-items: center;
   min-width: 0;
   width: auto;
   flex: 1 1 auto;
+  gap: 7px;
   padding: 6px 8px;
   overflow: hidden;
   border: 0;
@@ -1303,10 +1305,30 @@ button {
   font-size: 12px;
 }
 
-.folder-browser-item::before {
-  content: "📁";
-  margin-right: 7px;
-  font-size: 11px;
+.folder-browser-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
+  color: var(--folder-icon-color, currentColor);
+  line-height: 1;
+  text-align: center;
+}
+
+.folder-browser-icon svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+.folder-browser-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .folder-browser-item:hover,

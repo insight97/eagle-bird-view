@@ -5,6 +5,20 @@
   if (typeof module === "object" && module.exports) module.exports = browser;
   root.BirdViewFolderBrowser = browser;
 })(typeof globalThis === "object" ? globalThis : this, () => {
+  const DEFAULT_FOLDER_ICON = "📁";
+  const FOLDER_ICON_SVG =
+    '<svg viewBox="0 0 24 24" focusable="false"><path fill="currentColor" d="M10 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.1.89 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" /></svg>';
+  const FOLDER_ICON_COLORS = Object.freeze({
+    red: "#e56b6f",
+    orange: "#e99045",
+    yellow: "#d4ad42",
+    green: "#64b879",
+    aqua: "#4db7b3",
+    blue: "#5d91d8",
+    purple: "#8b7bd8",
+    pink: "#d978a6",
+  });
+
   function createFolderBrowser({ document, elements, onSelect }) {
     let folders = [];
     let isOpen = false;
@@ -99,9 +113,19 @@
       button.type = "button";
       button.className = "folder-browser-item";
       button.dataset.folderId = String(folder.id);
+      if (folder.iconColor) {
+        button.style.setProperty("--folder-icon-color", folder.iconColor);
+      }
       button.title = `載入「${folder.name}」並取代白板內容`;
       button.setAttribute("aria-label", button.title);
-      button.textContent = folder.name;
+      const icon = document.createElement("span");
+      icon.className = "folder-browser-icon";
+      icon.setAttribute("aria-hidden", "true");
+      icon.innerHTML = FOLDER_ICON_SVG;
+      const label = document.createElement("span");
+      label.className = "folder-browser-label";
+      label.textContent = folder.name;
+      button.append(icon, label);
       button.addEventListener("click", () => {
         onSelect?.({
           folder,
@@ -149,7 +173,7 @@
       const children = (folder.children || []).map(visit).filter(Boolean);
       const name = folder.name;
       if (!query || name.toLocaleLowerCase().includes(query) || children.length) {
-        return { id, name, children };
+        return { id, name, icon: folder.icon, iconColor: folder.iconColor, children };
       }
       return null;
     }
@@ -168,13 +192,19 @@
       if (!id || visited.has(id)) return null;
       visited.add(id);
       const name = String(folder?.name || "").trim() || "未命名資料夾";
+      const icon = String(folder?.icon || "").trim() || DEFAULT_FOLDER_ICON;
+      const iconColor = normalizeFolderIconColor(folder?.iconColor);
       const children = (Array.isArray(folder?.children) ? folder.children : [])
         .map(visit)
         .filter(Boolean);
-      return { id, name, children };
+      return { id, name, icon, iconColor, children };
     }
 
     return (Array.isArray(source) ? source : []).map(visit).filter(Boolean);
+  }
+
+  function normalizeFolderIconColor(value) {
+    return FOLDER_ICON_COLORS[String(value || "").trim().toLowerCase()] || "";
   }
 
   return Object.freeze({ createFolderBrowser });
