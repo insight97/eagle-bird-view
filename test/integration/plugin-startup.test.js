@@ -387,6 +387,65 @@ test("reopening with a selection appends items instead of loading the selected f
   assert.equal(plugin.elements.get("#item-count").textContent, "1 個素材");
 });
 
+test("folder browser replaces the board with the selected folder contents", async () => {
+  const plugin = createPluginHarness({
+    selectedItems: [],
+    folderTree: [
+      { id: "root", name: "Design", children: [{ id: "icons", name: "Icons" }] },
+    ],
+  });
+  plugin.setFolderSourceResult({
+    folders: [{ id: "icons", name: "Icons" }],
+    items: [
+      {
+        id: "folder-item",
+        name: "icon.jpg",
+        ext: "jpg",
+        width: 100,
+        height: 100,
+        fileURL: "file:///icon.jpg",
+        thumbnailURL: "file:///icon-thumb.jpg",
+      },
+    ],
+  });
+
+  plugin.start();
+  await flush();
+
+  const includeSubfolders = plugin.elements.get("#folder-browser-include-subfolders");
+  includeSubfolders.checked = false;
+  const folderButtons = plugin.elements
+    .get("#folder-browser-tree")
+    .querySelectorAll(".folder-browser-item");
+  folderButtons[1].click();
+  await flush();
+
+  assert.equal(plugin.folderSelectionRequests, 1);
+  assert.equal(plugin.folderSelectionOptions[0].folders[0].id, "icons");
+  assert.equal(plugin.folderSelectionOptions[0].options.includeSubfolders, false);
+  assert.equal(plugin.elements.get("#item-count").textContent, "1 個素材");
+});
+
+test("folder browser works when Eagle only exposes getAll for folders", async () => {
+  const plugin = createPluginHarness({
+    selectedItems: [],
+    folderSelectionApi: false,
+    folderTree: [{ id: "root", name: "Design" }],
+  });
+  plugin.setFolderSourceResult({
+    folders: [{ id: "root", name: "Design" }],
+    items: [{ id: "folder-item", name: "design.jpg", ext: "jpg", width: 100, height: 100 }],
+  });
+
+  plugin.start();
+  await flush();
+  plugin.elements.get("#folder-browser-tree").querySelectorAll(".folder-browser-item")[0].click();
+  await flush();
+
+  assert.equal(plugin.folderSelectionRequests, 1);
+  assert.equal(plugin.elements.get("#item-count").textContent, "1 個素材");
+});
+
 test("switching Eagle library reloads the selection", async () => {
   const plugin = await startEmptyPlugin();
 

@@ -47,6 +47,7 @@ test("every module resolves its dependencies in index.html script order", () => 
       "BirdViewCore",
       "BirdViewExploration",
       "BirdViewFolder",
+      "BirdViewFolderBrowser",
       "BirdViewFolderPicker",
       "BirdViewMaterializer",
       "BirdViewMedia",

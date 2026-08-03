@@ -12,6 +12,7 @@ const BirdViewAutoExploreSettings = require("../auto-explore-settings.js");
 const BirdViewSettingsPresets = require("../settings-presets.js");
 const BirdViewRowLoad = require("../row-load-coordinator.js");
 const BirdViewSelectionTags = require("../selection-tag-overflow.js");
+const BirdViewFolderBrowser = require("../folder-browser.js");
 
 const PLUGIN_SOURCE = fs.readFileSync(path.resolve(__dirname, "../plugin.js"), "utf8");
 const SELECTORS = [
@@ -97,6 +98,12 @@ const SELECTORS = [
   "#auto-explore-settings-reset",
   "#explore-button",
   "#folder-load-more-button",
+  "#folder-browser",
+  "#folder-browser-toggle",
+  "#folder-browser-search",
+  "#folder-browser-include-subfolders",
+  "#folder-browser-status",
+  "#folder-browser-tree",
   "#toast",
 ];
 
@@ -291,6 +298,7 @@ function createPluginHarness({
   aiSearch = null,
   storage = null,
   folderTree = [],
+  folderSelectionApi = true,
   runAnimationFrames = false,
   navigationProbe = false,
   smoothZoomProbe = false,
@@ -305,6 +313,8 @@ function createPluginHarness({
   let selectedRequests = 0;
   let unratedRequests = 0;
   let folderLoadRequests = 0;
+  let folderSelectionRequests = 0;
+  let folderSelectionOptions = [];
   let folderSourceResult = { folders: [], items: [] };
   let fullScreen = false;
   let fullScreenCalls = 0;
@@ -326,6 +336,7 @@ function createPluginHarness({
   const folderResolvers = [];
   const folderRequests = [];
   const elements = new Map(SELECTORS.map((selector) => [selector, createElementStub()]));
+  elements.get("#folder-browser-include-subfolders").checked = true;
 
   class RelatedItemSource {
     clear() {}
@@ -358,12 +369,18 @@ function createPluginHarness({
     BirdViewSettingsPresets,
     BirdViewRowLoad,
     BirdViewSelectionTags,
+    BirdViewFolderBrowser,
     // Real filter helpers, stubbed item sources.
     BirdViewExploration: { ...BirdViewExploration, RelatedItemSource, UnratedItemSource },
     BirdViewFolder: {
       FolderItemSource: class {
         async loadSelected() {
           folderLoadRequests += 1;
+          return folderSourceResult;
+        }
+        async loadFolders(folders, options) {
+          folderSelectionRequests += 1;
+          folderSelectionOptions.push({ folders, options });
           return folderSourceResult;
         }
         async hydrate(items) {
@@ -511,15 +528,22 @@ function createPluginHarness({
           if (selectedItems) return Promise.resolve(selectedItems);
           return new Promise((resolve) => selectedResolvers.push(resolve));
         },
+        async get() {
+          return [];
+        },
         async open() {},
       },
       folder: {
         async getAll() {
           return folderTree;
         },
-        async getSelected() {
-          return [];
-        },
+        ...(folderSelectionApi
+          ? {
+              async getSelected() {
+                return [];
+              },
+            }
+          : {}),
         getByIds(ids) {
           folderRequests.push(ids);
           return new Promise((resolve) => folderResolvers.push(resolve));
@@ -578,6 +602,8 @@ function createPluginHarness({
     elements,
     folderRequests,
     get folderLoadRequests() { return folderLoadRequests; },
+    get folderSelectionRequests() { return folderSelectionRequests; },
+    get folderSelectionOptions() { return folderSelectionOptions; },
     get fullScreen() { return fullScreen; },
     get fullScreenCalls() { return fullScreenCalls; },
     get camera() { return navigationState?.camera || null; },

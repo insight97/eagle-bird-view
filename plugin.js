@@ -52,6 +52,7 @@ const {
 } = BirdViewExploration;
 const { createSettingsPresetStore } = BirdViewSettingsPresets;
 const { FolderItemSource } = BirdViewFolder;
+const { createFolderBrowser } = BirdViewFolderBrowser;
 const { FolderPicker } = BirdViewFolderPicker;
 const { TagEditor } = BirdViewTagEditor;
 const { SelectionTagOverflow, getVisibleTagCount } = BirdViewSelectionTags;
@@ -162,6 +163,7 @@ const state = {
   selectionTagOverflowButton: null,
   folderNames: new Map(),
   folderNameGeneration: 0,
+  folderTree: [],
   folderOptions: [],
   folderOptionGeneration: 0,
   viewportSize: null,
@@ -177,6 +179,7 @@ let selectionNavigation = null;
 let mediaMaterializer = null;
 let autoExploreSettings = null;
 let settingsPresetStore = null;
+let folderBrowser = null;
 const rowLoadCoordinator = createRowLoadCoordinator({
   onLoadingChange(channel, isLoading) {
     if (channel === "exploration") {
@@ -318,6 +321,14 @@ function setup() {
   elements.autoExploreFilterSummary = document.querySelector("#auto-explore-filter-summary");
   elements.exploreButton = document.querySelector("#explore-button");
   elements.folderLoadMoreButton = document.querySelector("#folder-load-more-button");
+  elements.folderBrowser = document.querySelector("#folder-browser");
+  elements.folderBrowserToggle = document.querySelector("#folder-browser-toggle");
+  elements.folderBrowserSearch = document.querySelector("#folder-browser-search");
+  elements.folderBrowserIncludeSubfolders = document.querySelector(
+    "#folder-browser-include-subfolders",
+  );
+  elements.folderBrowserStatus = document.querySelector("#folder-browser-status");
+  elements.folderBrowserTree = document.querySelector("#folder-browser-tree");
   elements.toast = document.querySelector("#toast");
 
   autoExploreSettings = createAutoExploreSettings({
@@ -332,6 +343,18 @@ function setup() {
   });
   settingsPresetStore = createSettingsPresetStore({
     storage: typeof localStorage === "undefined" ? null : localStorage,
+  });
+  folderBrowser = createFolderBrowser({
+    document,
+    elements: {
+      root: elements.folderBrowser,
+      toggle: elements.folderBrowserToggle,
+      search: elements.folderBrowserSearch,
+      includeSubfolders: elements.folderBrowserIncludeSubfolders,
+      status: elements.folderBrowserStatus,
+      tree: elements.folderBrowserTree,
+    },
+    onSelect: handleFolderBrowserSelect,
   });
 
   mediaMaterializer = createMediaMaterializer({
@@ -473,10 +496,9 @@ function startEagleIntegration() {
     new AiSimilarItemSource(aiSearch),
   );
   state.unratedSource = new UnratedItemSource(eagle.item, eagle.folder, Math.random);
-  state.folderItemSource =
-    typeof eagle.folder?.getSelected === "function" || typeof eagle.folder?.get === "function"
-      ? new FolderItemSource(eagle.item, eagle.folder)
-      : null;
+  state.folderItemSource = eagle.item
+    ? new FolderItemSource(eagle.item, eagle.folder)
+    : null;
   if (typeof eagle.onLibraryChanged === "function") {
     eagle.onLibraryChanged(handleLibraryChanged);
   }
@@ -498,9 +520,12 @@ function handlePluginRun() {
 
 function handleLibraryChanged() {
   resetFolderItemLoad();
+  rowLoadCoordinator.invalidate("folder-selection");
   clearBoard();
   state.folderNameGeneration += 1;
   state.folderNames.clear();
+  state.folderTree = [];
+  folderBrowser?.setFolders([]);
   state.folderOptionGeneration += 1;
   state.folderOptions = [];
   state.explorationSource.clear();
@@ -577,18 +602,26 @@ async function loadSelectedItems({ append = false } = {}) {
   }
 }
 
-async function startFolderItemLoad({ folders, items }) {
+async function startFolderItemLoad(
+  { folders, items },
+  { isCurrent = () => true } = {},
+) {
   resetFolderItemLoad();
-  clearBoard();
   state.folderItems = items || [];
   updateFolderLoadMoreUI();
 
   if (!state.folderItems.length) {
+    if (!isCurrent()) return { status: "stale" };
+    clearBoard();
     showToast(`選取的資料夾${describeSelectedFolders(folders)}沒有可載入的素材。`, false);
-    return;
+    return { status: "empty" };
   }
 
-  await loadMoreFolderItems({ focus: true });
+  const result = await loadMoreFolderItems({ focus: true });
+  if (!isCurrent()) return { status: "stale" };
+  if (result.status === "success" && !result.value.items.length) {
+    clearBoard();
+  }
   const progressMessage = `已載入資料夾${describeSelectedFolders(folders)}的 ${state.folderItemOffset} / ${state.folderItems.length} 個素材`;
   showToast(
     state.folderItems.length > state.folderItemOffset
@@ -596,6 +629,35 @@ async function startFolderItemLoad({ folders, items }) {
       : `${progressMessage}。`,
     false,
   );
+  return result;
+}
+
+async function handleFolderBrowserSelect({ folder, includeSubfolders }) {
+  if (!folder?.id || !state.folderItemSource) {
+    folderBrowser?.setStatus("目前無法讀取 Eagle 資料夾。");
+    return;
+  }
+
+  resetFolderItemLoad();
+  rowLoadCoordinator.invalidate("selected");
+  rowLoadCoordinator.invalidate("folder-selection");
+  folderBrowser?.setLoading(true);
+  const result = await rowLoadCoordinator.run("folder-selection", async ({ isCurrent }) => {
+    const selectedFolderItems = await state.folderItemSource.loadFolders([folder], {
+      includeSubfolders,
+    });
+    if (!isCurrent()) return;
+    return startFolderItemLoad(selectedFolderItems, { isCurrent });
+  });
+  if (result.status === "stale") return;
+  folderBrowser?.setLoading(false);
+  if (result.status === "error") {
+    const { error } = result;
+    folderBrowser?.setStatus("載入失敗，請重新選擇資料夾。");
+    showToast(`無法載入資料夾素材：${error.message || error}`, true);
+    return;
+  }
+  folderBrowser?.setStatus(`已載入「${folder.name || "未命名資料夾"}」的內容。`);
 }
 
 async function loadMoreFolderItems({ focus = false } = {}) {
@@ -1259,7 +1321,9 @@ async function loadTagColors() {
 async function loadAutoExploreFolders() {
   const generation = ++state.folderOptionGeneration;
   if (typeof eagle === "undefined" || typeof eagle.folder?.getAll !== "function") {
+    state.folderTree = [];
     state.folderOptions = [];
+    folderBrowser?.setFolders([]);
     autoExploreSettings.update();
     return;
   }
@@ -1267,11 +1331,15 @@ async function loadAutoExploreFolders() {
   try {
     const folders = await eagle.folder.getAll();
     if (generation !== state.folderOptionGeneration) return;
+    state.folderTree = folders || [];
     state.folderOptions = flattenFolderOptions(folders);
+    folderBrowser?.setFolders(state.folderTree);
     autoExploreSettings.update();
   } catch (error) {
     if (generation !== state.folderOptionGeneration) return;
+    state.folderTree = [];
     state.folderOptions = [];
+    folderBrowser?.setFolders([]);
     autoExploreSettings.update();
     console.warn("Failed to load Eagle folders for auto exploration", error);
   }

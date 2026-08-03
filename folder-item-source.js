@@ -31,7 +31,15 @@
       }
 
       const folders = await getSelectedFolders(this.#folderApi);
-      const folderIds = collectFolderIds(folders);
+      return this.loadFolders(folders);
+    }
+
+    async loadFolders(folders, { includeSubfolders = true } = {}) {
+      if (typeof this.#itemApi?.get !== "function") {
+        return { folders: [], items: [] };
+      }
+
+      const folderIds = collectFolderIds(folders, { includeSubfolders });
       if (!folderIds.length) return { folders, items: [] };
 
       const responses = await Promise.all(
@@ -72,7 +80,7 @@
     return [];
   }
 
-  function collectFolderIds(folders) {
+  function collectFolderIds(folders, { includeSubfolders = true } = {}) {
     const folderIds = [];
     const seen = new Set();
     const visit = (folder) => {
@@ -80,7 +88,9 @@
       if (!id || seen.has(id)) return;
       seen.add(id);
       folderIds.push(id);
-      for (const child of folder?.children || []) visit(child);
+      if (includeSubfolders) {
+        for (const child of folder?.children || []) visit(child);
+      }
     };
     for (const folder of folders) visit(folder);
     return folderIds;

@@ -125,3 +125,23 @@ test("folder item source hydrates with the query API when getByIds is unavailabl
   assert.deepEqual(result.map(({ id }) => id), ["first", "second"]);
   assert.equal(result[0].fileURL, "first.jpg");
 });
+
+test("folder item source loads one folder without its descendants", async () => {
+  const queriedFolderIds = [];
+  const source = new FolderItemSource(
+    {
+      async get({ folders }) {
+        queriedFolderIds.push(folders[0]);
+        return [{ id: `item-${folders[0]}`, name: `${folders[0]}.jpg` }];
+      },
+    },
+    null,
+  );
+
+  const folders = [{ id: "root", name: "Root", children: [{ id: "child" }] }];
+  const result = await source.loadFolders(folders, { includeSubfolders: false });
+
+  assert.deepEqual(queriedFolderIds, ["root"]);
+  assert.deepEqual(result.folders, folders);
+  assert.deepEqual(result.items.map(({ id }) => id), ["item-root"]);
+});

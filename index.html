@@ -18,6 +18,7 @@
     <script src="auto-explore-settings.js"></script>
     <script src="settings-presets.js"></script>
     <script src="folder-item-source.js"></script>
+    <script src="folder-browser.js"></script>
     <script src="folder-picker.js"></script>
     <script src="video-player.js"></script>
     <script src="media-materializer.js"></script>
@@ -29,9 +30,21 @@
   <body>
     <main class="app">
       <header class="toolbar">
-        <div class="brand" aria-label="Bird View">
-          <span class="brand-mark">B</span>
-          <span>Bird View</span>
+        <div class="brand" aria-label="側邊欄導覽">
+          <button
+            id="folder-browser-toggle"
+            class="folder-browser-toggle"
+            type="button"
+            aria-controls="folder-browser-content"
+            aria-expanded="false"
+            aria-label="開啟資料夾側欄"
+            title="開啟資料夾側欄"
+          >
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <rect x="2.5" y="3" width="15" height="14" rx="2"></rect>
+              <path d="M7.5 3v14"></path>
+            </svg>
+          </button>
         </div>
 
         <div id="selection-status" class="selection-status" role="status" aria-live="polite">
@@ -642,6 +655,30 @@
           <span id="zoom-label">100%</span>
         </div>
       </header>
+
+      <aside id="folder-browser" class="folder-browser" aria-label="資料夾瀏覽">
+        <div id="folder-browser-content" class="folder-browser-content">
+          <div class="folder-browser-heading">
+            <div>
+              <strong>資料夾</strong>
+              <span>選取後取代白板內容</span>
+            </div>
+          </div>
+          <input
+            id="folder-browser-search"
+            class="folder-browser-search"
+            type="search"
+            placeholder="搜尋資料夾"
+            aria-label="搜尋資料夾"
+          />
+          <label class="folder-browser-option">
+            <input id="folder-browser-include-subfolders" type="checkbox" checked />
+            <span>包含子資料夾</span>
+          </label>
+          <div id="folder-browser-status" class="folder-browser-status" role="status" aria-live="polite"></div>
+          <div id="folder-browser-tree" class="folder-browser-tree" role="tree"></div>
+        </div>
+      </aside>
 
       <section id="viewport" class="viewport" aria-label="媒體白板">
         <div id="grid" class="grid-layer" aria-hidden="true"></div>

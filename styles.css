@@ -29,6 +29,7 @@ button {
 }
 
 .app {
+  position: relative;
   display: grid;
   grid-template-rows: 42px minmax(0, 1fr);
   background: #151719;
@@ -1086,6 +1087,217 @@ button {
   touch-action: none;
   user-select: none;
   background-color: #17191c;
+}
+
+.folder-browser {
+  position: absolute;
+  top: 42px;
+  bottom: 0;
+  left: 0;
+  z-index: 15;
+  width: 320px;
+  max-width: min(320px, calc(100% - 18px));
+  pointer-events: none;
+}
+
+.folder-browser-toggle {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  place-items: center;
+  border: 1px solid #454950;
+  border-radius: 6px;
+  background: #292c31;
+  color: #e5e7eb;
+  cursor: pointer;
+  padding: 0;
+}
+
+.folder-browser-toggle:hover {
+  border-color: #7971ed;
+  background: #34333f;
+}
+
+.folder-browser-toggle svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+}
+
+.folder-browser-content {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-right: 1px solid #3a3e45;
+  background: rgb(28 31 35 / 97%);
+  box-shadow: 8px 0 24px rgb(0 0 0 / 22%);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-100%);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.folder-browser.is-open .folder-browser-content {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
+}
+
+.folder-browser-heading {
+  min-width: 0;
+  color: #f1f2f4;
+  font-size: 13px;
+}
+
+.folder-browser-heading div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.folder-browser-heading span,
+.folder-browser-status {
+  color: #9da1a8;
+  font-size: 11px;
+}
+
+.folder-browser-search {
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid #454950;
+  border-radius: 6px;
+  outline: 0;
+  background: #24272b;
+  color: #e6e8eb;
+  font: inherit;
+  font-size: 12px;
+}
+
+.folder-browser-search:focus {
+  border-color: #7971ed;
+}
+
+.folder-browser-option {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #c9cbd0;
+  font-size: 11px;
+}
+
+.folder-browser-status {
+  min-height: 15px;
+  line-height: 1.4;
+}
+
+.folder-browser-tree {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: #596170 transparent;
+  scrollbar-width: thin;
+}
+
+.folder-browser-tree::-webkit-scrollbar {
+  width: 8px;
+}
+
+.folder-browser-tree::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.folder-browser-tree::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: #596170;
+  background-clip: padding-box;
+}
+
+.folder-browser-tree::-webkit-scrollbar-thumb:hover {
+  background: #7b8494;
+  background-clip: padding-box;
+}
+
+.folder-browser-row {
+  margin-left: calc(var(--folder-depth, 0) * 12px);
+}
+
+.folder-browser-entry {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.folder-browser-disclosure,
+.folder-browser-disclosure-spacer {
+  display: grid;
+  width: 22px;
+  height: 28px;
+  flex: none;
+  place-items: center;
+}
+
+.folder-browser-disclosure {
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #9da5b3;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.folder-browser-disclosure:hover,
+.folder-browser-disclosure:focus-visible {
+  outline: 0;
+  background: #34333f;
+  color: #fff;
+}
+
+.folder-browser-item {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #d9dbe0;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.folder-browser-item::before {
+  content: "📁";
+  margin-right: 7px;
+  font-size: 11px;
+}
+
+.folder-browser-item:hover,
+.folder-browser-item:focus-visible {
+  outline: 0;
+  background: #34333f;
+  color: #fff;
+}
+
+@media (max-width: 520px) {
+  .folder-browser {
+    width: min(300px, calc(100% - 18px));
+  }
 }
 
 .viewport.is-panning {
