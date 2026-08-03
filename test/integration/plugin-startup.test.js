@@ -414,9 +414,9 @@ test("folder browser replaces the board with the selected folder contents", asyn
 
   const includeSubfolders = plugin.elements.get("#folder-browser-include-subfolders");
   includeSubfolders.checked = false;
-  const folderButtons = plugin.elements
-    .get("#folder-browser-tree")
-    .querySelectorAll(".folder-browser-item");
+  const folderTree = plugin.elements.get("#folder-browser-tree");
+  folderTree.querySelectorAll(".folder-browser-disclosure")[0].click();
+  const folderButtons = folderTree.querySelectorAll(".folder-browser-item");
   folderButtons[1].click();
   await flush();
 

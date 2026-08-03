@@ -521,6 +521,8 @@ function handlePluginRun() {
 function handleLibraryChanged() {
   resetFolderItemLoad();
   rowLoadCoordinator.invalidate("folder-selection");
+  folderBrowser?.setLoading(false, "資料夾清單已更新。");
+  state.folderItemSource?.clear?.();
   clearBoard();
   state.folderNameGeneration += 1;
   state.folderNames.clear();
@@ -642,6 +644,7 @@ async function handleFolderBrowserSelect({ folder, includeSubfolders }) {
   rowLoadCoordinator.invalidate("selected");
   rowLoadCoordinator.invalidate("folder-selection");
   folderBrowser?.setLoading(true);
+  const selectionGeneration = rowLoadCoordinator.getGeneration("folder-selection") + 1;
   const result = await rowLoadCoordinator.run("folder-selection", async ({ isCurrent }) => {
     const selectedFolderItems = await state.folderItemSource.loadFolders([folder], {
       includeSubfolders,
@@ -649,7 +652,7 @@ async function handleFolderBrowserSelect({ folder, includeSubfolders }) {
     if (!isCurrent()) return;
     return startFolderItemLoad(selectedFolderItems, { isCurrent });
   });
-  if (result.status === "stale") return;
+  if (rowLoadCoordinator.getGeneration("folder-selection") !== selectionGeneration) return;
   folderBrowser?.setLoading(false);
   if (result.status === "error") {
     const { error } = result;

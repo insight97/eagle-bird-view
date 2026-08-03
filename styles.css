@@ -1248,14 +1248,27 @@ button {
 }
 
 .folder-browser-disclosure {
+  position: relative;
   padding: 0;
   border: 0;
   border-radius: 4px;
   background: transparent;
   color: #9da5b3;
   cursor: pointer;
-  font-size: 16px;
-  line-height: 1;
+}
+
+.folder-browser-disclosure::before {
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  content: "";
+  transform: translate(-1px, -1px) rotate(-45deg);
+  transition: transform 140ms ease;
+}
+
+.folder-browser-disclosure.is-expanded::before {
+  transform: translate(0, -2px) rotate(45deg);
 }
 
 .folder-browser-disclosure:hover,

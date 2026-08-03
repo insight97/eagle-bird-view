@@ -38,6 +38,11 @@ test("folder browser renders nested folders and reports the selected folder", ()
   ]);
 
   assert.equal(harness.elements.tree.children.length, 1);
+  assert.deepEqual(
+    harness.elements.tree.querySelectorAll(".folder-browser-item").map(({ textContent }) => textContent),
+    ["Design"],
+  );
+  harness.elements.tree.querySelectorAll(".folder-browser-disclosure")[0].click();
   const buttons = harness.elements.tree.querySelectorAll(".folder-browser-item");
   assert.deepEqual(buttons.map(({ textContent }) => textContent), ["Design", "Icons"]);
 
@@ -101,9 +106,28 @@ test("folder browser can collapse a folder without hiding its siblings", () => {
 
   assert.deepEqual(
     harness.elements.tree.querySelectorAll(".folder-browser-item").map(({ textContent }) => textContent),
+    ["Design", "Photos"],
+  );
+  const disclosure = harness.elements.tree.querySelectorAll(".folder-browser-disclosure")[0];
+  assert.equal(disclosure.classList.contains("is-expanded"), false);
+  disclosure.click();
+  assert.deepEqual(
+    harness.elements.tree.querySelectorAll(".folder-browser-item").map(({ textContent }) => textContent),
     ["Design", "Icons", "Photos"],
   );
+  assert.equal(
+    harness.elements.tree.querySelectorAll(".folder-browser-disclosure")[0].classList.contains(
+      "is-expanded",
+    ),
+    true,
+  );
   harness.elements.tree.querySelectorAll(".folder-browser-disclosure")[0].click();
+  assert.equal(
+    harness.elements.tree.querySelectorAll(".folder-browser-disclosure")[0].classList.contains(
+      "is-expanded",
+    ),
+    false,
+  );
 
   assert.deepEqual(
     harness.elements.tree.querySelectorAll(".folder-browser-item").map(({ textContent }) => textContent),

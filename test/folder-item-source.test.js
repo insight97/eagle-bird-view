@@ -8,19 +8,20 @@ test("folder item source loads selected folders and nested children without dupl
   const queries = [];
   const itemApi = {
     async get(options) {
-      const folderId = options.folders[0];
       queries.push(options);
-      return {
-        root: [{ id: "root-item", name: "10.png", folders: [folderId] }],
-        child: [
-          { id: "child-item", name: "2.png", folders: [folderId] },
-          { id: "shared", name: "1.png" },
-        ],
-        grandchild: [
-          { id: "shared", name: "1.png" },
-          { id: "deleted", name: "deleted.png", isDeleted: true },
-        ],
-      }[folderId] || [];
+      return options.folders.flatMap((folderId) =>
+        ({
+          root: [{ id: "root-item", name: "10.png", folders: [folderId] }],
+          child: [
+            { id: "child-item", name: "2.png", folders: [folderId] },
+            { id: "shared", name: "1.png" },
+          ],
+          grandchild: [
+            { id: "shared", name: "1.png" },
+            { id: "deleted", name: "deleted.png", isDeleted: true },
+          ],
+        }[folderId] || []),
+      );
     },
   };
   const folderApi = {
@@ -38,7 +39,7 @@ test("folder item source loads selected folders and nested children without dupl
   const source = new FolderItemSource(itemApi, folderApi);
   const result = await source.loadSelected();
 
-  assert.deepEqual(queries.map(({ folders }) => folders[0]), ["root", "child", "grandchild"]);
+  assert.deepEqual(queries.map(({ folders }) => folders), [["root"], ["child"], ["grandchild"]]);
   assert.deepEqual(result.items.map(({ id }) => id), ["shared", "child-item", "root-item"]);
   assert.deepEqual(result.folders.map(({ id }) => id), ["root"]);
 });
@@ -144,4 +145,53 @@ test("folder item source loads one folder without its descendants", async () => 
   assert.deepEqual(queriedFolderIds, ["root"]);
   assert.deepEqual(result.folders, folders);
   assert.deepEqual(result.items.map(({ id }) => id), ["item-root"]);
+});
+
+test("folder item source limits concurrent Eagle folder queries", async () => {
+  let activeQueries = 0;
+  let peakQueries = 0;
+  const releaseQueries = [];
+  const source = new FolderItemSource(
+    {
+      async get({ folders }) {
+        activeQueries += 1;
+        peakQueries = Math.max(peakQueries, activeQueries);
+        await new Promise((resolve) => releaseQueries.push(resolve));
+        activeQueries -= 1;
+        return [{ id: `item-${folders[0]}`, name: `${folders[0]}.jpg` }];
+      },
+    },
+    null,
+  );
+  const folders = Array.from({ length: 8 }, (_, index) => ({ id: `folder-${index}` }));
+  const loading = source.loadFolders(folders, { includeSubfolders: false });
+
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(peakQueries <= 4);
+  releaseQueries.splice(0).forEach((resolve) => resolve());
+  await new Promise((resolve) => setImmediate(resolve));
+  releaseQueries.splice(0).forEach((resolve) => resolve());
+  await loading;
+});
+
+test("folder item source reuses completed folder queries", async () => {
+  let queryCount = 0;
+  const source = new FolderItemSource(
+    {
+      async get({ folders }) {
+        queryCount += 1;
+        return [{ id: `item-${folders[0]}`, name: `${folders[0]}.jpg` }];
+      },
+    },
+    null,
+  );
+  const folder = { id: "shared-folder", name: "Shared" };
+
+  await source.loadFolders([folder]);
+  await source.loadFolders([folder]);
+
+  assert.equal(queryCount, 1);
+  source.clear();
+  await source.loadFolders([folder]);
+  assert.equal(queryCount, 2);
 });

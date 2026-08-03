@@ -9,7 +9,6 @@
     let folders = [];
     let isOpen = false;
     const expandedFolderIds = new Set();
-    const knownFolderIds = new Set();
 
     elements.toggle?.addEventListener("click", () => {
       isOpen = !isOpen;
@@ -19,7 +18,6 @@
 
     function setFolders(nextFolders) {
       folders = normalizeFolderTree(nextFolders);
-      rememberFolderExpansion(folders);
       render();
     }
 
@@ -67,7 +65,7 @@
           String(elements.search?.value || "").trim() || expandedFolderIds.has(folder.id);
         disclosure.type = "button";
         disclosure.className = "folder-browser-disclosure";
-        disclosure.textContent = isExpanded ? "⌄" : "›";
+        disclosure.classList.toggle("is-expanded", Boolean(isExpanded));
         disclosure.setAttribute("aria-expanded", String(Boolean(isExpanded)));
         disclosure.setAttribute(
           "aria-label",
@@ -115,15 +113,6 @@
         row.append(childGroup);
       }
       return row;
-    }
-
-    function rememberFolderExpansion(source) {
-      for (const folder of source) {
-        const hasChildren = folder.children.length > 0;
-        if (hasChildren && !knownFolderIds.has(folder.id)) expandedFolderIds.add(folder.id);
-        knownFolderIds.add(folder.id);
-        rememberFolderExpansion(folder.children);
-      }
     }
 
     function updateOpenState() {

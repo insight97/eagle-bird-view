@@ -15,10 +15,12 @@
     numeric: true,
     sensitivity: "base",
   });
+  const FOLDER_QUERY_CONCURRENCY = 4;
 
   class FolderItemSource {
     #itemApi;
     #folderApi;
+    #folderQueryCache = new Map();
 
     constructor(itemApi, folderApi) {
       this.#itemApi = itemApi;
@@ -42,10 +44,9 @@
       const folderIds = collectFolderIds(folders, { includeSubfolders });
       if (!folderIds.length) return { folders, items: [] };
 
-      const responses = await Promise.all(
-        folderIds.map((folderId) =>
-          this.#itemApi.get({ folders: [folderId], fields: FOLDER_ITEM_FIELDS }),
-        ),
+      const responses = await queryFolders(
+        (folderId) => this.#queryFolder(folderId),
+        folderIds,
       );
       const itemsById = new Map();
       for (const items of responses) {
@@ -67,6 +68,27 @@
             : items;
       const hydratedById = new Map((hydrated || []).map((item) => [item.id, item]));
       return items.map(({ id }) => hydratedById.get(id)).filter(Boolean);
+    }
+
+    clear() {
+      this.#folderQueryCache.clear();
+    }
+
+    #queryFolder(folderId) {
+      if (this.#folderQueryCache.has(folderId)) {
+        return this.#folderQueryCache.get(folderId);
+      }
+
+      const request = Promise.resolve(
+        this.#itemApi.get({ folders: [folderId], fields: FOLDER_ITEM_FIELDS }),
+      )
+        .then((items) => items || [])
+        .catch((error) => {
+          this.#folderQueryCache.delete(folderId);
+          throw error;
+        });
+      this.#folderQueryCache.set(folderId, request);
+      return request;
     }
   }
 
@@ -109,6 +131,23 @@
     );
     if (extensionOrder !== 0) return extensionOrder;
     return String(first?.id || "").localeCompare(String(second?.id || ""));
+  }
+
+  async function queryFolders(queryFolder, folderIds) {
+    const responses = new Array(folderIds.length);
+    let nextIndex = 0;
+    const workerCount = Math.min(FOLDER_QUERY_CONCURRENCY, folderIds.length);
+
+    async function worker() {
+      while (nextIndex < folderIds.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        responses[index] = await queryFolder(folderIds[index]);
+      }
+    }
+
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
+    return responses;
   }
 
   return Object.freeze({ FolderItemSource });
