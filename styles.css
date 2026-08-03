@@ -1338,6 +1338,16 @@ button {
   color: #fff;
 }
 
+.folder-browser-item.is-selected {
+  background: rgb(121 113 237 / 18%);
+  color: #fff;
+}
+
+.folder-browser-item.is-selected:hover,
+.folder-browser-item.is-selected:focus-visible {
+  background: rgb(121 113 237 / 28%);
+}
+
 @media (max-width: 520px) {
   .folder-browser {
     width: min(300px, calc(100% - 18px));

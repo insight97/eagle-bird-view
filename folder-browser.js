@@ -22,6 +22,7 @@
   function createFolderBrowser({ document, elements, onSelect }) {
     let folders = [];
     let isOpen = false;
+    let selectedFolderId = "";
     const expandedFolderIds = new Set();
 
     elements.toggle?.addEventListener("click", toggle);
@@ -34,6 +35,14 @@
 
     function setFolders(nextFolders) {
       folders = normalizeFolderTree(nextFolders);
+      if (selectedFolderId && !containsFolder(folders, selectedFolderId)) {
+        selectedFolderId = "";
+      }
+      render();
+    }
+
+    function setSelectedFolder(folderId) {
+      selectedFolderId = String(folderId || "").trim();
       render();
     }
 
@@ -76,6 +85,8 @@
       row.style.setProperty("--folder-depth", String(depth));
       row.setAttribute("role", "treeitem");
       row.setAttribute("aria-level", String(depth + 1));
+      const isSelected = String(folder.id) === selectedFolderId;
+      row.setAttribute("aria-selected", String(isSelected));
 
       const children = Array.isArray(folder.children) ? folder.children : [];
       const entry = document.createElement("div");
@@ -112,6 +123,7 @@
       const button = document.createElement("button");
       button.type = "button";
       button.className = "folder-browser-item";
+      button.classList.toggle("is-selected", isSelected);
       button.dataset.folderId = String(folder.id);
       if (folder.iconColor) {
         button.style.setProperty("--folder-icon-color", folder.iconColor);
@@ -127,6 +139,8 @@
       label.textContent = folder.name;
       button.append(icon, label);
       button.addEventListener("click", () => {
+        selectedFolderId = String(folder.id);
+        render();
         onSelect?.({
           folder,
           includeSubfolders: elements.includeSubfolders?.checked !== false,
@@ -160,7 +174,7 @@
     updateOpenState();
     render();
 
-    return Object.freeze({ setFolders, setLoading, setStatus, toggle });
+    return Object.freeze({ setFolders, setLoading, setSelectedFolder, setStatus, toggle });
   }
 
   function filterFolders(source, query) {
@@ -179,6 +193,12 @@
     }
 
     return source.map(visit).filter(Boolean);
+  }
+
+  function containsFolder(source, folderId) {
+    return source.some(
+      (folder) => String(folder.id) === folderId || containsFolder(folder.children || [], folderId),
+    );
   }
 
   // Eagle returns Folder instances. Keep a small, explicit view model at this

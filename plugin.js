@@ -557,6 +557,7 @@ async function loadSelectedItems({ append = false } = {}) {
     if (!isCurrent()) return;
 
     if (items.length) {
+      folderBrowser?.setSelectedFolder("");
       if (append) {
         resetFolderItemLoad();
         const existingIds = new Set(board.nodes.map(({ item }) => item.id));
@@ -584,6 +585,7 @@ async function loadSelectedItems({ append = false } = {}) {
     }
     if (!isCurrent()) return;
     if (selectedFolderItems?.folders?.length) {
+      folderBrowser?.setSelectedFolder(selectedFolderItems.folders[0]?.id);
       await loadFolderItemsProgressively(
         (onItems) => state.folderItemSource.loadSelected({ onItems }),
         { isCurrent },
@@ -593,6 +595,7 @@ async function loadSelectedItems({ append = false } = {}) {
 
     if (append) return;
 
+    folderBrowser?.setSelectedFolder("");
     resetFolderItemLoad();
     clearBoard();
     if (state.unratedEnabled) {

@@ -52,12 +52,52 @@ test("folder browser renders nested folders and reports the selected folder", ()
   harness.elements.includeSubfolders.checked = false;
   buttons[1].click();
 
+  const selectedButtons = harness.elements.tree.querySelectorAll(".folder-browser-item");
+  assert.equal(selectedButtons[1].classList.contains("is-selected"), true);
+  assert.equal(selectedButtons[1].parentNode.parentNode.getAttribute("aria-selected"), "true");
+
   assert.deepEqual(harness.selections, [
     {
       folder: { id: "child", name: "Icons", icon: "📁", iconColor: "", children: [] },
       includeSubfolders: false,
     },
   ]);
+});
+
+test("folder browser keeps the selected folder highlighted across refreshes", () => {
+  const harness = createHarness();
+  const folders = [
+    { id: "root", name: "Design", children: [{ id: "child", name: "Icons" }] },
+    { id: "other", name: "Photos" },
+  ];
+  harness.browser.setFolders(folders);
+  harness.elements.tree.querySelectorAll(".folder-browser-disclosure")[0].click();
+  harness.elements.tree.querySelectorAll(".folder-browser-item")[1].click();
+
+  harness.browser.setFolders(folders);
+  assert.equal(
+    harness.elements.tree.querySelectorAll(".folder-browser-item")[1].classList.contains("is-selected"),
+    true,
+  );
+
+  harness.browser.setFolders([{ id: "other", name: "Photos" }]);
+  assert.equal(
+    harness.elements.tree.querySelectorAll(".folder-browser-item")[0].classList.contains("is-selected"),
+    false,
+  );
+});
+
+test("folder browser highlights the Eagle-selected folder when the tree arrives later", () => {
+  const harness = createHarness();
+
+  harness.browser.setSelectedFolder("child");
+  harness.browser.setFolders([
+    { id: "root", name: "Design", children: [{ id: "child", name: "Icons" }] },
+  ]);
+  harness.elements.tree.querySelectorAll(".folder-browser-disclosure")[0].click();
+
+  const buttons = harness.elements.tree.querySelectorAll(".folder-browser-item");
+  assert.equal(buttons[1].classList.contains("is-selected"), true);
 });
 
 test("folder browser renders Eagle folder icons and colors with a fallback", () => {
