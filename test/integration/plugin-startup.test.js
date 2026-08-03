@@ -424,6 +424,7 @@ test("folder browser replaces the board with the selected folder contents", asyn
   assert.equal(plugin.folderSelectionOptions[0].folders[0].id, "icons");
   assert.equal(plugin.folderSelectionOptions[0].options.includeSubfolders, false);
   assert.equal(plugin.elements.get("#item-count").textContent, "1 個素材");
+  assert.equal(plugin.elements.get("#toast").textContent.includes("已載入資料夾"), false);
 });
 
 test("folder browser renders the first progressive batch before descendant loading finishes", async () => {
@@ -444,6 +445,13 @@ test("folder browser renders the first progressive batch before descendant loadi
           width: 100,
           height: 100,
         },
+        ...Array.from({ length: 59 }, (_, index) => ({
+          id: `initial-folder-item-${index}`,
+          name: `initial-${index}.jpg`,
+          ext: "jpg",
+          width: 100,
+          height: 100,
+        })),
       ]);
       await options.onItems?.([
         {
@@ -490,9 +498,10 @@ test("folder browser renders the first progressive batch before descendant loadi
   plugin.elements.get("#folder-browser-tree").querySelectorAll(".folder-browser-item")[0].click();
   await flush();
 
-  assert.equal(plugin.elements.get("#item-count").textContent, "1 個素材");
+  assert.equal(plugin.elements.get("#item-count").textContent, "60 個素材");
   releaseRemaining();
   await flush();
+  assert.equal(plugin.state.folderItems.length, 61);
 });
 
 test("folder browser works when Eagle only exposes getAll for folders", async () => {

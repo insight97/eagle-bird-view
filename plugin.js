@@ -98,6 +98,7 @@ const RESOURCE_RELEASE_VIEWPORTS = 2;
 const GRID_LAYER_OVERFLOW = 768;
 const METADATA_SUCCESS_TOAST_MS = 1200;
 const FOLDER_LOAD_BATCH_SIZE = 120;
+const FOLDER_INITIAL_DISPLAY_MIN_ITEMS = 60;
 
 const state = {
   camera: { x: 0, y: 0, scale: 1 },
@@ -608,10 +609,7 @@ async function loadSelectedItems({ append = false } = {}) {
   }
 }
 
-async function startFolderItemLoad(
-  { folders, items },
-  { isCurrent = () => true, announce = true } = {},
-) {
+async function startFolderItemLoad({ folders, items }, { isCurrent = () => true } = {}) {
   resetFolderItemLoad();
   state.folderItems = items || [];
   state.folderItemIds = new Set(state.folderItems.map(({ id }) => id).filter(Boolean));
@@ -629,18 +627,23 @@ async function startFolderItemLoad(
   if (result.status === "success" && !result.value.items.length) {
     clearBoard();
   }
-  if (announce) announceFolderItemProgress(folders);
   return result;
 }
 
 async function loadFolderItemsProgressively(load, { folders = [], isCurrent = () => true } = {}) {
   let hasStarted = false;
+  let pendingItems = [];
   const onItems = async (items) => {
     if (!isCurrent() || !items?.length) return;
     if (!hasStarted) {
+      pendingItems.push(...items);
+      if (pendingItems.length < FOLDER_INITIAL_DISPLAY_MIN_ITEMS) return;
       hasStarted = true;
+      const initialItems = pendingItems.splice(0, FOLDER_INITIAL_DISPLAY_MIN_ITEMS);
+      const remainingItems = pendingItems.splice(0);
       folderBrowser?.setStatus("已顯示首批素材，正在載入子資料夾…");
-      await startFolderItemLoad({ folders, items }, { isCurrent, announce: false });
+      await startFolderItemLoad({ folders, items: initialItems }, { isCurrent });
+      appendFolderItemSummaries(remainingItems);
       return;
     }
     appendFolderItemSummaries(items);
@@ -649,7 +652,6 @@ async function loadFolderItemsProgressively(load, { folders = [], isCurrent = ()
   if (!isCurrent()) return { status: "stale" };
   if (!hasStarted) return startFolderItemLoad(result, { isCurrent });
   appendFolderItemSummaries(result.items);
-  announceFolderItemProgress(result.folders || folders);
   return { status: "success", value: result };
 }
 
@@ -747,16 +749,6 @@ function resetFolderItemLoad() {
   state.folderItemOffset = 0;
   state.folderItemLoading = false;
   updateFolderLoadMoreUI();
-}
-
-function announceFolderItemProgress(folders) {
-  const progressMessage = `已載入資料夾${describeSelectedFolders(folders)}的 ${state.folderItemOffset} / ${state.folderItems.length} 個素材`;
-  showToast(
-    state.folderItems.length > state.folderItemOffset
-      ? `${progressMessage}，可按「載入更多」繼續。`
-      : `${progressMessage}。`,
-    false,
-  );
 }
 
 function updateFolderLoadMoreUI() {

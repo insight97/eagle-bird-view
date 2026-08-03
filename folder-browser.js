@@ -23,13 +23,19 @@
 
     function setLoading(isLoading, message = "") {
       if (elements.status) {
-        elements.status.textContent = isLoading ? "正在載入資料夾…" : message;
+        setStatusText(isLoading ? "正在載入資料夾…" : message);
       }
       if (elements.tree) elements.tree.setAttribute("aria-busy", String(isLoading));
     }
 
     function setStatus(message) {
-      if (elements.status) elements.status.textContent = message;
+      setStatusText(message);
+    }
+
+    function setStatusText(message) {
+      if (!elements.status) return;
+      elements.status.textContent = message;
+      elements.status.title = message;
     }
 
     function render() {
@@ -38,13 +44,13 @@
       const visibleFolders = filterFolders(folders, query);
       elements.tree.replaceChildren(...visibleFolders.map((folder) => renderFolder(folder, 0)));
       if (elements.status && !elements.status.textContent.includes("載入")) {
-        elements.status.textContent = query
+        setStatusText(query
           ? visibleFolders.length
             ? ""
             : "找不到符合的資料夾。"
           : folders.length
             ? "選取資料夾後，白板只顯示該資料夾內容。"
-            : "目前沒有可用的資料夾。";
+            : "目前沒有可用的資料夾。");
       }
     }
 

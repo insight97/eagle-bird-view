@@ -97,6 +97,16 @@ test("folder browser preserves ids from Eagle-like folder objects", () => {
   assert.equal(harness.selections[0].folder.id, "eagle-root");
 });
 
+test("folder browser keeps the full status message in the tooltip", () => {
+  const harness = createHarness();
+  const message = "已載入「非常非常深層且名稱很長的資料夾」的內容。";
+
+  harness.browser.setStatus(message);
+
+  assert.equal(harness.elements.status.textContent, message);
+  assert.equal(harness.elements.status.title, message);
+});
+
 test("folder browser can collapse a folder without hiding its siblings", () => {
   const harness = createHarness();
   harness.browser.setFolders([
