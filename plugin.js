@@ -1525,6 +1525,13 @@ function handleKeyDown(event) {
   }
   if (isInteractiveTarget(event.target)) return;
 
+  if (event.key === "Tab") {
+    event.preventDefault();
+    if (event.repeat) return;
+    folderBrowser?.toggle?.();
+    return;
+  }
+
   if (
     event.key === "Delete" &&
     !event.ctrlKey &&

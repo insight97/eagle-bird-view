@@ -310,6 +310,21 @@ test("Insert toggles auto exploration and ignores auto-repeat", async () => {
   assert.equal(statusOf(plugin, "#auto-explore-status"), "關");
 });
 
+test("Tab toggles the folder browser and ignores auto-repeat", async () => {
+  const plugin = await startEmptyPlugin();
+  const folderBrowser = plugin.elements.get("#folder-browser");
+
+  assert.equal(folderBrowser.classList.contains("is-open"), false);
+  assert.equal(pressKey(plugin, "Tab"), true);
+  assert.equal(folderBrowser.classList.contains("is-open"), true);
+
+  assert.equal(pressKey(plugin, "Tab", { repeat: true }), true);
+  assert.equal(folderBrowser.classList.contains("is-open"), true);
+
+  assert.equal(pressKey(plugin, "Tab"), true);
+  assert.equal(folderBrowser.classList.contains("is-open"), false);
+});
+
 test("Delete toggles seamless mode and ignores auto-repeat", async () => {
   const plugin = await startEmptyPlugin();
 

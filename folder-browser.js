@@ -10,10 +10,12 @@
     let isOpen = false;
     const expandedFolderIds = new Set();
 
-    elements.toggle?.addEventListener("click", () => {
+    elements.toggle?.addEventListener("click", toggle);
+
+    function toggle() {
       isOpen = !isOpen;
       updateOpenState();
-    });
+    }
     elements.search?.addEventListener("input", render);
 
     function setFolders(nextFolders) {
@@ -134,7 +136,7 @@
     updateOpenState();
     render();
 
-    return Object.freeze({ setFolders, setLoading, setStatus });
+    return Object.freeze({ setFolders, setLoading, setStatus, toggle });
   }
 
   function filterFolders(source, query) {
