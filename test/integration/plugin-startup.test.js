@@ -460,7 +460,7 @@ test("folder browser renders the first progressive batch before descendant loadi
           width: 100,
           height: 100,
         },
-        ...Array.from({ length: 59 }, (_, index) => ({
+        ...Array.from({ length: 119 }, (_, index) => ({
           id: `initial-folder-item-${index}`,
           name: `initial-${index}.jpg`,
           ext: "jpg",
@@ -513,10 +513,10 @@ test("folder browser renders the first progressive batch before descendant loadi
   plugin.elements.get("#folder-browser-tree").querySelectorAll(".folder-browser-item")[0].click();
   await flush();
 
-  assert.equal(plugin.elements.get("#item-count").textContent, "60 個素材");
+  assert.equal(plugin.elements.get("#item-count").textContent, "120 個素材");
   releaseRemaining();
   await flush();
-  assert.equal(plugin.state.folderItems.length, 61);
+  assert.equal(plugin.state.folderItems.length, 121);
 });
 
 test("folder browser works when Eagle only exposes getAll for folders", async () => {
