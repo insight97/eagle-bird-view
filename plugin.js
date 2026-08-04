@@ -664,6 +664,7 @@ async function handleFolderBrowserSelect({ folder, includeSubfolders }) {
     return;
   }
 
+  folderBrowser?.setSelectedFolder(folder.id);
   resetFolderItemLoad();
   rowLoadCoordinator.invalidate("selected");
   rowLoadCoordinator.invalidate("folder-selection");
@@ -1186,10 +1187,11 @@ function createMetadataTarget({ node, type, value, label, selection = false }) {
   button.type = "button";
   button.disabled = state.explorationLoading;
   const targetLabel = type === "tag" ? "Tag" : "資料夾";
-  button.title = `左鍵從${targetLabel}「${label}」探索素材；右鍵移除`;
+  const contextAction = type === "folder" ? "右鍵顯示資料夾內容" : "右鍵移除";
+  button.title = `左鍵從${targetLabel}「${label}」探索素材；${contextAction}`;
   button.setAttribute(
     "aria-label",
-    `從${targetLabel}「${label}」探索素材；右鍵移除${targetLabel}`,
+    `從${targetLabel}「${label}」探索素材；${contextAction}${type === "folder" ? "" : targetLabel}`,
   );
 
   if (type === "tag") {
@@ -1214,9 +1216,46 @@ function createMetadataTarget({ node, type, value, label, selection = false }) {
   button.addEventListener("contextmenu", (event) => {
     event.preventDefault();
     event.stopPropagation();
+    if (type === "folder") {
+      void loadFolderFromMetadataTarget(value, label);
+      return;
+    }
     void removeSelectionTarget(node, { type, value, label });
   });
   return button;
+}
+
+async function loadFolderFromMetadataTarget(folderId, label) {
+  const id = String(folderId || "").trim();
+  if (!id || !state.folderItemSource) {
+    showToast("目前無法讀取 Eagle 資料夾。", true);
+    return;
+  }
+
+  let folder = findFolderById(state.folderTree, id);
+  if (!folder && typeof eagle !== "undefined" && typeof eagle.folder?.getById === "function") {
+    try {
+      folder = await eagle.folder.getById(id);
+    } catch (error) {
+      console.warn("Failed to load Eagle folder for metadata target", error);
+    }
+  }
+  if (!folder) {
+    showToast(`無法讀取資料夾「${label || id}」。`, true);
+    return;
+  }
+
+  clearBoard();
+  await handleFolderBrowserSelect({ folder, includeSubfolders: true });
+}
+
+function findFolderById(source, folderId) {
+  for (const folder of source || []) {
+    if (String(folder?.id || "").trim() === folderId) return folder;
+    const child = findFolderById(folder?.children, folderId);
+    if (child) return child;
+  }
+  return null;
 }
 
 async function saveItemMetadata(node, { rollback, successMessage }) {
