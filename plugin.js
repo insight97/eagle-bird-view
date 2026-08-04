@@ -53,6 +53,7 @@ const {
 const { createSettingsPresetStore } = BirdViewSettingsPresets;
 const { FolderItemSource } = BirdViewFolder;
 const { createFolderContentIntake } = BirdViewFolderContent;
+const { createLibraryContentTarget } = BirdViewLibraryContent;
 const { createFolderBrowser } = BirdViewFolderBrowser;
 const { FolderPicker } = BirdViewFolderPicker;
 const { TagEditor } = BirdViewTagEditor;
@@ -149,6 +150,7 @@ const state = {
   explorationLoading: false,
   folderItemSource: null,
   folderContentIntake: null,
+  libraryContentTarget: null,
   unratedSource: null,
   unratedEnabled: false,
   unratedLoading: false,
@@ -502,6 +504,15 @@ function startEagleIntegration() {
         onStateChange: updateFolderLoadMoreUI,
       })
     : null;
+  state.libraryContentTarget = state.folderContentIntake
+    ? createLibraryContentTarget({
+        itemApi: eagle.item,
+        folderApi: eagle.folder,
+        getFolderTree: () => state.folderTree,
+        intake: state.folderContentIntake,
+        loadCoordinator: rowLoadCoordinator,
+      })
+    : null;
   if (typeof eagle.onLibraryChanged === "function") {
     eagle.onLibraryChanged(handleLibraryChanged);
   }
@@ -523,7 +534,7 @@ function handlePluginRun() {
 
 function handleLibraryChanged() {
   resetFolderItemLoad();
-  rowLoadCoordinator.invalidate("folder-selection");
+  state.libraryContentTarget?.reset();
   folderBrowser?.setLoading(false, "資料夾清單已更新。");
   state.folderItemSource?.clear?.();
   clearBoard();
@@ -1159,83 +1170,91 @@ function createMetadataTarget({ node, type, value, label, selection = false }) {
 
 async function loadTagFromMetadataTarget(tag, label) {
   const value = String(tag || "").trim();
-  if (
-    !value ||
-    !state.folderItemSource ||
-    typeof eagle === "undefined" ||
-    typeof eagle.item?.get !== "function"
-  ) {
+  if (!value || !state.libraryContentTarget) {
     showToast("目前無法讀取 Eagle Tag 素材。", true);
     return;
   }
 
+  folderBrowser?.setLoading(false);
   folderBrowser?.setSelectedFolder("");
-  clearBoard();
-  resetFolderItemLoad();
-  rowLoadCoordinator.invalidate("selected");
-  rowLoadCoordinator.invalidate("folder-selection");
   folderBrowser?.setStatus(`正在載入 Tag「${label || value}」…`);
-  const selectionGeneration = rowLoadCoordinator.getGeneration("folder-selection") + 1;
-  const result = await rowLoadCoordinator.run("folder-selection", async ({ isCurrent }) => {
-    const items = (await eagle.item.get({ tags: [value] })) || [];
-    if (!isCurrent()) return null;
-
-    const filteredItems = items.filter((item) => item?.id && !item.isDeleted);
-    const loadResult = await state.folderContentIntake?.startFromItems(filteredItems, {
-      focus: true,
-    });
-    if (!isCurrent()) return null;
-    return { items: filteredItems, loadResult };
+  const result = await state.libraryContentTarget.load({
+    type: "tag",
+    value,
+    label,
+    onBeforeStart() {
+      resetFolderItemLoad();
+      clearBoard();
+    },
   });
-  if (rowLoadCoordinator.getGeneration("folder-selection") !== selectionGeneration) return;
-  if (result.status === "error") {
-    const { error } = result;
-    folderBrowser?.setStatus("載入 Tag 失敗，請重新嘗試。");
-    showToast(`無法載入 Tag 素材：${error.message || error}`, true);
-    return;
-  }
-  if (!result.value?.items?.length) {
-    folderBrowser?.setStatus(`Tag「${label || value}」沒有可載入的素材。`);
-    return;
-  }
-  if (result.value.loadResult?.status === "error") {
-    folderBrowser?.setStatus("Tag 素材載入失敗，請重新嘗試。");
-    return;
-  }
-  folderBrowser?.setStatus(`已載入 Tag「${label || value}」的內容。`);
+  handleLibraryContentTargetResult(result, { type: "tag", value, label });
 }
 
 async function loadFolderFromMetadataTarget(folderId, label) {
   const id = String(folderId || "").trim();
-  if (!id || !state.folderItemSource) {
+  if (!id || !state.libraryContentTarget) {
     showToast("目前無法讀取 Eagle 資料夾。", true);
     return;
   }
 
-  let folder = findFolderById(state.folderTree, id);
-  if (!folder && typeof eagle !== "undefined" && typeof eagle.folder?.getById === "function") {
-    try {
-      folder = await eagle.folder.getById(id);
-    } catch (error) {
-      console.warn("Failed to load Eagle folder for metadata target", error);
-    }
-  }
-  if (!folder) {
-    showToast(`無法讀取資料夾「${label || id}」。`, true);
-    return;
-  }
-
-  clearBoard();
-  await handleFolderBrowserSelect({ folder, includeSubfolders: true });
+  folderBrowser?.setLoading(true);
+  folderBrowser?.setStatus(`正在載入資料夾「${label || id}」…`);
+  const result = await state.libraryContentTarget.load({
+    type: "folder",
+    value: id,
+    label,
+    onBeforeStart({ folder }) {
+      resetFolderItemLoad();
+      clearBoard();
+      folderBrowser?.setSelectedFolder(folder.id);
+    },
+  });
+  if (result.status === "stale") return;
+  folderBrowser?.setLoading(false);
+  handleLibraryContentTargetResult(result, { type: "folder", value: id, label });
 }
 
-function findFolderById(source, folderId) {
-  for (const folder of source || []) {
-    if (String(folder?.id || "").trim() === folderId) return folder;
-    const child = findFolderById(folder?.children, folderId);
-    if (child) return child;
+function handleLibraryContentTargetResult(result, { type, value, label }) {
+  if (result.status === "stale") return;
+  const targetLabel = label || value;
+  if (result.status === "unavailable") {
+    showToast(`目前無法讀取 Eagle ${type === "tag" ? "Tag" : "資料夾"}素材。`, true);
+    return;
   }
-  return null;
+  if (result.status === "missing") {
+    showToast(`無法讀取資料夾「${targetLabel}」。`, true);
+    return;
+  }
+  if (result.status === "error") {
+    const errorMessage = result.error?.message || result.error;
+    folderBrowser?.setStatus(
+      type === "tag" ? "載入 Tag 失敗，請重新嘗試。" : "載入失敗，請重新選擇資料夾。",
+    );
+    if (errorMessage) {
+      showToast(
+        `無法載入${type === "tag" ? " Tag" : "資料夾"}素材：${errorMessage}`,
+        true,
+      );
+    }
+    return;
+  }
+  if (result.status === "partial") {
+    folderBrowser?.setStatus("部分資料夾載入失敗，可按「重試載入」繼續。");
+    return;
+  }
+  if (result.status === "empty") {
+    folderBrowser?.setStatus(
+      type === "tag"
+        ? `Tag「${targetLabel}」沒有可載入的素材。`
+        : `選取的資料夾${describeSelectedFolders([result.folder])}沒有可載入的素材。`,
+    );
+    return;
+  }
+  folderBrowser?.setStatus(
+    type === "tag"
+      ? `已載入 Tag「${targetLabel}」的內容。`
+      : `已載入${describeSelectedFolders([result.folder])}的內容。`,
+  );
 }
 
 async function saveItemMetadata(node, { rollback, successMessage }) {
