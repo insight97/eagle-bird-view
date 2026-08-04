@@ -18,6 +18,7 @@
 - `media-load-queue.js`／`media-materializer.js`：分別管理媒體載入併發與 DOM 卡片生命週期。可視素材掛載、附近素材保留，遠處素材釋放。
 - `camera-navigation.js`／`selection-navigation.js`：相機平移／縮放／聚焦與鍵盤選取。
 - `auto-explore-settings.js`／`settings-presets.js`：設定面板、篩選器正規化與 localStorage preset。
+- `settings-snapshot.js`：設定 schema、legacy migration、正規化與 `bird-view-settings` storage；不直接修改 plugin state 或 UI。
 - `anchored-popover.js`／`tag-editor.js`／`folder-picker.js`／`video-player.js`：可獨立測試的 UI 模組。
 - `plugin.js`：唯一主要整合層，接 Eagle API、DOM、事件、狀態與上述模組。新增功能前先確認是否能放進既有模組，避免繼續擴大這個整合層。
 
@@ -36,6 +37,7 @@ media-load-queue.js
 exploration-source.js
 auto-explore-settings.js
 settings-presets.js
+settings-snapshot.js
 folder-item-source.js
 folder-content-intake.js
 library-content-target.js

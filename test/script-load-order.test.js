@@ -58,6 +58,7 @@ test("every module resolves its dependencies in index.html script order", () => 
       "BirdViewSelection",
       "BirdViewSelectionTags",
       "BirdViewSettingsPresets",
+      "BirdViewSettingsSnapshot",
       "BirdViewTagEditor",
       "BirdViewVideo",
     ],

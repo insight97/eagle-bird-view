@@ -1,13 +1,7 @@
 "use strict";
 
 const {
-  DEFAULT_MAX_EXPLORATION_ITEMS,
   LAYOUT_GAP,
-  LAYOUT_WIDTH,
-  MAX_LAYOUT_WIDTH,
-  MAX_EXPLORATION_ITEMS,
-  MIN_LAYOUT_WIDTH,
-  MIN_EXPLORATION_ITEMS,
   ROW_GAP,
   TARGET_ROW_HEIGHT,
   VIDEO_CONTROLS_HEIGHT,
@@ -29,8 +23,6 @@ const {
   getTagColorStyle,
   isPlayingVideo,
   normalizeTags,
-  normalizeAiExplorationRatio,
-  normalizeExplorationDiversityStrength,
   normalizeTagColor,
   reanchorCameraToNode,
   resizeCamera,
@@ -51,6 +43,11 @@ const {
   unratedFiltersEqual,
 } = BirdViewExploration;
 const { createSettingsPresetStore } = BirdViewSettingsPresets;
+const {
+  DEFAULT_SETTINGS_SNAPSHOT,
+  SETTINGS_LIMITS,
+  createSettingsSnapshotStore,
+} = BirdViewSettingsSnapshot;
 const { FolderItemSource } = BirdViewFolder;
 const { createFolderContentIntake } = BirdViewFolderContent;
 const { createLibraryContentTarget } = BirdViewLibraryContent;
@@ -60,28 +57,9 @@ const { TagEditor } = BirdViewTagEditor;
 const { SelectionTagOverflow, getVisibleTagCount } = BirdViewSelectionTags;
 const { createCameraNavigation } = BirdViewCamera;
 const { createSelectionNavigation } = BirdViewSelection;
-const DEFAULT_SMOOTH_PAN_SPEED = 480;
-const MIN_SMOOTH_PAN_SPEED = 120;
-const MAX_SMOOTH_PAN_SPEED = 6000;
-const DEFAULT_SMOOTH_ZOOM_SPEED = 1.5;
-const MIN_SMOOTH_ZOOM_SPEED = 1.05;
-const MAX_SMOOTH_ZOOM_SPEED = 60;
-const KEYBOARD_ACCELERATION_LEVELS = Object.freeze([6, 16, 24]);
-const DEFAULT_KEYBOARD_ACCELERATION = 16;
-const DEFAULT_FOCUS_MEDIA_SIZE = TARGET_ROW_HEIGHT;
-const MIN_FOCUS_MEDIA_SIZE = 80;
-const MAX_FOCUS_MEDIA_SIZE = 400;
-const DEFAULT_LAYOUT_DIRECTION = "ltr";
-const DEFAULT_LAYOUT_WIDTH = LAYOUT_WIDTH;
-const DEFAULT_AI_EXPLORATION_RATIO = 0;
-const DEFAULT_AI_SIMILARITY_MAX = 100;
-const DEFAULT_EXPLORATION_DIVERSITY_STRENGTH = 0;
-const MIN_AI_SIMILARITY_MAX = 0;
-const MAX_AI_SIMILARITY_MAX = 100;
 const SEAMLESS_LAYOUT_GAP = 0;
 const SEAMLESS_ROW_GAP = 0;
 const TIGHT_FOCUS_ROW_EMPHASIS = 1.1;
-const SETTINGS_STORAGE_KEY = "bird-view-settings";
 const KEYBOARD_ZOOM_FACTOR = 1.5;
 const KEYBOARD_SEEK_STEP = 5;
 const KEYBOARD_VOLUME_STEP = 0.05;
@@ -113,20 +91,20 @@ const state = {
   selectedNode: null,
   verticalNavigation: null,
   smoothPanEnabled: false,
-  smoothPanSpeed: DEFAULT_SMOOTH_PAN_SPEED,
+  smoothPanSpeed: DEFAULT_SETTINGS_SNAPSHOT.board.smoothPanSpeed,
   smoothZoomEnabled: false,
-  smoothZoomSpeed: DEFAULT_SMOOTH_ZOOM_SPEED,
-  keyboardAcceleration: DEFAULT_KEYBOARD_ACCELERATION,
-  focusMediaSize: DEFAULT_FOCUS_MEDIA_SIZE,
+  smoothZoomSpeed: DEFAULT_SETTINGS_SNAPSHOT.board.smoothZoomSpeed,
+  keyboardAcceleration: DEFAULT_SETTINGS_SNAPSHOT.board.keyboardAcceleration,
+  focusMediaSize: DEFAULT_SETTINGS_SNAPSHOT.board.focusMediaSize,
   videoAutoplayEnabled: false,
-  layoutDirection: DEFAULT_LAYOUT_DIRECTION,
-  layoutWidth: DEFAULT_LAYOUT_WIDTH,
+  layoutDirection: DEFAULT_SETTINGS_SNAPSHOT.board.layoutDirection,
+  layoutWidth: DEFAULT_SETTINGS_SNAPSHOT.board.layoutWidth,
   layoutWidthUnlimited: false,
   seamlessMode: false,
-  maxExplorationItems: DEFAULT_MAX_EXPLORATION_ITEMS,
-  aiExplorationRatio: DEFAULT_AI_EXPLORATION_RATIO,
-  aiSimilarityMax: DEFAULT_AI_SIMILARITY_MAX,
-  explorationDiversityStrength: DEFAULT_EXPLORATION_DIVERSITY_STRENGTH,
+  maxExplorationItems: DEFAULT_SETTINGS_SNAPSHOT.board.maxExplorationItems,
+  aiExplorationRatio: DEFAULT_SETTINGS_SNAPSHOT.board.aiExplorationRatio,
+  aiSimilarityMax: DEFAULT_SETTINGS_SNAPSHOT.board.aiSimilarityMax,
+  explorationDiversityStrength: DEFAULT_SETTINGS_SNAPSHOT.board.explorationDiversityStrength,
   aiExplorationAvailable: false,
   videoVolume: 1,
   smoothPanKeys: new Set(),
@@ -179,6 +157,7 @@ let selectionNavigation = null;
 let mediaMaterializer = null;
 let autoExploreSettings = null;
 let settingsPresetStore = null;
+let settingsSnapshotStore = null;
 let folderBrowser = null;
 const rowLoadCoordinator = createRowLoadCoordinator({
   onLoadingChange(channel, isLoading) {
@@ -339,6 +318,9 @@ function setup() {
     onReset: resetAiExplorationSettings,
   });
   settingsPresetStore = createSettingsPresetStore({
+    storage: typeof localStorage === "undefined" ? null : localStorage,
+  });
+  settingsSnapshotStore = createSettingsSnapshotStore({
     storage: typeof localStorage === "undefined" ? null : localStorage,
   });
   folderBrowser = createFolderBrowser({
@@ -1971,65 +1953,45 @@ function maybeLoadNextUnratedRow() {
 }
 
 function updateBoardSettings() {
-  const nextLayoutDirection = elements.layoutDirection
-    ? normalizeLayoutDirection(elements.layoutDirection.value)
-    : state.layoutDirection;
-  const layoutDirectionChanged = nextLayoutDirection !== state.layoutDirection;
-  state.layoutDirection = nextLayoutDirection;
-  const nextLayoutWidth = elements.layoutWidth
-    ? normalizeBoardLayoutWidth(elements.layoutWidth.value)
-    : state.layoutWidth;
-  const nextLayoutWidthUnlimited = elements.layoutWidth
-    ? nextLayoutWidth >= MAX_LAYOUT_WIDTH
-    : state.layoutWidthUnlimited;
-  const layoutWidthChanged =
-    nextLayoutWidth !== state.layoutWidth ||
-    nextLayoutWidthUnlimited !== state.layoutWidthUnlimited;
-  state.layoutWidth = nextLayoutWidth;
-  state.layoutWidthUnlimited = nextLayoutWidthUnlimited;
-  const nextMaxExplorationItems = elements.maxExplorationItems
-    ? normalizeMaxExplorationItems(elements.maxExplorationItems.value)
-    : state.maxExplorationItems;
-  state.maxExplorationItems = nextMaxExplorationItems;
-  const nextAiExplorationRatio = elements.aiExplorationRatio
-    ? normalizeAiExplorationRatio(elements.aiExplorationRatio.value)
-    : state.aiExplorationRatio;
-  const nextAiSimilarityMax = elements.aiSimilarityMax
-    ? normalizeAiSimilarityMax(elements.aiSimilarityMax.value)
-    : state.aiSimilarityMax;
-  const nextExplorationDiversityStrength = elements.explorationDiversityStrength
-    ? normalizeExplorationDiversityStrength(elements.explorationDiversityStrength.value)
-    : state.explorationDiversityStrength;
+  const previous = getSettingsSnapshot();
+  const rawLayoutWidth = elements.layoutWidth?.value;
+  const next = settingsSnapshotStore.capture({
+    ...previous,
+    board: {
+      ...previous.board,
+      layoutDirection: elements.layoutDirection?.value ?? previous.board.layoutDirection,
+      layoutWidth: rawLayoutWidth ?? previous.board.layoutWidth,
+      layoutWidthUnlimited: elements.layoutWidth
+        ? Number(rawLayoutWidth) >= SETTINGS_LIMITS.maxLayoutWidth
+        : previous.board.layoutWidthUnlimited,
+      maxExplorationItems:
+        elements.maxExplorationItems?.value ?? previous.board.maxExplorationItems,
+      aiExplorationRatio:
+        elements.aiExplorationRatio?.value ?? previous.board.aiExplorationRatio,
+      aiSimilarityMax: elements.aiSimilarityMax?.value ?? previous.board.aiSimilarityMax,
+      explorationDiversityStrength:
+        elements.explorationDiversityStrength?.value ??
+        previous.board.explorationDiversityStrength,
+      smoothPanEnabled: Boolean(elements.smoothPanToggle?.checked),
+      smoothPanSpeed: elements.smoothPanSpeed?.value ?? previous.board.smoothPanSpeed,
+      smoothZoomEnabled: Boolean(elements.smoothZoomToggle?.checked),
+      smoothZoomSpeed: elements.smoothZoomSpeed?.value ?? previous.board.smoothZoomSpeed,
+      keyboardAcceleration:
+        elements.keyboardAcceleration?.value ?? previous.board.keyboardAcceleration,
+      focusMediaSize: elements.focusMediaSize?.value ?? previous.board.focusMediaSize,
+      videoAutoplayEnabled: Boolean(elements.videoAutoplayToggle?.checked),
+    },
+  });
+  const layoutChanged =
+    previous.board.layoutDirection !== next.board.layoutDirection ||
+    previous.board.layoutWidth !== next.board.layoutWidth ||
+    previous.board.layoutWidthUnlimited !== next.board.layoutWidthUnlimited ||
+    previous.board.seamlessMode !== next.board.seamlessMode;
   const explorationSettingsChanged =
-    nextAiExplorationRatio !== state.aiExplorationRatio ||
-    nextAiSimilarityMax !== state.aiSimilarityMax ||
-    nextExplorationDiversityStrength !== state.explorationDiversityStrength;
-  state.aiExplorationRatio = nextAiExplorationRatio;
-  state.aiSimilarityMax = nextAiSimilarityMax;
-  state.explorationDiversityStrength = nextExplorationDiversityStrength;
-  state.smoothPanEnabled = Boolean(elements.smoothPanToggle?.checked);
-  const speed = Number(elements.smoothPanSpeed?.value);
-  if (Number.isFinite(speed)) {
-    state.smoothPanSpeed = clamp(speed, MIN_SMOOTH_PAN_SPEED, MAX_SMOOTH_PAN_SPEED);
-  }
-  state.smoothZoomEnabled = Boolean(elements.smoothZoomToggle?.checked);
-  const zoomSpeed = Number(elements.smoothZoomSpeed?.value);
-  if (Number.isFinite(zoomSpeed)) {
-    state.smoothZoomSpeed = clamp(
-      zoomSpeed,
-      MIN_SMOOTH_ZOOM_SPEED,
-      MAX_SMOOTH_ZOOM_SPEED,
-    );
-  }
-  if (elements.keyboardAcceleration) {
-    state.keyboardAcceleration = normalizeKeyboardAcceleration(
-      elements.keyboardAcceleration.value,
-    );
-  }
-  if (elements.focusMediaSize) {
-    state.focusMediaSize = normalizeFocusMediaSize(elements.focusMediaSize.value);
-  }
-  state.videoAutoplayEnabled = Boolean(elements.videoAutoplayToggle?.checked);
+    previous.board.aiExplorationRatio !== next.board.aiExplorationRatio ||
+    previous.board.aiSimilarityMax !== next.board.aiSimilarityMax ||
+    previous.board.explorationDiversityStrength !== next.board.explorationDiversityStrength;
+  applySettingsSnapshotValues(next);
   if (!state.smoothPanEnabled) cameraNavigation.stopSmoothKeyboardPan();
   if (!state.smoothZoomEnabled) cameraNavigation.stopSmoothKeyboardZoom();
   saveSettings();
@@ -2039,14 +2001,14 @@ function updateBoardSettings() {
     rowLoadCoordinator.invalidate("exploration");
     state.explorationSource?.clear();
   }
-  if (layoutDirectionChanged || layoutWidthChanged) relayoutBoard();
+  if (layoutChanged) relayoutBoard();
 }
 
 function updateBoardSettingsUI() {
   if (elements.layoutDirection) elements.layoutDirection.value = state.layoutDirection;
   if (elements.layoutWidth) {
     elements.layoutWidth.value = String(
-      state.layoutWidthUnlimited ? MAX_LAYOUT_WIDTH : state.layoutWidth,
+      state.layoutWidthUnlimited ? SETTINGS_LIMITS.maxLayoutWidth : state.layoutWidth,
     );
     elements.layoutWidth.setAttribute(
       "aria-valuetext",
@@ -2078,7 +2040,8 @@ function updateBoardSettingsUI() {
     elements.aiSimilarityMax.disabled = !state.aiExplorationAvailable;
   }
   if (elements.aiSimilarityMaxValue) {
-    elements.aiSimilarityMaxValue.textContent = state.aiSimilarityMax >= MAX_AI_SIMILARITY_MAX
+    elements.aiSimilarityMaxValue.textContent =
+      state.aiSimilarityMax >= SETTINGS_LIMITS.maxAiSimilarity
       ? "不限"
       : `${state.aiSimilarityMax}%`;
   }
@@ -2143,8 +2106,7 @@ function updateSeamlessModeUI() {
 }
 
 function getSettingsSnapshot({ includeActivePreset = false } = {}) {
-  const snapshot = {
-    version: 1,
+  return settingsSnapshotStore.capture({
     unratedEnabled: state.unratedEnabled,
     board: {
       layoutDirection: state.layoutDirection,
@@ -2152,7 +2114,6 @@ function getSettingsSnapshot({ includeActivePreset = false } = {}) {
       layoutWidthUnlimited: state.layoutWidthUnlimited,
       seamlessMode: state.seamlessMode,
       maxExplorationItems: state.maxExplorationItems,
-      aiExplorationEnabled: state.aiExplorationRatio > 0,
       aiExplorationRatio: state.aiExplorationRatio,
       aiSimilarityMax: state.aiSimilarityMax,
       explorationDiversityStrength: state.explorationDiversityStrength,
@@ -2165,62 +2126,33 @@ function getSettingsSnapshot({ includeActivePreset = false } = {}) {
       videoAutoplayEnabled: state.videoAutoplayEnabled,
     },
     autoExploreFilter: autoExploreSettings.getFilter(),
-  };
-  if (includeActivePreset && state.selectedPresetName) {
-    snapshot.activePresetName = state.selectedPresetName;
-  }
-  return snapshot;
+    activePresetName: includeActivePreset ? state.selectedPresetName : "",
+  });
 }
 
 function applySettingsSnapshotValues(settings, { restoreAutoExploreState = false } = {}) {
+  const snapshot = settingsSnapshotStore.normalize(settings);
   if (restoreAutoExploreState && typeof settings?.unratedEnabled === "boolean") {
-    state.unratedEnabled = settings.unratedEnabled;
+    state.unratedEnabled = snapshot.unratedEnabled;
   }
-  const board = settings?.board;
-  if (board && typeof board === "object") {
-    state.smoothPanEnabled = Boolean(board.smoothPanEnabled);
-    state.smoothPanSpeed = normalizeStoredSettingNumber(
-      board.smoothPanSpeed,
-      MIN_SMOOTH_PAN_SPEED,
-      MAX_SMOOTH_PAN_SPEED,
-      DEFAULT_SMOOTH_PAN_SPEED,
-    );
-    state.smoothZoomEnabled = Boolean(board.smoothZoomEnabled);
-    state.smoothZoomSpeed = normalizeStoredSettingNumber(
-      board.smoothZoomSpeed,
-      MIN_SMOOTH_ZOOM_SPEED,
-      MAX_SMOOTH_ZOOM_SPEED,
-      DEFAULT_SMOOTH_ZOOM_SPEED,
-    );
-    state.keyboardAcceleration = normalizeKeyboardAcceleration(
-      board.keyboardAcceleration ?? board.smoothZoomAcceleration,
-    );
-    state.focusMediaSize = normalizeFocusMediaSize(board.focusMediaSize);
-    state.videoAutoplayEnabled = Boolean(board.videoAutoplayEnabled);
-    state.layoutDirection = normalizeLayoutDirection(board.layoutDirection);
-    state.layoutWidth = normalizeBoardLayoutWidth(board.layoutWidth);
-    state.layoutWidthUnlimited = Boolean(board.layoutWidthUnlimited);
-    state.seamlessMode = Boolean(board.seamlessMode);
-    state.maxExplorationItems = normalizeMaxExplorationItems(board.maxExplorationItems);
-    const hasAiExplorationRatio = Object.prototype.hasOwnProperty.call(
-      board,
-      "aiExplorationRatio",
-    );
-    const legacyMaxAiExplorationItems = normalizeLegacyMaxAiExplorationItems(
-      board.maxAiExplorationItems,
-    );
-    state.aiExplorationRatio = hasAiExplorationRatio
-      ? normalizeAiExplorationRatio(board.aiExplorationRatio)
-      : board.aiExplorationEnabled === false
-        ? DEFAULT_AI_EXPLORATION_RATIO
-        : ratioFromLegacyMaxAiItems(legacyMaxAiExplorationItems, state.maxExplorationItems);
-    state.aiSimilarityMax = normalizeAiSimilarityMax(board.aiSimilarityMax);
-    state.explorationDiversityStrength = normalizeExplorationDiversityStrength(
-      board.explorationDiversityStrength,
-    );
-  }
+  const board = snapshot.board;
+  state.smoothPanEnabled = board.smoothPanEnabled;
+  state.smoothPanSpeed = board.smoothPanSpeed;
+  state.smoothZoomEnabled = board.smoothZoomEnabled;
+  state.smoothZoomSpeed = board.smoothZoomSpeed;
+  state.keyboardAcceleration = board.keyboardAcceleration;
+  state.focusMediaSize = board.focusMediaSize;
+  state.videoAutoplayEnabled = board.videoAutoplayEnabled;
+  state.layoutDirection = board.layoutDirection;
+  state.layoutWidth = board.layoutWidth;
+  state.layoutWidthUnlimited = board.layoutWidthUnlimited;
+  state.seamlessMode = board.seamlessMode;
+  state.maxExplorationItems = board.maxExplorationItems;
+  state.aiExplorationRatio = board.aiExplorationRatio;
+  state.aiSimilarityMax = board.aiSimilarityMax;
+  state.explorationDiversityStrength = board.explorationDiversityStrength;
   if (settings?.autoExploreFilter && typeof settings.autoExploreFilter === "object") {
-    autoExploreSettings.setFilter(settings.autoExploreFilter);
+    autoExploreSettings.setFilter(snapshot.autoExploreFilter);
   }
 }
 
@@ -2281,34 +2213,22 @@ function applySettingsSnapshot(settings, { persist = true } = {}) {
 }
 
 function restoreSavedSettings() {
-  try {
-    if (typeof localStorage === "undefined") return;
-    const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
-    if (!stored) return;
-    const saved = JSON.parse(stored);
-    const activePreset = saved?.activePresetName
-      ? settingsPresetStore?.get(saved.activePresetName)
-      : null;
-    if (activePreset) {
-      state.selectedPresetName = activePreset.name;
-      applySettingsSnapshotValues(activePreset.settings, { restoreAutoExploreState: true });
-      return;
-    }
-    applySettingsSnapshotValues(saved);
-  } catch (error) {
-    console.warn("Failed to restore Bird View settings", error);
+  const saved = settingsSnapshotStore.read();
+  if (!saved) return;
+  const activePreset = saved.activePresetName
+    ? settingsPresetStore?.get(saved.activePresetName)
+    : null;
+  if (activePreset) {
+    state.selectedPresetName = activePreset.name;
+    applySettingsSnapshotValues(activePreset.settings, { restoreAutoExploreState: true });
+    return;
   }
+  applySettingsSnapshotValues(saved);
 }
 
 function saveSettings() {
-  try {
-    if (typeof localStorage === "undefined") return;
-    localStorage.setItem(
-      SETTINGS_STORAGE_KEY,
-      JSON.stringify(getSettingsSnapshot({ includeActivePreset: true })),
-    );
-  } catch (error) {
-    console.warn("Failed to save Bird View settings", error);
+  if (!settingsSnapshotStore.write(getSettingsSnapshot({ includeActivePreset: true }))) {
+    console.warn("Failed to save Bird View settings");
   }
 }
 
@@ -2483,46 +2403,14 @@ function handleAutoExploreFilterChange(nextFilter, { changed }) {
 }
 
 function resetAiExplorationSettings() {
-  state.aiExplorationRatio = DEFAULT_AI_EXPLORATION_RATIO;
-  state.aiSimilarityMax = DEFAULT_AI_SIMILARITY_MAX;
-  state.explorationDiversityStrength = DEFAULT_EXPLORATION_DIVERSITY_STRENGTH;
+  state.aiExplorationRatio = DEFAULT_SETTINGS_SNAPSHOT.board.aiExplorationRatio;
+  state.aiSimilarityMax = DEFAULT_SETTINGS_SNAPSHOT.board.aiSimilarityMax;
+  state.explorationDiversityStrength =
+    DEFAULT_SETTINGS_SNAPSHOT.board.explorationDiversityStrength;
   rowLoadCoordinator.invalidate("exploration");
   state.explorationSource?.clear();
   updateBoardSettingsUI();
   saveSettings();
-}
-
-function normalizeStoredSettingNumber(value, minimum, maximum, fallback) {
-  const number = Number(value);
-  return Number.isFinite(number) ? clamp(number, minimum, maximum) : fallback;
-}
-
-function normalizeLayoutDirection(direction) {
-  return direction === "rtl" ? "rtl" : DEFAULT_LAYOUT_DIRECTION;
-}
-
-function normalizeBoardLayoutWidth(width) {
-  return normalizeStoredSettingNumber(
-    width,
-    MIN_LAYOUT_WIDTH,
-    MAX_LAYOUT_WIDTH,
-    DEFAULT_LAYOUT_WIDTH,
-  );
-}
-
-function normalizeFocusMediaSize(size) {
-  const value = Number(size);
-  return Number.isFinite(value)
-    ? clamp(Math.round(value / 10) * 10, MIN_FOCUS_MEDIA_SIZE, MAX_FOCUS_MEDIA_SIZE)
-    : DEFAULT_FOCUS_MEDIA_SIZE;
-}
-
-function normalizeKeyboardAcceleration(value) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return DEFAULT_KEYBOARD_ACCELERATION;
-  return KEYBOARD_ACCELERATION_LEVELS.reduce((closest, candidate) =>
-    Math.abs(candidate - number) < Math.abs(closest - number) ? candidate : closest,
-  );
 }
 
 function getBoardLayoutWidth() {
@@ -2553,35 +2441,6 @@ function getBoardLayoutConfig() {
     layoutWidth: getBoardLayoutWidth(),
     ...getBoardLayoutOptions(),
   };
-}
-
-function normalizeMaxExplorationItems(value) {
-  const number = Number(value);
-  return Number.isFinite(number)
-    ? clamp(Math.floor(number), MIN_EXPLORATION_ITEMS, MAX_EXPLORATION_ITEMS)
-    : DEFAULT_MAX_EXPLORATION_ITEMS;
-}
-
-function normalizeLegacyMaxAiExplorationItems(value) {
-  const number = Number(value);
-  return Number.isFinite(number)
-    ? clamp(Math.floor(number), 0, MAX_EXPLORATION_ITEMS)
-    : 0;
-}
-
-function ratioFromLegacyMaxAiItems(maxItems, totalItems) {
-  if (maxItems < 1 || totalItems < 1) return DEFAULT_AI_EXPLORATION_RATIO;
-  return Math.max(
-    25,
-    normalizeAiExplorationRatio((maxItems / totalItems) * 100),
-  );
-}
-
-function normalizeAiSimilarityMax(value) {
-  const number = Number(value);
-  return Number.isFinite(number)
-    ? clamp(Math.round(number / 5) * 5, MIN_AI_SIMILARITY_MAX, MAX_AI_SIMILARITY_MAX)
-    : DEFAULT_AI_SIMILARITY_MAX;
 }
 
 function getConfiguredAiExplorationItems() {

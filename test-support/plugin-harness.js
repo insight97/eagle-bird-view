@@ -10,6 +10,7 @@ const BirdViewMaterializer = require("../media-materializer.js");
 const BirdViewExploration = require("../exploration-source.js");
 const BirdViewAutoExploreSettings = require("../auto-explore-settings.js");
 const BirdViewSettingsPresets = require("../settings-presets.js");
+const BirdViewSettingsSnapshot = require("../settings-snapshot.js");
 const BirdViewRowLoad = require("../row-load-coordinator.js");
 const BirdViewSelectionTags = require("../selection-tag-overflow.js");
 const BirdViewFolderBrowser = require("../folder-browser.js");
@@ -391,6 +392,7 @@ function createPluginHarness({
     BirdViewMaterializer,
     BirdViewAutoExploreSettings,
     BirdViewSettingsPresets,
+    BirdViewSettingsSnapshot,
     BirdViewRowLoad,
     BirdViewSelectionTags,
     BirdViewFolderBrowser,
