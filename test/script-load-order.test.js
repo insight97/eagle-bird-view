@@ -7,6 +7,29 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const ROOT = path.resolve(__dirname, "..");
+const EXPECTED_SCRIPT_SOURCES = [
+  "bird-view-core.js",
+  "board-state.js",
+  "row-load-coordinator.js",
+  "anchored-popover.js",
+  "selection-tag-overflow.js",
+  "media-load-queue.js",
+  "exploration-source.js",
+  "auto-explore-settings.js",
+  "settings-presets.js",
+  "settings-snapshot.js",
+  "folder-item-source.js",
+  "folder-content-intake.js",
+  "library-content-target.js",
+  "folder-browser.js",
+  "folder-picker.js",
+  "video-player.js",
+  "media-materializer.js",
+  "tag-editor.js",
+  "camera-navigation.js",
+  "selection-navigation.js",
+  "plugin.js",
+];
 
 function scriptSources() {
   const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
@@ -30,6 +53,7 @@ test("every module resolves its dependencies in index.html script order", () => 
 
   const sources = scriptSources();
   assert.ok(sources.includes("plugin.js"), "index.html should load plugin.js");
+  assert.deepEqual(sources, EXPECTED_SCRIPT_SOURCES);
 
   for (const source of sources) {
     if (source === "plugin.js") continue;

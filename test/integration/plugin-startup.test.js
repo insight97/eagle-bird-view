@@ -519,7 +519,7 @@ test("folder browser renders the first progressive batch before descendant loadi
   assert.equal(plugin.state.folderContentIntake.snapshot().itemCount, 121);
 });
 
-test("folder browser mounts a small folder immediately after its initial batch", async () => {
+test("folder browser reveals a small folder without viewport interaction", async () => {
   class SmallFolderItemSource {
     async loadSelected() {
       return { folders: [], items: [] };
@@ -556,8 +556,17 @@ test("folder browser mounts a small folder immediately after its initial batch",
   plugin.elements.get("#folder-browser-tree").querySelectorAll(".folder-browser-item")[0].click();
   await flush();
 
+  const world = plugin.elements.get("#world");
+  const card = world.children[0];
+  const thumbnail = card.querySelector("img");
   assert.equal(plugin.elements.get("#item-count").textContent, "1 個素材");
-  assert.equal(plugin.elements.get("#world").children.length, 1);
+  assert.equal(world.children.length, 1);
+  assert.equal(thumbnail.style.visibility, "hidden");
+
+  plugin.resolvePendingImageLoads();
+  await flush();
+
+  assert.equal(card.querySelector("img").style.visibility, "visible");
 });
 
 test("folder browser keeps completed items and retries a failed folder query", async () => {

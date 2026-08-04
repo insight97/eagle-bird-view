@@ -648,6 +648,22 @@ function createPluginHarness({
       const tagName = String(tag).toUpperCase();
       return createdElements.filter((element) => element.tagName === tagName);
     },
+    resolvePendingImageLoads() {
+      const resolved = new Set();
+      for (let attempt = 0; attempt <= createdElements.length; attempt += 1) {
+        const pendingImages = createdElements.filter(
+          (element) =>
+            element.tagName === "IMG" &&
+            element.style.visibility === "hidden" &&
+            !resolved.has(element),
+        );
+        if (!pendingImages.length) return;
+        for (const image of pendingImages) {
+          resolved.add(image);
+          image.emit("load");
+        }
+      }
+    },
     fireTimer(delay) {
       const index = timers.findIndex((timer) => timer.delay === delay);
       if (index === -1) throw new Error(`no timer scheduled with delay ${delay}`);

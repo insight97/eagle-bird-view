@@ -17,9 +17,10 @@
 - `library-content-target.js`：解析 Tag／資料夾 metadata target，協調 Eagle 查詢與 folder-content intake；不直接修改 UI。
 - `media-load-queue.js`／`media-materializer.js`：分別管理媒體載入併發與 DOM 卡片生命週期。可視素材掛載、附近素材保留，遠處素材釋放。
 - `camera-navigation.js`／`selection-navigation.js`：相機平移／縮放／聚焦與鍵盤選取。
+- `selection-tag-overflow.js`：選取素材 Tag 的可用寬度收合與搜尋選擇。
 - `auto-explore-settings.js`／`settings-presets.js`：設定面板、篩選器正規化與 localStorage preset。
 - `settings-snapshot.js`：設定 schema、legacy migration、正規化與 `bird-view-settings` storage；不直接修改 plugin state 或 UI。
-- `anchored-popover.js`／`tag-editor.js`／`folder-picker.js`／`video-player.js`：可獨立測試的 UI 模組。
+- `anchored-popover.js`／`folder-browser.js`／`tag-editor.js`／`folder-picker.js`／`video-player.js`：可獨立測試的 UI 模組。
 - `plugin.js`：唯一主要整合層，接 Eagle API、DOM、事件、狀態與上述模組。新增功能前先確認是否能放進既有模組，避免繼續擴大這個整合層。
 
 模組應提供小而深的 interface：由 caller 傳入依賴與 callback，把複雜行為留在模組 implementation 內。修改 seam 時，同時檢查所有 caller 與測試 adapter。
@@ -33,6 +34,7 @@ bird-view-core.js
 board-state.js
 row-load-coordinator.js
 anchored-popover.js
+selection-tag-overflow.js
 media-load-queue.js
 exploration-source.js
 auto-explore-settings.js
