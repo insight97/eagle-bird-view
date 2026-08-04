@@ -25,13 +25,17 @@
         return false;
       }
 
+      this.options.onSelectNode?.(node);
       this.mount(node, anchor, {
         className: "tag-editor folder-picker",
-        ariaLabel: `將 ${node.item?.name || "素材"} 加入資料夾`,
-        heading: "加入資料夾",
+        ariaLabel: `編輯 ${node.item?.name || "素材"} 的資料夾`,
+        heading: "編輯資料夾",
         placeholder: "搜尋資料夾",
-        extra: { entries },
-        buttons: [{ label: "取消", onClick: () => this.close() }],
+        extra: { entries, selected: new Set(normalizeFolderIds(node.item?.folders)) },
+        buttons: [
+          { label: "取消", onClick: () => this.close() },
+          { label: "完成", primary: true, onClick: (session) => void this.commit(session) },
+        ],
       });
       return true;
     }
@@ -39,7 +43,7 @@
     handleKeyDown(event, session) {
       if (event.key === "Escape") {
         event.preventDefault();
-        this.close();
+        void this.commit(session);
         return;
       }
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -49,6 +53,10 @@
       }
       if (event.key !== "Enter") return;
       event.preventDefault();
+      if (!session.input.value.trim()) {
+        void this.commit(session);
+        return;
+      }
       session.actions[session.activeIndex]?.activate();
     }
 
@@ -56,7 +64,14 @@
       const query = this.getQuery(session);
       const entries = session.entries
         .filter((entry) => !query || entry.searchText.includes(query))
-        .sort((first, second) => FOLDER_COLLATOR.compare(first.path, second.path))
+        .sort((first, second) => {
+          if (!query) {
+            const selectedDifference =
+              Number(session.selected.has(second.id)) - Number(session.selected.has(first.id));
+            if (selectedDifference) return selectedDifference;
+          }
+          return FOLDER_COLLATOR.compare(first.path, second.path);
+        })
         .slice(0, MAX_FOLDER_OPTIONS);
       this.resetOptions(session);
 
@@ -69,20 +84,56 @@
 
     appendFolderOption(session, entry) {
       const option = document.createElement("button");
+      const marker = document.createElement("span");
       const path = document.createElement("span");
+      const isSelected = session.selected.has(entry.id);
       option.className = "tag-editor-option folder-picker-option";
       option.type = "button";
+      option.setAttribute("aria-pressed", String(isSelected));
       option.title = entry.path;
+      marker.className = "tag-editor-check";
+      marker.textContent = isSelected ? "✓" : "";
       path.className = "folder-picker-path";
       path.textContent = entry.path;
-      option.append(path);
+      option.append(marker, path);
 
       this.appendAction(session, option, () => {
         if (this.session !== session) return;
-        this.close();
-        void this.options.onSelect(session.node, entry.folder);
+        if (session.selected.has(entry.id)) session.selected.delete(entry.id);
+        else session.selected.add(entry.id);
+        this.restartSearch(session);
       });
     }
+
+    restartSearch(session) {
+      session.input.value = "";
+      session.activeIndex = 0;
+      this.renderOptions(session);
+    }
+
+    async commit(session) {
+      if (this.session !== session || session.node.isSaving) return;
+      const previousFolders = normalizeFolderIds(session.node.item?.folders);
+      const nextFolders = [...session.selected];
+      this.close();
+      if (
+        previousFolders.length === nextFolders.length &&
+        previousFolders.every((folderId, index) => folderId === nextFolders[index])
+      ) {
+        return;
+      }
+      await this.options.onCommit?.(session.node, nextFolders, previousFolders);
+    }
+  }
+
+  function normalizeFolderIds(folders) {
+    return [
+      ...new Set(
+        (Array.isArray(folders) ? folders : [])
+          .map((folderId) => String(folderId || "").trim())
+          .filter(Boolean),
+      ),
+    ];
   }
 
   function createFolderEntries(folders) {
@@ -117,6 +168,7 @@
       const path = getPath(entry.id);
       return {
         folder: entry.folder,
+        id: entry.id,
         path,
         searchText: path.toLocaleLowerCase(),
       };

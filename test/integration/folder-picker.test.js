@@ -5,18 +5,19 @@ const assert = require("node:assert/strict");
 const { FolderPicker } = require("../../folder-picker.js");
 const { withDom } = require("../../test-support/dom-harness.js");
 
-test("folder picker filters folders and selects the active result with Enter", () =>
-  withDom((window) => {
+test("folder picker keeps existing folders selected and commits additions/removals", () =>
+  withDom(async (window) => {
     const viewport = document.createElement("div");
     const anchor = document.createElement("button");
-    const node = { item: { name: "Cover" } };
-    const selections = [];
+    const node = { item: { name: "Cover", folders: ["refs"] } };
+    const commits = [];
     viewport.append(anchor);
     document.body.append(viewport);
 
     const picker = new FolderPicker({
       getViewport: () => viewport,
-      onSelect: (...args) => selections.push(args),
+      onSelectNode() {},
+      onCommit: async (...args) => commits.push(args),
     });
     picker.open(node, anchor, [
       { id: "design", name: "Design", children: [{ id: "refs", name: "References" }] },
@@ -25,17 +26,31 @@ test("folder picker filters folders and selects the active result with Enter", (
 
     assert.equal(viewport.querySelector("[role='dialog']"), picker.session.editor);
     assert.equal(picker.session.options.children.length, 3);
+    assert.equal(
+      picker.session.actions.find(({ element }) => element.textContent.includes("References"))
+        .element.getAttribute("aria-pressed"),
+      "true",
+    );
 
-    picker.session.input.value = "references";
+    picker.session.input.value = "archive";
     picker.session.input.dispatchEvent(new window.Event("input", { bubbles: true }));
     assert.equal(picker.session.actions.length, 1);
-    assert.equal(picker.session.actions[0].element.textContent, "Design / References");
+    assert.equal(picker.session.actions[0].element.textContent, "Archive");
+    picker.session.actions[0].element.click();
+    assert.deepEqual([...picker.session.selected], ["refs", "archive"]);
+
+    const referencesAction = picker.session.actions.find(({ element }) =>
+      element.textContent.includes("References"),
+    );
+    referencesAction.element.click();
+    assert.deepEqual([...picker.session.selected], ["archive"]);
 
     picker.session.input.dispatchEvent(
       new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
     );
+    await Promise.resolve();
 
-    assert.deepEqual(selections, [[node, { id: "refs", name: "References" }]]);
+    assert.deepEqual(commits, [[node, ["archive"], ["refs"]]]);
     assert.equal(picker.session, null);
   }));
 
@@ -49,7 +64,7 @@ test("folder picker closes on Escape and outside pointerdown", () =>
 
     const picker = new FolderPicker({
       getViewport: () => viewport,
-      onSelect() {},
+      onCommit() {},
     });
     picker.open(node, anchor, [{ id: "design", name: "Design" }]);
     picker.session.input.dispatchEvent(
@@ -68,7 +83,7 @@ test("folder picker reports when there are no folders", () =>
     const emptyCalls = [];
     const picker = new FolderPicker({
       getViewport: () => viewport,
-      onSelect() {},
+      onCommit() {},
       onEmpty: (...args) => emptyCalls.push(args),
     });
     const node = { item: { name: "Cover" } };

@@ -207,7 +207,8 @@ const tagEditor = new TagEditor({
 });
 const folderPicker = new FolderPicker({
   getViewport: () => elements.viewport,
-  onSelect: addSelectedItemToFolder,
+  onSelectNode: (node) => selectionNavigation.setSelectedNode(node),
+  onCommit: commitNodeFolders,
   onEmpty: () => showToast("目前沒有可用的 Eagle 資料夾。", false),
 });
 const selectionTagOverflow = new SelectionTagOverflow({
@@ -1389,23 +1390,13 @@ async function removeSelectionTarget(node, { type, value, label }) {
   });
 }
 
-async function addSelectedItemToFolder(node, folder) {
+async function commitNodeFolders(node, nextFolders, previousFolders) {
   if (!node || node.isSaving) return;
-  const folderId = String(folder?.id || "").trim();
-  if (!folderId) return;
-
-  const previousFolders = normalizeTags(node.item.folders);
-  if (previousFolders.includes(folderId)) {
-    showToast(`「${node.item.name || "素材"}」已在該資料夾中。`, false);
-    return;
-  }
-
-  const nextFolders = [...previousFolders, folderId];
   node.item.folders = nextFolders;
   refreshMediaMetadata(node);
   updateSelectionStatus();
   const saved = await saveItemMetadata(node, {
-    successMessage: `已將「${node.item.name || "素材"}」加入「${folder?.name || "資料夾"}」。`,
+    successMessage: `已更新「${node.item.name || "素材"}」的資料夾。`,
     rollback: () => {
       node.item.folders = previousFolders;
       refreshMediaMetadata(node);
