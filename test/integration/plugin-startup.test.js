@@ -706,6 +706,45 @@ test("selected videos autoplay only while the video is large enough", async () =
   assert.ok(plugin.videoPauseCalls >= 1, "leaving the selection pauses the video");
 });
 
+test("Ctrl+Home sets the selected video's current frame as its Eagle thumbnail", async () => {
+  const item = videoItem();
+  const calls = [];
+  item.setCustomThumbnail = async () => true;
+  const plugin = createPluginHarness({
+    selectedItems: [item],
+    navigationProbe: true,
+    runAnimationFrames: true,
+    videoThumbnailImplementation: {
+      async setFromVideo(args) {
+        calls.push(args);
+        return { status: "saved" };
+      },
+    },
+  });
+
+  plugin.start();
+  await flush();
+  plugin.keyDown({ key: "Enter", target: null, preventDefault() {} });
+  assert.equal(plugin.videoStartRequests, 1);
+
+  let prevented = false;
+  plugin.keyDown({
+    key: "Home",
+    ctrlKey: true,
+    target: null,
+    preventDefault() {
+      prevented = true;
+    },
+  });
+  await flush();
+
+  assert.equal(prevented, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].item, item);
+  assert.equal(calls[0].video, plugin.state.selectedNode.videoElement);
+  assert.equal(plugin.elements.get("#toast").textContent, "已將目前影片畫面設為 Eagle 縮圖。");
+});
+
 test("dragging defers viewport maintenance until the pointer is released", async () => {
   const plugin = createPluginHarness({
     selectedItems: imageItems(48),

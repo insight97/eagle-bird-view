@@ -16,6 +16,7 @@ const BirdViewSelectionTags = require("../selection-tag-overflow.js");
 const BirdViewFolderBrowser = require("../folder-browser.js");
 const BirdViewFolderContent = require("../folder-content-intake.js");
 const BirdViewLibraryContent = require("../library-content-target.js");
+const BirdViewVideoThumbnail = require("../video-thumbnail.js");
 
 const PLUGIN_SOURCE = fs.readFileSync(path.resolve(__dirname, "../plugin.js"), "utf8");
 const SELECTORS = [
@@ -304,6 +305,7 @@ function createPluginHarness({
   tagSourceResult = [],
   folderSelectionApi = true,
   folderSourceImplementation = null,
+  videoThumbnailImplementation = null,
   runAnimationFrames = false,
   navigationProbe = false,
   smoothZoomProbe = false,
@@ -398,6 +400,16 @@ function createPluginHarness({
     BirdViewFolderBrowser,
     BirdViewFolderContent,
     BirdViewLibraryContent,
+    BirdViewVideoThumbnail: {
+      ...BirdViewVideoThumbnail,
+      createVideoThumbnailService() {
+        return videoThumbnailImplementation || {
+          async setFromVideo() {
+            return { status: "unavailable", reason: "runtime-unavailable" };
+          },
+        };
+      },
+    },
     // Real filter helpers, stubbed item sources.
     BirdViewExploration: { ...BirdViewExploration, RelatedItemSource, UnratedItemSource },
     BirdViewFolder: {

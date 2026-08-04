@@ -55,6 +55,7 @@ const { createFolderBrowser } = BirdViewFolderBrowser;
 const { FolderPicker } = BirdViewFolderPicker;
 const { TagEditor } = BirdViewTagEditor;
 const { SelectionTagOverflow, getVisibleTagCount } = BirdViewSelectionTags;
+const { createVideoThumbnailService } = BirdViewVideoThumbnail;
 const { createCameraNavigation } = BirdViewCamera;
 const { createSelectionNavigation } = BirdViewSelection;
 const SEAMLESS_LAYOUT_GAP = 0;
@@ -159,6 +160,7 @@ let autoExploreSettings = null;
 let settingsPresetStore = null;
 let settingsSnapshotStore = null;
 let folderBrowser = null;
+let videoThumbnailService = null;
 const rowLoadCoordinator = createRowLoadCoordinator({
   onLoadingChange(channel, isLoading) {
     if (channel === "exploration") {
@@ -323,6 +325,7 @@ function setup() {
   settingsSnapshotStore = createSettingsSnapshotStore({
     storage: typeof localStorage === "undefined" ? null : localStorage,
   });
+  videoThumbnailService = createVideoThumbnailService(createVideoThumbnailRuntime());
   folderBrowser = createFolderBrowser({
     document,
     elements: {
@@ -1578,6 +1581,19 @@ function handleKeyDown(event) {
     return;
   }
 
+  if (
+    event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    !event.shiftKey &&
+    event.key === "Home"
+  ) {
+    event.preventDefault();
+    if (event.repeat) return;
+    void setSelectedVideoThumbnail();
+    return;
+  }
+
   if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === "t") {
     event.preventDefault();
     if (event.repeat) return;
@@ -2536,6 +2552,98 @@ function activateSelectedNode() {
     node.togglePlayback();
   } else {
     node.startPlayback?.();
+  }
+}
+
+async function setSelectedVideoThumbnail() {
+  const node = state.selectedNode;
+  if (!node?.isVideo) {
+    showToast("請先選取影片。", true);
+    return;
+  }
+  if (!node.videoElement) {
+    showToast("請先播放影片，再按 Ctrl+Home 設定目前畫面為縮圖。", true);
+    return;
+  }
+  if (node.videoThumbnailSaving) return;
+
+  node.videoThumbnailSaving = true;
+  try {
+    const item = await getEagleItemForThumbnail(node);
+    if (!item) {
+      showToast("目前 Eagle 版本不支援設定影片縮圖。", true);
+      return;
+    }
+    const result = await videoThumbnailService?.setFromVideo({
+      video: node.videoElement,
+      item,
+    });
+    if (result?.status === "saved") {
+      showToast("已將目前影片畫面設為 Eagle 縮圖。", false);
+      return;
+    }
+    if (result?.reason === "video-not-ready") {
+      showToast("影片目前尚未載入畫面，請稍後再試。", true);
+      return;
+    }
+    showToast("目前環境無法建立影片縮圖檔案。", true);
+  } catch (error) {
+    console.error("Failed to set Eagle video thumbnail", error);
+    showToast(`無法設定影片縮圖：${error.message || error}`, true);
+  } finally {
+    node.videoThumbnailSaving = false;
+  }
+}
+
+async function getEagleItemForThumbnail(node) {
+  if (typeof node.item?.setCustomThumbnail === "function") return node.item;
+  if (typeof eagle === "undefined" || typeof eagle.item?.getById !== "function") {
+    return null;
+  }
+  return eagle.item.getById(node.item.id);
+}
+
+function createVideoThumbnailRuntime() {
+  const fs = loadNodeModule("fs");
+  const path = loadNodeModule("path");
+  const writeFile = fs?.promises?.writeFile
+    ? (filePath, bytes) => fs.promises.writeFile(filePath, bytes)
+    : fs?.writeFile
+      ? (filePath, bytes) =>
+        new Promise((resolve, reject) => fs.writeFile(filePath, bytes, (error) => {
+          if (error) reject(error);
+          else resolve();
+        }))
+      : null;
+  const removeFile = fs?.promises?.unlink
+    ? (filePath) => fs.promises.unlink(filePath)
+    : fs?.unlink
+      ? (filePath) =>
+        new Promise((resolve, reject) => fs.unlink(filePath, (error) => {
+          if (error) reject(error);
+          else resolve();
+        }))
+      : null;
+
+  return {
+    getTempDirectory: () => {
+      if (typeof eagle === "undefined") return null;
+      if (typeof eagle.app?.getPath === "function") return eagle.app.getPath("temp");
+      if (typeof eagle.os?.tmpdir === "function") return eagle.os.tmpdir();
+      return null;
+    },
+    joinPath: path?.join,
+    writeFile,
+    removeFile,
+  };
+}
+
+function loadNodeModule(name) {
+  if (typeof require !== "function") return null;
+  try {
+    return require(name);
+  } catch {
+    return null;
   }
 }
 

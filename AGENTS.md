@@ -21,6 +21,7 @@
 - `auto-explore-settings.js`／`settings-presets.js`：設定面板、篩選器正規化與 localStorage preset。
 - `settings-snapshot.js`：設定 schema、legacy migration、正規化與 `bird-view-settings` storage；不直接修改 plugin state 或 UI。
 - `anchored-popover.js`／`folder-browser.js`／`tag-editor.js`／`folder-picker.js`／`video-player.js`：可獨立測試的 UI 模組。
+- `video-thumbnail.js`：擷取影片目前畫面、暫存 PNG 與 Eagle custom thumbnail 的檔案生命週期；不直接管理 plugin state。
 - `plugin.js`：唯一主要整合層，接 Eagle API、DOM、事件、狀態與上述模組。新增功能前先確認是否能放進既有模組，避免繼續擴大這個整合層。
 
 模組應提供小而深的 interface：由 caller 傳入依賴與 callback，把複雜行為留在模組 implementation 內。修改 seam 時，同時檢查所有 caller 與測試 adapter。
@@ -46,6 +47,7 @@ library-content-target.js
 folder-browser.js
 folder-picker.js
 video-player.js
+video-thumbnail.js
 media-materializer.js
 tag-editor.js
 camera-navigation.js

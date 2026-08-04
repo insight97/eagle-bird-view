@@ -24,6 +24,7 @@ const EXPECTED_SCRIPT_SOURCES = [
   "folder-browser.js",
   "folder-picker.js",
   "video-player.js",
+  "video-thumbnail.js",
   "media-materializer.js",
   "tag-editor.js",
   "camera-navigation.js",
@@ -85,6 +86,7 @@ test("every module resolves its dependencies in index.html script order", () => 
       "BirdViewSettingsSnapshot",
       "BirdViewTagEditor",
       "BirdViewVideo",
+      "BirdViewVideoThumbnail",
     ],
   );
   assert.equal(
