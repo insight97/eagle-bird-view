@@ -298,6 +298,7 @@ function createPluginHarness({
   aiSearch = null,
   storage = null,
   folderTree = [],
+  tagSourceResult = [],
   folderSelectionApi = true,
   folderSourceImplementation = null,
   runAnimationFrames = false,
@@ -317,6 +318,8 @@ function createPluginHarness({
   let folderSelectionRequests = 0;
   let folderSelectionOptions = [];
   let folderSourceResult = { folders: [], items: [] };
+  let currentTagSourceResult = tagSourceResult;
+  let tagLoadRequests = 0;
   let fullScreen = false;
   let fullScreenCalls = 0;
   let selectedNodeId = null;
@@ -530,7 +533,11 @@ function createPluginHarness({
           if (selectedItems) return Promise.resolve(selectedItems);
           return new Promise((resolve) => selectedResolvers.push(resolve));
         },
-        async get() {
+        async get(options = {}) {
+          if (options.tags?.length) {
+            tagLoadRequests += 1;
+            return currentTagSourceResult;
+          }
           return [];
         },
         async open() {},
@@ -606,6 +613,7 @@ function createPluginHarness({
     get folderLoadRequests() { return folderLoadRequests; },
     get folderSelectionRequests() { return folderSelectionRequests; },
     get folderSelectionOptions() { return folderSelectionOptions; },
+    get tagLoadRequests() { return tagLoadRequests; },
     get fullScreen() { return fullScreen; },
     get fullScreenCalls() { return fullScreenCalls; },
     get camera() { return navigationState?.camera || null; },
@@ -665,6 +673,9 @@ function createPluginHarness({
     },
     setFolderSourceResult(result) {
       folderSourceResult = result;
+    },
+    setTagSourceResult(result) {
+      currentTagSourceResult = result;
     },
     start() {
       domReady();

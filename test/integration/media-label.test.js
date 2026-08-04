@@ -27,10 +27,14 @@ function labelledItem(overrides = {}) {
   return item;
 }
 
-async function startWithItem(item, { quiet = false, navigationProbe = false, folderTree = [] } = {}) {
+async function startWithItem(
+  item,
+  { quiet = false, navigationProbe = false, folderTree = [], tagSourceResult = [] } = {},
+) {
   const plugin = createPluginHarness({
     selectedItems: [item],
     folderTree,
+    tagSourceResult,
     runAnimationFrames: true,
     navigationProbe,
     quiet,
@@ -83,16 +87,23 @@ test("the toolbar and media label expose tag and folder add controls", async () 
   assert.equal(plugin.folderPickerOpenCalls, 2);
 });
 
-test("right-clicking a media label tag removes it from the item", async () => {
+test("right-clicking a media label tag loads all matching contents", async () => {
   const item = labelledItem();
-  const plugin = await startWithItem(item, { navigationProbe: true });
+  const plugin = await startWithItem(item, {
+    navigationProbe: true,
+    tagSourceResult: [
+      { id: "tag-item", name: "ui-reference.jpg", ext: "jpg", width: 100, height: 100 },
+    ],
+  });
   const label = findLabel(plugin);
 
   label.querySelector(".media-metadata-tag-target").emit("contextmenu");
   await new Promise((resolve) => setImmediate(resolve));
 
-  assert.deepEqual(item.tags, ["Web"]);
-  assert.equal(item.saveCalls, 1);
+  assert.deepEqual(item.tags, ["UI", "Web"]);
+  assert.equal(item.saveCalls, 0);
+  assert.equal(plugin.tagLoadRequests, 1);
+  assert.equal(plugin.elements.get("#item-count").textContent, "1 個素材");
 });
 
 test("a media label right-click loads the folder contents without removing the folder", async () => {
@@ -156,17 +167,23 @@ test("clicking a toolbar rating star saves the selected item", async () => {
   assert.equal(plugin.elements.get("#selection-rating").getAttribute("aria-label"), "評分 5 顆星");
 });
 
-test("right-clicking a toolbar tag removes it from the selected item", async () => {
+test("right-clicking a toolbar tag loads all matching contents", async () => {
   const item = labelledItem();
-  const plugin = await startWithItem(item, { navigationProbe: true });
+  const plugin = await startWithItem(item, {
+    navigationProbe: true,
+    tagSourceResult: [
+      { id: "tag-item", name: "ui-reference.jpg", ext: "jpg", width: 100, height: 100 },
+    ],
+  });
   const tag = plugin.state.selectionTagButtons[0];
 
   tag.emit("contextmenu");
   await new Promise((resolve) => setImmediate(resolve));
 
-  assert.deepEqual(item.tags, ["Web"]);
-  assert.equal(item.saveCalls, 1);
-  assert.deepEqual(plugin.state.selectionTags, ["Web"]);
+  assert.deepEqual(item.tags, ["UI", "Web"]);
+  assert.equal(item.saveCalls, 0);
+  assert.equal(plugin.tagLoadRequests, 1);
+  assert.equal(plugin.elements.get("#item-count").textContent, "1 個素材");
 });
 
 test("right-clicking a toolbar folder loads its contents", async () => {

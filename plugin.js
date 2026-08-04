@@ -1220,9 +1220,55 @@ function createMetadataTarget({ node, type, value, label, selection = false }) {
       void loadFolderFromMetadataTarget(value, label);
       return;
     }
-    void removeSelectionTarget(node, { type, value, label });
+    void loadTagFromMetadataTarget(value, label);
   });
   return button;
+}
+
+async function loadTagFromMetadataTarget(tag, label) {
+  const value = String(tag || "").trim();
+  if (
+    !value ||
+    !state.folderItemSource ||
+    typeof eagle === "undefined" ||
+    typeof eagle.item?.get !== "function"
+  ) {
+    showToast("目前無法讀取 Eagle Tag 素材。", true);
+    return;
+  }
+
+  folderBrowser?.setSelectedFolder("");
+  clearBoard();
+  resetFolderItemLoad();
+  rowLoadCoordinator.invalidate("selected");
+  rowLoadCoordinator.invalidate("folder-selection");
+  folderBrowser?.setStatus(`正在載入 Tag「${label || value}」…`);
+  const selectionGeneration = rowLoadCoordinator.getGeneration("folder-selection") + 1;
+  const result = await rowLoadCoordinator.run("folder-selection", async ({ isCurrent }) => {
+    const items = (await eagle.item.get({ tags: [value] })) || [];
+    if (!isCurrent()) return null;
+
+    state.folderItems = items.filter((item) => item?.id && !item.isDeleted);
+    state.folderItemIds = new Set(state.folderItems.map(({ id }) => id));
+    updateFolderLoadMoreUI();
+    if (!state.folderItems.length) return { items: [] };
+
+    const loadResult = await loadMoreFolderItems({ focus: true });
+    if (!isCurrent()) return null;
+    return { items: state.folderItems, loadResult };
+  });
+  if (rowLoadCoordinator.getGeneration("folder-selection") !== selectionGeneration) return;
+  if (result.status === "error") {
+    const { error } = result;
+    folderBrowser?.setStatus("載入 Tag 失敗，請重新嘗試。");
+    showToast(`無法載入 Tag 素材：${error.message || error}`, true);
+    return;
+  }
+  if (!result.value?.items?.length) {
+    folderBrowser?.setStatus(`Tag「${label || value}」沒有可載入的素材。`);
+    return;
+  }
+  folderBrowser?.setStatus(`已載入 Tag「${label || value}」的內容。`);
 }
 
 async function loadFolderFromMetadataTarget(folderId, label) {
