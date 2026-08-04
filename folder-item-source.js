@@ -32,8 +32,12 @@
         return { folders: [], items: [] };
       }
 
-      const folders = await getSelectedFolders(this.#folderApi);
+      const folders = await this.getSelectedFolders();
       return this.loadFolders(folders, options);
+    }
+
+    async getSelectedFolders() {
+      return getSelectedFolders(this.#folderApi);
     }
 
     async loadFolders(folders, { includeSubfolders = true, onItems } = {}) {
@@ -56,7 +60,7 @@
         if (!addedItems.length || typeof onItems !== "function") return;
         notifications = notifications.then(() => onItems(addedItems.sort(compareItems)));
       };
-      const responses = await queryFolders(
+      const { responses, failures } = await queryFolders(
         (folderId) => this.#queryFolder(folderId),
         folderIds,
         reportItems,
@@ -67,7 +71,11 @@
           if (item?.id && !item.isDeleted) itemsById.set(item.id, item);
         }
       }
-      return { folders, items: [...itemsById.values()].sort(compareItems) };
+      return {
+        folders,
+        items: [...itemsById.values()].sort(compareItems),
+        failures,
+      };
     }
 
     async hydrate(items) {
@@ -147,6 +155,7 @@
 
   async function queryFolders(queryFolder, folderIds, onItems) {
     const responses = new Array(folderIds.length);
+    const failures = [];
     let nextIndex = 0;
     const workerCount = Math.min(FOLDER_QUERY_CONCURRENCY, folderIds.length);
 
@@ -154,14 +163,21 @@
       while (nextIndex < folderIds.length) {
         const index = nextIndex;
         nextIndex += 1;
-        const items = await queryFolder(folderIds[index]);
+        let items;
+        try {
+          items = await queryFolder(folderIds[index]);
+        } catch (error) {
+          failures.push({ folderId: folderIds[index], error });
+          continue;
+        }
         responses[index] = items;
-        onItems?.(items);
+        await onItems?.(items);
       }
     }
 
     await Promise.all(Array.from({ length: workerCount }, () => worker()));
-    return responses;
+    failures.sort((first, second) => folderIds.indexOf(first.folderId) - folderIds.indexOf(second.folderId));
+    return { responses, failures };
   }
 
   return Object.freeze({ FolderItemSource });

@@ -13,6 +13,7 @@
 - `row-load-coordinator.js`：以 channel 管理非同步載入。每次失效都會提高 generation；過期結果不可提交到畫面。
 - `exploration-source.js`：相關素材、未評分素材、AI 相似素材與 hybrid exploration 的查詢、快取、篩選與選擇。
 - `folder-item-source.js`：把 Eagle 選取的資料夾（含子資料夾）轉成排序後的素材批次。
+- `folder-content-intake.js`：管理資料夾內容 session、漸進顯示、摘要 hydration、失效結果與部分失敗 retry；不直接修改 board 或 DOM。
 - `media-load-queue.js`／`media-materializer.js`：分別管理媒體載入併發與 DOM 卡片生命週期。可視素材掛載、附近素材保留，遠處素材釋放。
 - `camera-navigation.js`／`selection-navigation.js`：相機平移／縮放／聚焦與鍵盤選取。
 - `auto-explore-settings.js`／`settings-presets.js`：設定面板、篩選器正規化與 localStorage preset。
@@ -35,6 +36,8 @@ exploration-source.js
 auto-explore-settings.js
 settings-presets.js
 folder-item-source.js
+folder-content-intake.js
+folder-browser.js
 folder-picker.js
 video-player.js
 media-materializer.js

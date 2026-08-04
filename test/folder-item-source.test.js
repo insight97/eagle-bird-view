@@ -77,6 +77,27 @@ test("folder item source reports completed folder results before all queries fin
   if (assertionError) throw assertionError;
 });
 
+test("folder item source returns successful items and failed folder queries together", async () => {
+  const source = new FolderItemSource(
+    {
+      async get({ folders }) {
+        if (folders[0] === "broken") throw new Error("folder unavailable");
+        return [{ id: `item-${folders[0]}`, name: `${folders[0]}.jpg` }];
+      },
+    },
+    null,
+  );
+
+  const result = await source.loadFolders([
+    { id: "working" },
+    { id: "broken" },
+  ]);
+
+  assert.deepEqual(result.items.map(({ id }) => id), ["item-working"]);
+  assert.equal(result.failures.length, 1);
+  assert.equal(result.failures[0].folderId, "broken");
+});
+
 test("folder item source hydrates a batch in the original order", async () => {
   const source = new FolderItemSource(
     {

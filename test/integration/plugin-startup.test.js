@@ -516,7 +516,109 @@ test("folder browser renders the first progressive batch before descendant loadi
   assert.equal(plugin.elements.get("#item-count").textContent, "120 個素材");
   releaseRemaining();
   await flush();
-  assert.equal(plugin.state.folderItems.length, 121);
+  assert.equal(plugin.state.folderContentIntake.snapshot().itemCount, 121);
+});
+
+test("folder browser mounts a small folder immediately after its initial batch", async () => {
+  class SmallFolderItemSource {
+    async loadSelected() {
+      return { folders: [], items: [] };
+    }
+    async loadFolders(folders) {
+      return {
+        folders,
+        items: [
+          {
+            id: "small-folder-item",
+            name: "small.jpg",
+            ext: "jpg",
+            width: 100,
+            height: 100,
+            fileURL: "file:///small.jpg",
+            thumbnailURL: "file:///small-thumb.jpg",
+          },
+        ],
+      };
+    }
+    async hydrate(items) {
+      return items;
+    }
+  }
+  const plugin = createPluginHarness({
+    selectedItems: [],
+    folderTree: [{ id: "root", name: "Small" }],
+    folderSourceImplementation: SmallFolderItemSource,
+    runAnimationFrames: true,
+  });
+
+  plugin.start();
+  await flush();
+  plugin.elements.get("#folder-browser-tree").querySelectorAll(".folder-browser-item")[0].click();
+  await flush();
+
+  assert.equal(plugin.elements.get("#item-count").textContent, "1 個素材");
+  assert.equal(plugin.elements.get("#world").children.length, 1);
+});
+
+test("folder browser keeps completed items and retries a failed folder query", async () => {
+  let attempts = 0;
+  class PartialFolderItemSource {
+    async loadSelected() {
+      return { folders: [], items: [] };
+    }
+    async loadFolders(folders, options) {
+      attempts += 1;
+      await options.onItems?.([
+        {
+          id: "partial-folder-item",
+          name: "partial.jpg",
+          ext: "jpg",
+          width: 100,
+          height: 100,
+          fileURL: "file:///partial.jpg",
+          thumbnailURL: "file:///partial-thumb.jpg",
+        },
+      ]);
+      return {
+        folders,
+        items: [
+          {
+            id: "partial-folder-item",
+            name: "partial.jpg",
+            ext: "jpg",
+            width: 100,
+            height: 100,
+          },
+        ],
+        failures: attempts === 1 ? [{ folderId: "child", error: new Error("child unavailable") }] : [],
+      };
+    }
+    async hydrate(items) {
+      return items;
+    }
+  }
+  const plugin = createPluginHarness({
+    selectedItems: [],
+    folderTree: [{ id: "root", name: "Design" }],
+    folderSourceImplementation: PartialFolderItemSource,
+  });
+
+  plugin.start();
+  await flush();
+  plugin.elements.get("#folder-browser-tree").querySelectorAll(".folder-browser-item")[0].click();
+  await flush();
+
+  const loadMore = plugin.elements.get("#folder-load-more-button");
+  assert.equal(plugin.elements.get("#item-count").textContent, "1 個素材");
+  assert.equal(loadMore.textContent, "重試載入");
+  assert.match(plugin.elements.get("#folder-browser-status").textContent, /部分資料夾載入失敗/);
+
+  loadMore.click();
+  await flush();
+
+  assert.equal(attempts, 2);
+  assert.equal(loadMore.hidden, true);
+  assert.match(plugin.elements.get("#folder-browser-status").textContent, /已完成載入/);
 });
 
 test("folder browser works when Eagle only exposes getAll for folders", async () => {

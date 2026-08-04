@@ -13,6 +13,7 @@ const BirdViewSettingsPresets = require("../settings-presets.js");
 const BirdViewRowLoad = require("../row-load-coordinator.js");
 const BirdViewSelectionTags = require("../selection-tag-overflow.js");
 const BirdViewFolderBrowser = require("../folder-browser.js");
+const BirdViewFolderContent = require("../folder-content-intake.js");
 
 const PLUGIN_SOURCE = fs.readFileSync(path.resolve(__dirname, "../plugin.js"), "utf8");
 const SELECTORS = [
@@ -365,6 +366,10 @@ function createPluginHarness({
   }
 
   const DefaultFolderItemSource = class {
+    async getSelectedFolders() {
+      folderLoadRequests += 1;
+      return [];
+    }
     async loadSelected() {
       folderLoadRequests += 1;
       return folderSourceResult;
@@ -388,6 +393,7 @@ function createPluginHarness({
     BirdViewRowLoad,
     BirdViewSelectionTags,
     BirdViewFolderBrowser,
+    BirdViewFolderContent,
     // Real filter helpers, stubbed item sources.
     BirdViewExploration: { ...BirdViewExploration, RelatedItemSource, UnratedItemSource },
     BirdViewFolder: {
