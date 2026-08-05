@@ -32,6 +32,7 @@ const {
   shouldLoadUnratedRow,
 } = BirdViewCore;
 const { createBoardState } = BirdViewBoard;
+const { createBoardHistory } = BirdViewBoardHistory;
 const { createRowLoadCoordinator } = BirdViewRowLoad;
 const { createMediaMaterializer } = BirdViewMaterializer;
 const { createAutoExploreSettings } = BirdViewAutoExploreSettings;
@@ -78,6 +79,8 @@ const AUTO_EXPLORE_MIN_ZOOM = 0.8;
 const RESOURCE_RELEASE_VIEWPORTS = 2;
 const GRID_LAYER_OVERFLOW = 768;
 const METADATA_SUCCESS_TOAST_MS = 1200;
+const BOARD_HISTORY_MAX_ENTRIES = 10;
+const BOARD_HISTORY_MAX_ITEMS = 5000;
 
 const state = {
   camera: { x: 0, y: 0, scale: 1 },
@@ -152,6 +155,10 @@ const state = {
 };
 
 const board = createBoardState();
+const boardHistory = createBoardHistory({
+  maxEntries: BOARD_HISTORY_MAX_ENTRIES,
+  maxItems: BOARD_HISTORY_MAX_ITEMS,
+});
 const elements = {};
 let cameraNavigation = null;
 let selectionNavigation = null;
@@ -299,6 +306,8 @@ function setup() {
   elements.autoExploreFilterSummary = document.querySelector("#auto-explore-filter-summary");
   elements.exploreButton = document.querySelector("#explore-button");
   elements.folderLoadMoreButton = document.querySelector("#folder-load-more-button");
+  elements.boardHistoryBackButton = document.querySelector("#board-history-back-button");
+  elements.boardHistoryForwardButton = document.querySelector("#board-history-forward-button");
   elements.folderBrowser = document.querySelector("#folder-browser");
   elements.folderBrowserToggle = document.querySelector("#folder-browser-toggle");
   elements.folderBrowserSearch = document.querySelector("#folder-browser-search");
@@ -422,6 +431,8 @@ function setup() {
   elements.folderLoadMoreButton?.addEventListener("click", () => {
     void loadMoreFolderItems();
   });
+  elements.boardHistoryBackButton?.addEventListener("click", restorePreviousBoard);
+  elements.boardHistoryForwardButton?.addEventListener("click", restoreNextBoard);
   elements.layoutDirection?.addEventListener("change", updateBoardSettings);
   elements.layoutWidth?.addEventListener("input", updateBoardSettings);
   elements.maxExplorationItems?.addEventListener("input", updateBoardSettings);
@@ -446,6 +457,7 @@ function setup() {
   updateSeamlessModeUI();
   updateAutoExploreToggle();
   updateBoardSettingsUI();
+  updateBoardHistoryUI();
   autoExploreSettings.update();
   updateSelectionStatus();
 
@@ -522,7 +534,9 @@ function handleLibraryChanged() {
   state.libraryContentTarget?.reset();
   folderBrowser?.setLoading(false, "資料夾清單已更新。");
   state.folderItemSource?.clear?.();
+  boardHistory.clear();
   clearBoard();
+  updateBoardHistoryUI();
   state.folderNameGeneration += 1;
   state.folderNames.clear();
   state.folderTree = [];
@@ -597,7 +611,7 @@ async function loadSelectedItems({ append = false } = {}) {
 
     folderBrowser?.setSelectedFolder("");
     resetFolderItemLoad();
-    clearBoard();
+    clearBoard({ recordHistory: true });
     if (state.unratedEnabled) {
       showToast("Eagle 目前沒有選取素材，正在探索符合條件的素材。", false);
       await loadNextUnratedRow({ focus: true });
@@ -648,7 +662,7 @@ async function handleFolderBrowserSelect({ folder, includeSubfolders }) {
     return;
   }
   if (result.status === "empty") {
-    clearBoard();
+    clearBoard({ recordHistory: true });
     folderBrowser?.setStatus(`選取的資料夾${describeSelectedFolders([folder])}沒有可載入的素材。`);
     return;
   }
@@ -716,7 +730,26 @@ function appendItemsToBoard(items) {
   refreshBoardAfterItems(items);
 }
 
+function recordBoardHistory() {
+  const snapshot = captureBoardSnapshot();
+  if (!snapshot) return false;
+  const recorded = boardHistory.record(snapshot);
+  updateBoardHistoryUI();
+  return recorded;
+}
+
+function captureBoardSnapshot() {
+  if (!board.nodes.length) return null;
+  return {
+    items: board.nodes.map(({ item }) => item),
+    rotations: new Map(board.nodes.map((node) => [node.item.id, node.rotation || 0])),
+    camera: state.camera,
+    selectedItemId: state.selectedNode?.item?.id || null,
+  };
+}
+
 function renderItems(items) {
+  recordBoardHistory();
   tagEditor.close();
   folderPicker.close();
   selectionNavigation.clearSelection();
@@ -734,6 +767,62 @@ function renderItems(items) {
 
   updateBoardMeta();
   updateLabels();
+}
+
+function restorePreviousBoard() {
+  const snapshot = boardHistory.undo(captureBoardSnapshot());
+  updateBoardHistoryUI();
+  if (!snapshot) return false;
+
+  restoreBoardSnapshot(snapshot, "已回到上一個白板。");
+  return true;
+}
+
+function restoreNextBoard() {
+  const snapshot = boardHistory.redo(captureBoardSnapshot());
+  updateBoardHistoryUI();
+  if (!snapshot) return false;
+
+  restoreBoardSnapshot(snapshot, "已前往下一個白板。");
+  return true;
+}
+
+function restoreBoardSnapshot(snapshot, message) {
+  resetFolderItemLoad();
+  state.libraryContentTarget?.reset();
+  rowLoadCoordinator.invalidate("selected");
+  rowLoadCoordinator.invalidate("exploration");
+  rowLoadCoordinator.invalidate("unrated");
+  state.explorationSource?.clear();
+  state.unratedSource?.clear();
+  state.unratedExhausted = false;
+  state.lastUnratedTriggerRow = null;
+  folderBrowser?.setLoading(false);
+  folderBrowser?.setSelectedFolder("");
+
+  clearBoard();
+  board.relayout(snapshot.items, getBoardLayoutConfig(), snapshot.rotations);
+  state.lastUnratedTriggerRow = null;
+  void loadFolderNames(snapshot.items);
+  autoExploreSettings.update();
+  refreshBaseScale();
+  state.camera = { ...snapshot.camera };
+
+  updateBoardMeta();
+  const selectedNode = board.nodes.find(({ item }) => item.id === snapshot.selectedItemId);
+  if (selectedNode) selectionNavigation.setSelectedNode(selectedNode);
+  updateCamera();
+  updateMediaVisibility();
+  updateLabels();
+  showToast(message, false);
+}
+
+function updateBoardHistoryUI() {
+  const button = elements.boardHistoryBackButton;
+  if (button) button.disabled = !boardHistory.canUndo();
+  if (elements.boardHistoryForwardButton) {
+    elements.boardHistoryForwardButton.disabled = !boardHistory.canRedo();
+  }
 }
 
 function refreshBoardAfterItems(items) {
@@ -1169,7 +1258,7 @@ async function loadTagFromMetadataTarget(tag, label) {
     label,
     onBeforeStart() {
       resetFolderItemLoad();
-      clearBoard();
+      clearBoard({ recordHistory: true });
     },
   });
   handleLibraryContentTargetResult(result, { type: "tag", value, label });
@@ -1190,7 +1279,7 @@ async function loadFolderFromMetadataTarget(folderId, label) {
     label,
     onBeforeStart({ folder }) {
       resetFolderItemLoad();
-      clearBoard();
+      clearBoard({ recordHistory: true });
       folderBrowser?.setSelectedFolder(folder.id);
     },
   });
@@ -1540,6 +1629,27 @@ function handleKeyDown(event) {
     return;
   }
   if (isInteractiveTarget(event.target)) return;
+
+  const normalizedKey = event.key.toLowerCase();
+  const isUndoShortcut =
+    event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    !event.shiftKey &&
+    normalizedKey === "z";
+  const isRedoShortcut =
+    event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    ((event.shiftKey && normalizedKey === "z") ||
+      (!event.shiftKey && normalizedKey === "y"));
+  if (isUndoShortcut || isRedoShortcut) {
+    event.preventDefault();
+    if (event.repeat) return;
+    if (isRedoShortcut) restoreNextBoard();
+    else restorePreviousBoard();
+    return;
+  }
 
   if (event.key === "Tab") {
     event.preventDefault();
@@ -2706,7 +2816,8 @@ function focusFirstItem() {
   updateMediaVisibility();
 }
 
-function clearBoard() {
+function clearBoard({ recordHistory = false } = {}) {
+  if (recordHistory) recordBoardHistory();
   rowLoadCoordinator.invalidate("selected");
   cameraNavigation.cancelCameraFocus();
   tagEditor.close();

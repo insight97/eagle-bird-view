@@ -13,6 +13,7 @@ _Avoid_: folder browser, folder query, folder loader
 | User flow | Integration entry | Deep module | Tests |
 | --- | --- | --- | --- |
 | Eagle selection | `plugin.js:loadSelectedItems` | `row-load-coordinator.js`, `folder-item-source.js` | `test/integration/plugin-startup.test.js` |
+| Board stage replacement and previous/next-board restore | `plugin.js:renderItems` / `restorePreviousBoard` / `restoreNextBoard` | `board-history.js`, `board-state.js` | `test/board-history.test.js`, `test/integration/plugin-startup.test.js`, `test/integration/media-label.test.js` |
 | Selected folder contents | `plugin.js:handleFolderBrowserSelect` | `folder-browser.js`, `folder-item-source.js`, `folder-content-intake.js` | `test/folder-item-source.test.js`, `test/folder-content-intake.test.js`, `test/integration/plugin-startup.test.js` |
 | Tag or folder metadata target | `plugin.js:loadTagFromMetadataTarget` / `loadFolderFromMetadataTarget` | `library-content-target.js`, `folder-content-intake.js` | `test/library-content-target.test.js`, `test/integration/media-label.test.js` |
 | Initial media mount | `plugin.js:renderItems` | `board-state.js`, `media-materializer.js` | `test/integration/plugin-startup.test.js`, `test/integration/original-image-load.test.js` |

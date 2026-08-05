@@ -106,6 +106,36 @@ test("right-clicking a media label tag loads all matching contents", async () =>
   assert.equal(plugin.elements.get("#item-count").textContent, "1 個素材");
 });
 
+test("restoring a board invalidates a pending metadata replacement", async () => {
+  let resolveTag;
+  const pendingTag = new Promise((resolve) => {
+    resolveTag = resolve;
+  });
+  const plugin = await startWithItem(labelledItem(), {
+    navigationProbe: true,
+    tagSourceResult: pendingTag,
+  });
+  const label = findLabel(plugin);
+
+  label.querySelector(".media-metadata-tag-target").emit("contextmenu");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(plugin.elements.get("#board-history-back-button").disabled, false);
+
+  plugin.keyDown({
+    key: "z",
+    ctrlKey: true,
+    target: null,
+    preventDefault() {},
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(plugin.selectedNodeId, "item-1");
+
+  resolveTag([{ id: "stale-tag-item", name: "stale.jpg", ext: "jpg", width: 100, height: 100 }]);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(plugin.selectedNodeId, "item-1");
+  assert.equal(plugin.elements.get("#item-count").textContent, "1 個素材");
+});
+
 test("a media label right-click loads the folder contents without removing the folder", async () => {
   const item = labelledItem({ folders: ["folder-1"] });
   const plugin = await startWithItem(item, {

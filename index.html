@@ -10,6 +10,7 @@
     <link rel="stylesheet" href="styles.css" />
     <script src="bird-view-core.js"></script>
     <script src="board-state.js"></script>
+    <script src="board-history.js"></script>
     <script src="row-load-coordinator.js"></script>
     <script src="anchored-popover.js"></script>
     <script src="selection-tag-overflow.js"></script>
@@ -34,7 +35,7 @@
   <body>
     <main class="app">
       <header class="toolbar">
-        <div class="brand" aria-label="側邊欄導覽">
+        <div class="brand" aria-label="側邊欄與白板導覽">
           <button
             id="folder-browser-toggle"
             class="folder-browser-toggle"
@@ -48,6 +49,26 @@
               <rect x="2.5" y="3" width="15" height="14" rx="2"></rect>
               <path d="M7.5 3v14"></path>
             </svg>
+          </button>
+          <button
+            id="board-history-back-button"
+            class="explore-button board-history-button"
+            type="button"
+            aria-label="回到上一個白板"
+            title="回到上一個白板（Ctrl+Z）"
+            disabled
+          >
+            ↶
+          </button>
+          <button
+            id="board-history-forward-button"
+            class="explore-button board-history-button"
+            type="button"
+            aria-label="前往下一個白板"
+            title="前往下一個白板（Ctrl+Shift+Z 或 Ctrl+Y）"
+            disabled
+          >
+            ↷
           </button>
         </div>
 

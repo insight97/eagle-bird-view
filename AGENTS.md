@@ -10,6 +10,7 @@
 
 - `bird-view-core.js`：純邏輯核心，包含等高列排版、相機幾何、方向鍵、探索選擇、標籤與格式化工具。優先把可純化的邏輯放在這裡，並以單元測試驗證。
 - `board-state.js`：管理 nodes／rows 的白板狀態，負責取代、附加、在探索列後插入與重新排版。
+- `board-history.js`：管理白板階段歷史，只保存素材參照、旋轉、相機與選取 ID；限制歷史階段與素材總數，不保存 DOM 或媒體資料。
 - `row-load-coordinator.js`：以 channel 管理非同步載入。每次失效都會提高 generation；過期結果不可提交到畫面。
 - `exploration-source.js`：相關素材、未評分素材、AI 相似素材與 hybrid exploration 的查詢、快取、篩選與選擇。
 - `folder-item-source.js`：把 Eagle 選取的資料夾（含子資料夾）轉成排序後的素材批次。
@@ -33,6 +34,7 @@
 ```text
 bird-view-core.js
 board-state.js
+board-history.js
 row-load-coordinator.js
 anchored-popover.js
 selection-tag-overflow.js
@@ -65,6 +67,7 @@ plugin.js (defer)
 - 媒體遠離 viewport 時要釋放；`MediaLoadQueue` 的原圖載入併發上限目前是 4。
 - Eagle API 能力可能不存在（例如 AI Search、資料夾查詢或 context menu）；沿用既有 fallback 與 graceful no-op 行為。
 - 設定資料使用既有 localStorage keys：`bird-view-settings`、`bird-view-presets`。變更格式前先考慮舊資料正規化／相容性。
+- 白板上一頁只保留最多 10 個階段、總計最多 5,000 個素材參照；不可保存媒體 DOM、影片元素、Canvas 或原始檔內容。切換 Eagle library 時清除歷史。
 - 使用者可見行為變更要同步更新 `README.md`；純內部重構則不必把實作細節寫進 README。
 
 ## 測試與驗證

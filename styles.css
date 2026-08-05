@@ -990,6 +990,16 @@ button {
   background: #34333f;
 }
 
+.board-history-button {
+  display: inline-grid;
+  width: 25px;
+  height: 24px;
+  place-items: center;
+  padding: 0;
+  font-size: 17px;
+  line-height: 1;
+}
+
 .explore-button.is-active {
   border-color: #7971ed;
   background: #403b67;

@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const BirdViewBoard = require("../board-state.js");
+const BirdViewBoardHistory = require("../board-history.js");
 const BirdViewCore = require("../bird-view-core.js");
 const BirdViewMedia = require("../media-load-queue.js");
 const BirdViewMaterializer = require("../media-materializer.js");
@@ -102,6 +103,8 @@ const SELECTORS = [
   "#auto-explore-settings-reset",
   "#explore-button",
   "#folder-load-more-button",
+  "#board-history-back-button",
+  "#board-history-forward-button",
   "#folder-browser",
   "#folder-browser-toggle",
   "#folder-browser-search",
@@ -389,6 +392,7 @@ function createPluginHarness({
   };
   const context = {
     BirdViewBoard,
+    BirdViewBoardHistory,
     BirdViewCore,
     BirdViewMedia,
     BirdViewMaterializer,

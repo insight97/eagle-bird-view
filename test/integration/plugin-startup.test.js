@@ -442,6 +442,83 @@ test("folder browser replaces the board with the selected folder contents", asyn
   assert.equal(plugin.elements.get("#toast").textContent.includes("已載入資料夾"), false);
 });
 
+test("the previous-board action restores the prior stage and camera state", async () => {
+  const initialItem = {
+    id: "initial-item",
+    name: "initial.jpg",
+    ext: "jpg",
+    width: 100,
+    height: 100,
+    fileURL: "file:///initial.jpg",
+    thumbnailURL: "file:///initial-thumb.jpg",
+  };
+  const replacementItem = {
+    id: "replacement-item",
+    name: "replacement.jpg",
+    ext: "jpg",
+    width: 160,
+    height: 100,
+    fileURL: "file:///replacement.jpg",
+    thumbnailURL: "file:///replacement-thumb.jpg",
+  };
+  const plugin = createPluginHarness({
+    selectedItems: [initialItem],
+    folderTree: [{ id: "replacement-folder", name: "Replacement" }],
+    navigationProbe: true,
+    runAnimationFrames: true,
+  });
+  plugin.setFolderSourceResult({ folders: [], items: [replacementItem] });
+
+  plugin.start();
+  await flush();
+  assert.equal(plugin.elements.get("#item-count").textContent, "1 個素材");
+  assert.equal(plugin.elements.get("#board-history-back-button").disabled, true);
+  const initialCamera = { ...plugin.camera };
+
+  plugin.elements.get("#folder-browser-tree").querySelectorAll(".folder-browser-item")[0].click();
+  await flush();
+  assert.equal(plugin.selectedNodeId, "replacement-item");
+  assert.equal(plugin.elements.get("#board-history-back-button").disabled, false);
+  const replacementCamera = { ...plugin.camera };
+
+  let prevented = false;
+  plugin.keyDown({
+    key: "z",
+    ctrlKey: true,
+    target: null,
+    preventDefault() {
+      prevented = true;
+    },
+  });
+  await flush();
+
+  assert.equal(prevented, true);
+  assert.equal(plugin.selectedNodeId, "initial-item");
+  assert.equal(plugin.elements.get("#board-history-back-button").disabled, true);
+  assert.equal(plugin.elements.get("#board-history-forward-button").disabled, false);
+  assert.equal(plugin.camera.x, initialCamera.x);
+  assert.equal(plugin.camera.y, initialCamera.y);
+  assert.equal(plugin.camera.scale, initialCamera.scale);
+
+  plugin.elements.get("#board-history-forward-button").click();
+  assert.equal(plugin.selectedNodeId, "replacement-item");
+  assert.equal(plugin.elements.get("#board-history-back-button").disabled, false);
+  assert.equal(plugin.elements.get("#board-history-forward-button").disabled, true);
+  assert.equal(plugin.camera.x, replacementCamera.x);
+  assert.equal(plugin.camera.y, replacementCamera.y);
+  assert.equal(plugin.camera.scale, replacementCamera.scale);
+
+  plugin.keyDown({ key: "z", ctrlKey: true, target: null, preventDefault() {} });
+  plugin.keyDown({
+    key: "z",
+    ctrlKey: true,
+    shiftKey: true,
+    target: null,
+    preventDefault() {},
+  });
+  assert.equal(plugin.selectedNodeId, "replacement-item");
+});
+
 test("folder browser renders the first progressive batch before descendant loading finishes", async () => {
   let releaseRemaining;
   const remainingDone = new Promise((resolve) => {
@@ -656,6 +733,7 @@ test("switching Eagle library reloads the selection", async () => {
   plugin.changeLibrary();
 
   assert.equal(plugin.selectedRequests, 2);
+  assert.equal(plugin.elements.get("#board-history-back-button").disabled, true);
 });
 
 test("loading selected items selects the item at the viewport center", async () => {

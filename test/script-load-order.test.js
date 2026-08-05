@@ -10,6 +10,7 @@ const ROOT = path.resolve(__dirname, "..");
 const EXPECTED_SCRIPT_SOURCES = [
   "bird-view-core.js",
   "board-state.js",
+  "board-history.js",
   "row-load-coordinator.js",
   "anchored-popover.js",
   "selection-tag-overflow.js",
@@ -68,6 +69,7 @@ test("every module resolves its dependencies in index.html script order", () => 
     [
       "BirdViewAutoExploreSettings",
       "BirdViewBoard",
+      "BirdViewBoardHistory",
       "BirdViewCamera",
       "BirdViewCore",
       "BirdViewExploration",
