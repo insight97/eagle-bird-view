@@ -27,14 +27,20 @@
       if (!item || typeof item.setCustomThumbnail !== "function") {
         return { status: "unavailable", reason: "item-api-unavailable" };
       }
-      if (
-        !documentRef?.createElement ||
-        typeof getTempDirectory !== "function" ||
-        typeof joinPath !== "function" ||
-        typeof writeFile !== "function" ||
-        typeof removeFile !== "function"
-      ) {
-        return { status: "unavailable", reason: "runtime-unavailable" };
+      const missingCapabilities = [];
+      if (!documentRef?.createElement) missingCapabilities.push("document.createElement");
+      if (typeof getTempDirectory !== "function") {
+        missingCapabilities.push("temp-directory-provider");
+      }
+      if (typeof joinPath !== "function") missingCapabilities.push("path.join");
+      if (typeof writeFile !== "function") missingCapabilities.push("fs.writeFile");
+      if (typeof removeFile !== "function") missingCapabilities.push("fs.unlink");
+      if (missingCapabilities.length) {
+        return {
+          status: "unavailable",
+          reason: "runtime-unavailable",
+          missing: missingCapabilities,
+        };
       }
 
       const width = Math.floor(video.videoWidth);

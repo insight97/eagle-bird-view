@@ -823,6 +823,58 @@ test("Ctrl+Home sets the selected video's current frame as its Eagle thumbnail",
   assert.equal(plugin.elements.get("#toast").textContent, "已將目前影片畫面設為 Eagle 縮圖。");
 });
 
+test("Ctrl+Home explains why the video thumbnail runtime is unavailable", async () => {
+  const item = videoItem();
+  item.setCustomThumbnail = async () => true;
+  const plugin = createPluginHarness({
+    selectedItems: [item],
+    navigationProbe: true,
+    runAnimationFrames: true,
+    videoThumbnailImplementation: {
+      async setFromVideo() {
+        return { status: "unavailable", reason: "temp-directory-unavailable" };
+      },
+    },
+  });
+
+  plugin.start();
+  await flush();
+  plugin.keyDown({ key: "Enter", target: null, preventDefault() {} });
+  plugin.keyDown({ key: "Home", ctrlKey: true, target: null, preventDefault() {} });
+  await flush();
+
+  assert.equal(
+    plugin.elements.get("#toast").textContent,
+    "無法建立影片縮圖：無法取得 Eagle 暫存資料夾。",
+  );
+});
+
+test("Ctrl+Home names the missing video thumbnail runtime capability", async () => {
+  const item = videoItem();
+  item.setCustomThumbnail = async () => true;
+  const plugin = createPluginHarness({
+    selectedItems: [item],
+    navigationProbe: true,
+    runAnimationFrames: true,
+    videoThumbnailImplementation: {
+      async setFromVideo() {
+        return {
+          status: "unavailable",
+          reason: "runtime-unavailable",
+          missing: ["fs.writeFile"],
+        };
+      },
+    },
+  });
+  plugin.start();
+  await flush();
+  plugin.keyDown({ key: "Enter", target: null, preventDefault() {} });
+  plugin.keyDown({ key: "Home", ctrlKey: true, target: null, preventDefault() {} });
+  await flush();
+
+  assert.equal(plugin.elements.get("#toast").textContent, "無法建立影片縮圖：缺少：檔案寫入 API。");
+});
+
 test("dragging defers viewport maintenance until the pointer is released", async () => {
   const plugin = createPluginHarness({
     selectedItems: imageItems(48),

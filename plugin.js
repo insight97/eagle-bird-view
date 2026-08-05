@@ -83,6 +83,19 @@ const METADATA_SUCCESS_TOAST_MS = 1200;
 const BOARD_HISTORY_MAX_ENTRIES = 10;
 const BOARD_HISTORY_MAX_ITEMS = 5000;
 const bulkMetadata = createBulkMetadataService({ maxConcurrent: 4 });
+const VIDEO_THUMBNAIL_UNAVAILABLE_MESSAGES = Object.freeze({
+  "item-api-unavailable": "目前取得的 Eagle 素材物件不支援自訂影片縮圖。",
+  "runtime-unavailable": "外掛執行環境缺少建立暫存檔案所需的功能。",
+  "canvas-unavailable": "目前 Eagle 視窗無法使用 Canvas 擷取影片畫面。",
+  "temp-directory-unavailable": "無法取得 Eagle 暫存資料夾。",
+});
+const VIDEO_THUMBNAIL_RUNTIME_CAPABILITY_LABELS = Object.freeze({
+  "document.createElement": "Canvas",
+  "temp-directory-provider": "暫存路徑 API",
+  "path.join": "path.join",
+  "fs.writeFile": "檔案寫入 API",
+  "fs.unlink": "檔案清理 API",
+});
 
 const state = {
   camera: { x: 0, y: 0, scale: 1 },
@@ -2903,7 +2916,26 @@ async function setSelectedVideoThumbnail() {
       showToast("影片目前尚未載入畫面，請稍後再試。", true);
       return;
     }
-    showToast("目前環境無法建立影片縮圖檔案。", true);
+    if (!result) {
+      showToast("影片縮圖服務尚未準備完成，請重新開啟外掛。", true);
+      return;
+    }
+    if (result.reason === "runtime-unavailable") {
+      const missing = Array.isArray(result.missing)
+        ? result.missing
+          .map((capability) =>
+            VIDEO_THUMBNAIL_RUNTIME_CAPABILITY_LABELS[capability] || capability)
+          .filter(Boolean)
+        : [];
+      console.error("Video thumbnail runtime is missing capabilities", result.missing || []);
+      const detail = missing.length ? `缺少：${missing.join("、")}。` : "請查看主控台錯誤。";
+      showToast(`無法建立影片縮圖：${detail}`, true);
+      return;
+    }
+    const reason =
+      VIDEO_THUMBNAIL_UNAVAILABLE_MESSAGES[result.reason] ||
+      "目前環境無法建立影片縮圖，請查看主控台錯誤。";
+    showToast(`無法建立影片縮圖：${reason}`, true);
   } catch (error) {
     console.error("Failed to set Eagle video thumbnail", error);
     showToast(`無法設定影片縮圖：${error.message || error}`, true);
@@ -2942,13 +2974,34 @@ function createVideoThumbnailRuntime() {
         }))
       : null;
 
+  const getTempDirectory = async () => {
+    if (typeof eagle === "undefined") return null;
+
+    if (typeof eagle.app?.getPath === "function") {
+      try {
+        const directory = await eagle.app.getPath("temp");
+        if (directory) return directory;
+      } catch (error) {
+        console.warn("Failed to read Eagle temp path", error);
+      }
+    }
+
+    if (typeof eagle.os?.tmpdir === "function") {
+      try {
+        const directory = await eagle.os.tmpdir();
+        if (directory) return directory;
+      } catch (error) {
+        console.warn("Failed to read operating system temp path", error);
+      }
+    }
+
+    const environment = eagle.app?.env || {};
+    return environment.TEMP || environment.TMP || environment.TMPDIR || null;
+  };
+
   return {
-    getTempDirectory: () => {
-      if (typeof eagle === "undefined") return null;
-      if (typeof eagle.app?.getPath === "function") return eagle.app.getPath("temp");
-      if (typeof eagle.os?.tmpdir === "function") return eagle.os.tmpdir();
-      return null;
-    },
+    document: typeof document === "undefined" ? null : document,
+    getTempDirectory,
     joinPath: path?.join,
     writeFile,
     removeFile,
@@ -2956,12 +3009,37 @@ function createVideoThumbnailRuntime() {
 }
 
 function loadNodeModule(name) {
-  if (typeof require !== "function") return null;
-  try {
-    return require(name);
-  } catch {
-    return null;
+  const nodeRequire =
+    typeof require === "function"
+      ? require
+      : typeof globalThis?.require === "function"
+        ? globalThis.require
+        : typeof module === "object" && typeof module.require === "function"
+          ? module.require.bind(module)
+          : null;
+  const candidates = [name];
+  if (!String(name).startsWith("node:")) candidates.push(`node:${name}`);
+  if (nodeRequire) {
+    for (const candidate of candidates) {
+      try {
+        return nodeRequire(candidate);
+      } catch {
+        // Some Electron/Eagle runtimes expose native modules only through node: specifiers.
+      }
+    }
   }
+
+  const getBuiltinModule = globalThis?.process?.getBuiltinModule;
+  if (typeof getBuiltinModule === "function") {
+    for (const candidate of candidates) {
+      try {
+        return getBuiltinModule(candidate.replace(/^node:/, ""));
+      } catch {
+        // Newer Node runtimes can expose built-ins without exposing require globally.
+      }
+    }
+  }
+  return null;
 }
 
 function controlSelectedVideo(key) {

@@ -83,3 +83,21 @@ test("video thumbnail service reports an unavailable frame without writing a fil
   assert.deepEqual(result, { status: "unavailable", reason: "video-not-ready" });
   assert.equal(writes, 0);
 });
+
+test("video thumbnail service identifies missing temporary-file capabilities", async () => {
+  const service = createVideoThumbnailService({
+    document: { createElement() {} },
+    getTempDirectory: async () => "/tmp",
+  });
+
+  const result = await service.setFromVideo({
+    video: { readyState: 4, videoWidth: 1920, videoHeight: 1080 },
+    item: { setCustomThumbnail: async () => true },
+  });
+
+  assert.deepEqual(result, {
+    status: "unavailable",
+    reason: "runtime-unavailable",
+    missing: ["path.join", "fs.writeFile", "fs.unlink"],
+  });
+});
