@@ -35,7 +35,10 @@
       window: windowRef = root.window || root,
       mediaLoadQueue = new MediaLoadQueue({ maxConcurrent: MAX_CONCURRENT_IMAGE_LOADS }),
       onPositionNode = () => {},
+      onClickNode = () => {},
       onSelectNode = () => {},
+      isNodeSelected = () => false,
+      isNodeInMultipleSelection = () => false,
       onOpenContextMenu = () => {},
       onLayoutChange = () => {},
       getVideoControlsHeight = () => VIDEO_CONTROLS_HEIGHT,
@@ -59,6 +62,12 @@
       if (!node) return;
       if (!node.element) {
         node.element = createMediaCard(node);
+        const isSelected = isNodeSelected(node);
+        node.element.classList.toggle("is-selected", isSelected);
+        node.element.classList.toggle(
+          "is-multi-selected",
+          isSelected && isNodeInMultipleSelection(node),
+        );
         onPositionNode(node);
         materializedNodes.add(node);
       }
@@ -426,6 +435,14 @@
         onSelectNode(node);
         if (node.togglePlayback) node.togglePlayback();
         else node.startPlayback?.();
+      });
+      card.addEventListener("click", (event) => {
+        if (event.target.closest("button, input")) return;
+        onClickNode(node, {
+          ctrlKey: event.ctrlKey,
+          metaKey: event.metaKey,
+          shiftKey: event.shiftKey,
+        });
       });
       card.addEventListener("contextmenu", (event) => {
         event.preventDefault();

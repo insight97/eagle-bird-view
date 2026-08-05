@@ -40,6 +40,52 @@
       return true;
     }
 
+    openMultiple(nodes, anchor, folders) {
+      const selectedNodes = [...new Set(nodes || [])].filter((node) => node?.item);
+      if (!selectedNodes.length) return false;
+      const entries = createFolderEntries(folders);
+      if (!entries.length) {
+        this.options.onEmpty?.(selectedNodes[0]);
+        return false;
+      }
+      this.close();
+      const initialByNode = new Map(
+        selectedNodes.map((node) => [node, new Set(normalizeFolderIds(node.item?.folders))]),
+      );
+      const allFolders = new Set();
+      for (const foldersForNode of initialByNode.values()) {
+        for (const folderId of foldersForNode) allFolders.add(folderId);
+      }
+      const commonFolders = new Set(
+        [...allFolders].filter((folderId) =>
+          selectedNodes.every((node) => initialByNode.get(node).has(folderId)),
+        ),
+      );
+      const mixedFolders = new Set(
+        [...allFolders].filter((folderId) => !commonFolders.has(folderId)),
+      );
+      this.mount(selectedNodes[0], anchor, {
+        className: "tag-editor folder-picker",
+        ariaLabel: `編輯 ${selectedNodes.length} 個素材的資料夾`,
+        heading: `編輯 ${selectedNodes.length} 個素材的資料夾`,
+        placeholder: "搜尋資料夾",
+        extra: {
+          entries,
+          selected: commonFolders,
+          mixed: mixedFolders,
+          touched: new Set(),
+          nodes: selectedNodes,
+          initialByNode,
+          multi: true,
+        },
+        buttons: [
+          { label: "取消", onClick: () => this.close() },
+          { label: "完成", primary: true, onClick: (session) => void this.commit(session) },
+        ],
+      });
+      return true;
+    }
+
     handleKeyDown(event, session) {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -87,12 +133,14 @@
       const marker = document.createElement("span");
       const path = document.createElement("span");
       const isSelected = session.selected.has(entry.id);
+      const isMixed = session.mixed?.has(entry.id) && !session.touched?.has(entry.id);
       option.className = "tag-editor-option folder-picker-option";
       option.type = "button";
-      option.setAttribute("aria-pressed", String(isSelected));
+      option.setAttribute("aria-pressed", isMixed ? "mixed" : String(isSelected));
       option.title = entry.path;
       marker.className = "tag-editor-check";
-      marker.textContent = isSelected ? "✓" : "";
+      marker.textContent = isMixed ? "—" : isSelected ? "✓" : "";
+      option.classList.toggle("is-mixed", isMixed);
       path.className = "folder-picker-path";
       path.textContent = entry.path;
       option.append(marker, path);
@@ -101,6 +149,8 @@
         if (this.session !== session) return;
         if (session.selected.has(entry.id)) session.selected.delete(entry.id);
         else session.selected.add(entry.id);
+        session.mixed?.delete(entry.id);
+        session.touched?.add(entry.id);
         this.restartSearch(session);
       });
     }
@@ -113,6 +163,10 @@
 
     async commit(session) {
       if (this.session !== session || session.node.isSaving) return;
+      if (session.multi) {
+        await this.commitMultiple(session);
+        return;
+      }
       const previousFolders = normalizeFolderIds(session.node.item?.folders);
       const nextFolders = [...session.selected];
       this.close();
@@ -123,6 +177,34 @@
         return;
       }
       await this.options.onCommit?.(session.node, nextFolders, previousFolders);
+    }
+
+    async commitMultiple(session) {
+      const nextByNode = new Map();
+      const previousByNode = new Map();
+      let changed = false;
+      for (const node of session.nodes) {
+        const previousFolders = [...session.initialByNode.get(node)];
+        const nextFolders = previousFolders.filter(
+          (folderId) => !session.touched.has(folderId) || session.selected.has(folderId),
+        );
+        for (const folderId of session.selected) {
+          if (session.touched.has(folderId) && !nextFolders.includes(folderId)) {
+            nextFolders.push(folderId);
+          }
+        }
+        previousByNode.set(node, previousFolders);
+        nextByNode.set(node, nextFolders);
+        if (
+          previousFolders.length !== nextFolders.length ||
+          previousFolders.some((folderId, index) => folderId !== nextFolders[index])
+        ) {
+          changed = true;
+        }
+      }
+      this.close();
+      if (!changed) return;
+      await this.options.onCommitMultiple?.(session.nodes, nextByNode, previousByNode);
     }
   }
 

@@ -18,6 +18,8 @@
 - `library-content-target.js`：解析 Tag／資料夾 metadata target，協調 Eagle 查詢與 folder-content intake；不直接修改 UI。
 - `media-load-queue.js`／`media-materializer.js`：分別管理媒體載入併發與 DOM 卡片生命週期。可視素材掛載、附近素材保留，遠處素材釋放。
 - `camera-navigation.js`／`selection-navigation.js`：相機平移／縮放／聚焦與鍵盤選取。
+- `selection-model.js`：管理單選、Ctrl/Cmd 切換、Shift 區間選取、active 素材與多選集合。
+- `bulk-metadata.js`：以有限併發儲存批次 metadata，讓部分失敗只回滾失敗素材。
 - `selection-tag-overflow.js`：選取素材 Tag 的可用寬度收合與搜尋選擇。
 - `auto-explore-settings.js`／`settings-presets.js`：設定面板、篩選器正規化與 localStorage preset。
 - `settings-snapshot.js`：設定 schema、legacy migration、正規化與 `bird-view-settings` storage；不直接修改 plugin state 或 UI。
@@ -53,6 +55,8 @@ video-thumbnail.js
 media-materializer.js
 tag-editor.js
 camera-navigation.js
+bulk-metadata.js
+selection-model.js
 selection-navigation.js
 plugin.js (defer)
 ```

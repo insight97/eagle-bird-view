@@ -95,3 +95,32 @@ test("committing changed tags delegates persistence after closing", () =>
     assert.deepEqual(calls, [[node, ["UI", "Photo"], ["UI"]]]);
     assert.equal(editor.session, null);
   }));
+
+test("committing multiple tags only applies values the user touched", () =>
+  withDocumentStub(async () => {
+    const calls = [];
+    const first = { item: { tags: ["Shared", "First"] } };
+    const second = { item: { tags: ["Shared", "Second"] } };
+    const editor = new TagEditor({
+      onCommitMultiple: async (...args) => calls.push(args),
+    });
+    editor.session = {
+      node: first,
+      nodes: [first, second],
+      multi: true,
+      selected: new Set(["Shared"]),
+      mixed: new Set(["First", "Second"]),
+      touched: new Set(["First"]),
+      initialByNode: new Map([
+        [first, new Set(["Shared", "First"])],
+        [second, new Set(["Shared", "Second"])],
+      ]),
+      outsideHandler() {},
+      editor: { remove() {} },
+    };
+
+    await editor.commit(editor.session);
+    assert.deepEqual([...calls[0][1].get(first)], ["Shared"]);
+    assert.deepEqual([...calls[0][1].get(second)], ["Shared", "Second"]);
+    assert.equal(editor.session, null);
+  }));

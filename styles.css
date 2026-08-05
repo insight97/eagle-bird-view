@@ -1430,7 +1430,40 @@ button {
 .media-card.is-selected {
   border-color: #7971ed;
   outline: none;
-  box-shadow: none;
+  box-shadow: inset 0 0 0 2px rgb(121 113 237 / 88%);
+}
+
+.media-card.is-selected.is-multi-selected::after {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 4;
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 1px solid #f7f7ff;
+  border-radius: 50%;
+  background: #625bd0;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 48%);
+  color: #fff;
+  content: "✓";
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.media-card.is-selected.is-active {
+  box-shadow:
+    inset 0 0 0 2px #f7f7ff,
+    inset 0 0 0 4px #625bd0;
+}
+
+.media-card.is-selected.is-multi-selected.is-active::after {
+  border-color: #625bd0;
+  background: #f7f7ff;
+  color: #625bd0;
 }
 
 .app.is-seamless .media-card {
@@ -1440,8 +1473,14 @@ button {
 }
 
 .app.is-seamless .media-card.is-selected {
-  outline: 1px solid #7971ed;
-  outline-offset: -1px;
+  outline: none;
+  box-shadow: inset 0 0 0 2px rgb(121 113 237 / 94%);
+}
+
+.app.is-seamless .media-card.is-selected.is-active {
+  box-shadow:
+    inset 0 0 0 2px #f7f7ff,
+    inset 0 0 0 4px #625bd0;
 }
 
 .media-frame {
@@ -1960,6 +1999,10 @@ button {
 .tag-editor-option.is-active,
 .tag-editor-create.is-active {
   background: #2c3036;
+}
+
+.tag-editor-option.is-mixed {
+  color: #c8c4ff;
 }
 
 .folder-picker-option {

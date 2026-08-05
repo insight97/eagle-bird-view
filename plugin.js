@@ -59,6 +59,7 @@ const { SelectionTagOverflow, getVisibleTagCount } = BirdViewSelectionTags;
 const { createVideoThumbnailService } = BirdViewVideoThumbnail;
 const { createCameraNavigation } = BirdViewCamera;
 const { createSelectionNavigation } = BirdViewSelection;
+const { createBulkMetadataService } = BirdViewBulkMetadata;
 const SEAMLESS_LAYOUT_GAP = 0;
 const SEAMLESS_ROW_GAP = 0;
 const TIGHT_FOCUS_ROW_EMPHASIS = 1.1;
@@ -81,6 +82,7 @@ const GRID_LAYER_OVERFLOW = 768;
 const METADATA_SUCCESS_TOAST_MS = 1200;
 const BOARD_HISTORY_MAX_ENTRIES = 10;
 const BOARD_HISTORY_MAX_ITEMS = 5000;
+const bulkMetadata = createBulkMetadataService({ maxConcurrent: 4 });
 
 const state = {
   camera: { x: 0, y: 0, scale: 1 },
@@ -93,6 +95,9 @@ const state = {
   mountedLabelNodes: new Set(),
   labelCamera: null,
   selectedNode: null,
+  activeNode: null,
+  selectedNodes: new Set(),
+  selectionAnchor: null,
   verticalNavigation: null,
   smoothPanEnabled: false,
   smoothPanSpeed: DEFAULT_SETTINGS_SNAPSHOT.board.smoothPanSpeed,
@@ -128,6 +133,7 @@ const state = {
   lastViewportWork: -Infinity,
   lastSmoothZoomQualityWork: -Infinity,
   isPanning: false,
+  suppressNextMediaClick: false,
   explorationSource: null,
   explorationLoading: false,
   folderItemSource: null,
@@ -186,11 +192,13 @@ const tagEditor = new TagEditor({
   createTagChip,
   onSelectNode: (node) => selectionNavigation.setSelectedNode(node),
   onCommit: commitNodeTags,
+  onCommitMultiple: commitNodesTags,
 });
 const folderPicker = new FolderPicker({
   getViewport: () => elements.viewport,
   onSelectNode: (node) => selectionNavigation.setSelectedNode(node),
   onCommit: commitNodeFolders,
+  onCommitMultiple: commitNodesFolders,
   onEmpty: () => showToast("目前沒有可用的 Eagle 資料夾。", false),
 });
 const selectionTagOverflow = new SelectionTagOverflow({
@@ -353,7 +361,16 @@ function setup() {
     window,
     world: elements.world,
     onPositionNode: positionNode,
+    onClickNode: (node, modifiers) => {
+      if (state.suppressNextMediaClick) {
+        state.suppressNextMediaClick = false;
+        return;
+      }
+      selectionNavigation.selectNode(node, modifiers);
+    },
     onSelectNode: (node) => selectionNavigation.setSelectedNode(node),
+    isNodeSelected: (node) => state.selectedNodes.has(node),
+    isNodeInMultipleSelection: () => state.selectedNodes.size > 1,
     onOpenContextMenu: openMediaContextMenu,
     onLayoutChange: updateLabels,
     getVideoControlsHeight,
@@ -369,6 +386,7 @@ function setup() {
     getRows: () => board.rows,
     onSelectNode: applySelectedNode,
     onClearSelection: applyClearedSelection,
+    onSelectionChange: applySelectionChange,
   });
   cameraNavigation = createCameraNavigation({
     state,
@@ -1013,6 +1031,34 @@ function createRatingControls(rating, node) {
   paintRating(rating, currentRating);
 }
 
+function createBulkRatingControls(rating, nodes) {
+  const values = nodes.map((node) => getItemRating(node.item));
+  const commonRating = values.every((value) => value === values[0]) ? values[0] : 0;
+  rating.setAttribute(
+    "aria-label",
+    commonRating ? `批次評分 ${commonRating} 顆星` : "批次評分（各素材不同）",
+  );
+  for (let index = 1; index <= 5; index += 1) {
+    const star = document.createElement("button");
+    star.className = "media-rating-star";
+    star.type = "button";
+    star.textContent = "★";
+    star.title = `${index} 顆星${commonRating === index ? "（再次點擊可清除全部）" : "（套用到全部）"}`;
+    star.setAttribute("aria-label", `將 ${nodes.length} 個素材設為 ${index} 顆星`);
+    star.dataset.editControl = "true";
+    star.disabled = nodes.some((node) => node.isSaving);
+    star.addEventListener("pointerdown", (event) => event.stopPropagation());
+    star.addEventListener("pointerenter", () => paintRating(rating, index));
+    star.addEventListener("pointerleave", () => paintRating(rating, commonRating));
+    star.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      await setItemRatingForNodes(nodes, index, { toggle: commonRating === index });
+    });
+    rating.append(star);
+  }
+  paintRating(rating, commonRating);
+}
+
 async function setItemRating(node, value, { toggle = false } = {}) {
   if (!node || node.isSaving) return false;
   const previousRating = getItemRating(node.item);
@@ -1031,6 +1077,52 @@ async function setItemRating(node, value, { toggle = false } = {}) {
       refreshNodeRating(node);
     },
   });
+}
+
+async function setItemRatingForNodes(nodes, value, { toggle = false } = {}) {
+  const selectedNodes = [...new Set(nodes || [])].filter(Boolean);
+  if (!selectedNodes.length || selectedNodes.some((node) => node.isSaving)) return false;
+  const ratings = selectedNodes.map((node) => getItemRating(node.item));
+  const nextRating =
+    toggle && ratings.every((rating) => rating === Number(value))
+      ? 0
+      : clamp(Math.round(Number(value) || 0), 0, 5);
+  const previousByNode = new Map(selectedNodes.map((node) => [node, getItemRating(node.item)]));
+  for (const node of selectedNodes) {
+    node.item.star = nextRating;
+    node.isSaving = true;
+    setLabelSaving(node, true);
+    refreshNodeRating(node);
+  }
+  invalidateMetadataSources();
+  const result = await bulkMetadata.save(selectedNodes, {
+    save: async (node) => {
+      if (typeof node.item.save !== "function") throw new Error("素材不支援儲存");
+      const saved = await node.item.save();
+      if (saved === false) throw new Error("Eagle 拒絕儲存變更");
+      return saved;
+    },
+    rollback: (node) => {
+      node.item.star = previousByNode.get(node);
+      refreshNodeRating(node);
+    },
+  });
+  for (const node of selectedNodes) {
+    node.isSaving = false;
+    setLabelSaving(node, false);
+  }
+  updateSelectionStatus();
+  if (result.failed.length) {
+    showToast(
+      result.succeeded.length
+        ? `已更新 ${result.succeeded.length} 個素材的評分，${result.failed.length} 個儲存失敗。`
+        : "批次評分失敗，未能儲存素材。",
+      true,
+    );
+  } else {
+    showToast(`已將 ${selectedNodes.length} 個素材設為 ${nextRating} 顆星。`, false, METADATA_SUCCESS_TOAST_MS);
+  }
+  return result.succeeded.length > 0;
 }
 
 function refreshNodeRating(node) {
@@ -1331,10 +1423,7 @@ function handleLibraryContentTargetResult(result, { type, value, label }) {
   );
 }
 
-async function saveItemMetadata(node, { rollback, successMessage }) {
-  if (node.isSaving) return false;
-  node.isSaving = true;
-  setLabelSaving(node, true);
+function invalidateMetadataSources() {
   rowLoadCoordinator.invalidate("exploration");
   state.explorationSource?.clear();
   rowLoadCoordinator.invalidate("unrated");
@@ -1342,6 +1431,13 @@ async function saveItemMetadata(node, { rollback, successMessage }) {
   state.lastUnratedTriggerRow = null;
   state.unratedSource?.clear();
   updateAutoExploreToggle();
+}
+
+async function saveItemMetadata(node, { rollback, successMessage }) {
+  if (node.isSaving) return false;
+  node.isSaving = true;
+  setLabelSaving(node, true);
+  invalidateMetadataSources();
   try {
     if (typeof node.item.save !== "function") throw new Error("素材不支援儲存");
     const result = await node.item.save();
@@ -1359,12 +1455,62 @@ async function saveItemMetadata(node, { rollback, successMessage }) {
   }
 }
 
+async function saveItemMetadataBatch(nodes, { nextByNode, previousByNode, property, successMessage }) {
+  const requestedNodes = [...new Set(nodes || [])].filter((node) => nextByNode.has(node));
+  if (requestedNodes.some((node) => node.isSaving)) return { succeeded: [], failed: [] };
+  const changedNodes = requestedNodes;
+  if (!changedNodes.length || changedNodes.some((node) => typeof node.item.save !== "function")) {
+    if (changedNodes.some((node) => typeof node.item.save !== "function")) {
+      showToast("部分素材不支援儲存，未執行批次更新。", true);
+    }
+    return { succeeded: [], failed: [] };
+  }
+
+  for (const node of changedNodes) {
+    node.item[property] = nextByNode.get(node);
+    node.isSaving = true;
+    setLabelSaving(node, true);
+    refreshMediaMetadata(node);
+  }
+  updateSelectionStatus();
+  invalidateMetadataSources();
+  const result = await bulkMetadata.save(changedNodes, {
+    save: async (node) => {
+      const saved = await node.item.save();
+      if (saved === false) throw new Error("Eagle 拒絕儲存變更");
+      return saved;
+    },
+    rollback: (node) => {
+      node.item[property] = previousByNode.get(node);
+      refreshMediaMetadata(node);
+    },
+  });
+  for (const node of changedNodes) {
+    node.isSaving = false;
+    setLabelSaving(node, false);
+  }
+  updateSelectionStatus();
+  if (result.failed.length) {
+    if (result.succeeded.length) {
+      showToast(
+        `${successMessage}已成功 ${result.succeeded.length} 個，${result.failed.length} 個儲存失敗。`,
+        true,
+      );
+    } else {
+      showToast(`批次更新失敗：${result.failed.length} 個素材未能儲存。`, true);
+    }
+  } else {
+    showToast(successMessage, false, METADATA_SUCCESS_TOAST_MS);
+  }
+  return result;
+}
+
 function setLabelSaving(node, isSaving) {
   node.label?.classList.toggle("is-saving", isSaving);
   for (const control of node.label?.querySelectorAll("[data-edit-control]") || []) {
     control.disabled = isSaving;
   }
-  if (node !== state.selectedNode) return;
+  if (!state.selectedNodes.has(node)) return;
   for (const control of [
     elements.selectionAddTag,
     elements.selectionAddFolder,
@@ -1389,6 +1535,16 @@ async function commitNodeTags(node, nextTags, previousTags) {
     updateSelectionStatus();
     void loadTagColors();
   }
+}
+
+async function commitNodesTags(nodes, nextByNode, previousByNode) {
+  const result = await saveItemMetadataBatch(nodes, {
+    nextByNode,
+    previousByNode,
+    property: "tags",
+    successMessage: `已更新 ${nodes.length} 個素材的標籤。`,
+  });
+  if (result.succeeded.length) void loadTagColors();
 }
 
 async function removeSelectionTarget(node, { type, value, label }) {
@@ -1433,6 +1589,16 @@ async function commitNodeFolders(node, nextFolders, previousFolders) {
     await loadFolderNames([node.item]);
     updateSelectionStatus();
   }
+}
+
+async function commitNodesFolders(nodes, nextByNode, previousByNode) {
+  const result = await saveItemMetadataBatch(nodes, {
+    nextByNode,
+    previousByNode,
+    property: "folders",
+    successMessage: `已更新 ${nodes.length} 個素材的資料夾。`,
+  });
+  if (result.succeeded.length) await loadFolderNames(result.succeeded.map((node) => node.item));
 }
 
 async function loadTagColors() {
@@ -1509,7 +1675,8 @@ function flattenFolderOptions(folders) {
 function mountMediaLabel(node) {
   if (!node.label) node.label = createMediaLabel(node);
   if (!node.label.isConnected) elements.labels.append(node.label);
-  node.label.classList.toggle("is-selected", node === state.selectedNode);
+  node.label.classList.toggle("is-selected", state.selectedNodes.has(node));
+  node.label.classList.toggle("is-active", node === state.selectedNode);
   state.mountedLabelNodes.add(node);
 }
 
@@ -1547,6 +1714,7 @@ function beginPan(event) {
 
   const startPointer = { x: event.clientX, y: event.clientY };
   const startCamera = { ...state.camera };
+  state.suppressNextMediaClick = false;
   let hasStartedPanning = event.button === 1;
   if (hasStartedPanning) {
     event.preventDefault();
@@ -1559,6 +1727,7 @@ function beginPan(event) {
     if (!hasStartedPanning && Math.hypot(deltaX, deltaY) < PAN_START_THRESHOLD) return;
     if (!hasStartedPanning) {
       hasStartedPanning = true;
+      state.suppressNextMediaClick = true;
       startViewportPan();
     }
     moveEvent.preventDefault();
@@ -1574,6 +1743,11 @@ function beginPan(event) {
     window.removeEventListener("pointermove", move);
     window.removeEventListener("pointerup", end);
     window.removeEventListener("pointercancel", end);
+    if (state.suppressNextMediaClick) {
+      window.setTimeout(() => {
+        state.suppressNextMediaClick = false;
+      }, 0);
+    }
   };
 
   window.addEventListener("pointermove", move, { passive: false });
@@ -1630,6 +1804,13 @@ function handleKeyDown(event) {
   }
   if (isInteractiveTarget(event.target)) return;
 
+  if (event.key === "Escape") {
+    event.preventDefault();
+    if (event.repeat) return;
+    selectionNavigation.clearSelection();
+    return;
+  }
+
   const normalizedKey = event.key.toLowerCase();
   const isUndoShortcut =
     event.ctrlKey &&
@@ -1674,7 +1855,9 @@ function handleKeyDown(event) {
   if (!event.ctrlKey && !event.metaKey && !event.altKey && /^[1-5]$/.test(event.key)) {
     event.preventDefault();
     if (event.repeat) return;
-    void setItemRating(state.selectedNode, Number(event.key));
+    const selectedNodes = getSelectedNodeList();
+    if (selectedNodes.length > 1) void setItemRatingForNodes(selectedNodes, Number(event.key));
+    else void setItemRating(state.selectedNode, Number(event.key));
     return;
   }
 
@@ -1826,6 +2009,11 @@ async function toggleFullScreen() {
 function openTagEditorForNode(node, anchor) {
   if (!node || node.isSaving) return;
   folderPicker.close();
+  const selectedNodes = getSelectedNodeList();
+  if (selectedNodes.length > 1 && selectedNodes.includes(node)) {
+    tagEditor.openMultiple(selectedNodes, anchor || node.element);
+    return;
+  }
   tagEditor.open(node, anchor || node.element);
 }
 
@@ -1850,7 +2038,12 @@ async function openFolderPickerForNode(node, anchor) {
   tagEditor.close();
   try {
     const folders = await eagle.folder.getAll();
+    const selectedNodes = getSelectedNodeList();
     if (!node.label?.isConnected && node !== state.selectedNode) return;
+    if (selectedNodes.length > 1 && selectedNodes.includes(node)) {
+      folderPicker.openMultiple(selectedNodes, anchor || node.element, folders);
+      return;
+    }
     folderPicker.open(node, anchor || node.element, folders);
   } catch (error) {
     console.error("Failed to load Eagle folders", error);
@@ -1872,8 +2065,26 @@ function openSelectedFolderPicker() {
 function applyClearedSelection(previousNode) {
   folderPicker.closeForNode(previousNode);
   mediaMaterializer.pause(previousNode);
-  previousNode?.element?.classList.remove("is-selected");
-  previousNode?.label?.classList.remove("is-selected");
+  updateSelectionStatus();
+  updateExploreButton();
+}
+
+function applySelectionChange({ selectedNodes, previousSelectedNodes }) {
+  const affectedNodes = new Set([
+    ...(selectedNodes || []),
+    ...(previousSelectedNodes || []),
+  ]);
+  for (const node of affectedNodes) {
+    const isSelected = selectedNodes?.has(node) || false;
+    node.element?.classList.toggle("is-selected", isSelected);
+    node.element?.classList.toggle(
+      "is-multi-selected",
+      isSelected && (selectedNodes?.size || 0) > 1,
+    );
+    node.element?.classList.toggle("is-active", node === state.selectedNode);
+    node.label?.classList.toggle("is-selected", isSelected);
+    node.label?.classList.toggle("is-active", node === state.selectedNode);
+  }
   updateSelectionStatus();
   updateExploreButton();
 }
@@ -1882,12 +2093,8 @@ function applySelectedNode(node, { changed, previousNode }) {
   if (changed) {
     folderPicker.closeForNode(previousNode);
     mediaMaterializer.pause(previousNode);
-    previousNode?.element?.classList.remove("is-selected");
-    previousNode?.label?.classList.remove("is-selected");
     mediaMaterializer.mount(node);
     mediaMaterializer.preloadSelected(node);
-    node.element.classList.add("is-selected");
-    node.label?.classList.add("is-selected");
     syncSelectedVideoAutoplay();
   }
   updateSelectionStatus();
@@ -2872,10 +3079,36 @@ async function loadFolderNames(items) {
   }
 }
 
+function getSelectedNodeList() {
+  const selectedNodes = [...(state.selectedNodes || [])];
+  if (selectedNodes.length && state.selectedNode) {
+    return [
+      state.selectedNode,
+      ...selectedNodes.filter((node) => node !== state.selectedNode),
+    ];
+  }
+  if (selectedNodes.length) return selectedNodes;
+  return state.selectedNode ? [state.selectedNode] : [];
+}
+
+function getCommonMetadataValues(nodes, property) {
+  if (!nodes.length) return [];
+  const common = new Set(normalizeTags(nodes[0].item[property]));
+  for (const node of nodes.slice(1)) {
+    const values = new Set(normalizeTags(node.item[property]));
+    for (const value of common) {
+      if (!values.has(value)) common.delete(value);
+    }
+  }
+  return normalizeTags([...common]);
+}
+
 function updateSelectionStatus() {
   if (!elements.selectionStatus) return;
+  const selectedNodes = getSelectedNodeList();
   const item = state.selectedNode?.item;
   const hasSelection = Boolean(item);
+  const isMultiple = selectedNodes.length > 1;
   elements.selectionEmpty.hidden = hasSelection;
   elements.selectionDetails.hidden = !hasSelection;
   if (!item) {
@@ -2889,12 +3122,19 @@ function updateSelectionStatus() {
     return;
   }
 
-  const name = item.name || "未命名";
-  const dimensions = formatItemDimensions(item);
+  const name = isMultiple ? `${selectedNodes.length} 個素材` : item.name || "未命名";
+  const dimensions = isMultiple ? "" : formatItemDimensions(item);
   const rating = getItemRating(item);
-  const tags = normalizeTags(item.tags);
+  const tags = isMultiple
+    ? getCommonMetadataValues(selectedNodes, "tags")
+    : normalizeTags(item.tags);
   elements.selectionDetails.classList.toggle("has-selection-tags", tags.length > 0);
-  const folders = getFolderMetadataEntries(item);
+  const folders = isMultiple
+    ? getCommonMetadataValues(selectedNodes, "folders").map((value) => ({
+        value,
+        label: state.folderNames.get(value) || value,
+      }))
+    : getFolderMetadataEntries(item);
 
   elements.selectionName.textContent = name;
   elements.selectionName.title = name;
@@ -2902,15 +3142,18 @@ function updateSelectionStatus() {
   elements.selectionDimensionsDivider.hidden = !dimensions;
   elements.selectionDimensions.textContent = dimensions;
   elements.selectionRating.replaceChildren();
-  createRatingControls(elements.selectionRating, state.selectedNode);
-  elements.selectionRating.title = `評分 ${rating} / 5`;
+  if (isMultiple) createBulkRatingControls(elements.selectionRating, selectedNodes);
+  else createRatingControls(elements.selectionRating, state.selectedNode);
+  elements.selectionRating.title = isMultiple
+    ? `批次評分 ${selectedNodes.length} 個素材`
+    : `評分 ${rating} / 5`;
   renderSelectionTags(tags);
   elements.selectionAddTag.hidden = false;
-  elements.selectionAddTag.disabled = Boolean(state.selectedNode.isSaving);
+  elements.selectionAddTag.disabled = selectedNodes.some((node) => node.isSaving);
   elements.selectionFolders.hidden = folders.length === 0;
   elements.selectionFoldersDivider.hidden = folders.length === 0;
   elements.selectionAddFolder.hidden = false;
-  elements.selectionAddFolder.disabled = Boolean(state.selectedNode.isSaving);
+  elements.selectionAddFolder.disabled = selectedNodes.some((node) => node.isSaving);
   elements.selectionFolders.replaceChildren(
     ...folders.map(({ value, label }) =>
       createSelectionExploreButton({ type: "folder", value, label }),

@@ -33,6 +33,44 @@
       });
     }
 
+    openMultiple(nodes, anchor) {
+      const selectedNodes = [...new Set(nodes || [])].filter((node) => node?.item);
+      if (!selectedNodes.length) return false;
+      this.close();
+      const initialByNode = new Map(
+        selectedNodes.map((node) => [node, new Set(normalizeTags(node.item.tags))]),
+      );
+      const allTags = new Set();
+      for (const tags of initialByNode.values()) {
+        for (const tag of tags) allTags.add(tag);
+      }
+      const commonTags = new Set(
+        [...allTags].filter((tag) => selectedNodes.every((node) => initialByNode.get(node).has(tag))),
+      );
+      const mixedTags = new Set(
+        [...allTags].filter((tag) => !commonTags.has(tag)),
+      );
+      this.mount(selectedNodes[0], anchor, {
+        className: "tag-editor",
+        ariaLabel: `編輯 ${selectedNodes.length} 個素材的標籤`,
+        heading: `編輯 ${selectedNodes.length} 個素材的標籤`,
+        placeholder: "搜尋或輸入新標籤",
+        extra: {
+          selected: commonTags,
+          mixed: mixedTags,
+          touched: new Set(),
+          nodes: selectedNodes,
+          initialByNode,
+          multi: true,
+        },
+        buttons: [
+          { label: "取消", onClick: () => this.close() },
+          { label: "完成", primary: true, onClick: (session) => void this.commit(session) },
+        ],
+      });
+      return true;
+    }
+
     handleKeyDown(event, session) {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -59,6 +97,7 @@
         [
           ...session.selected,
           ...normalizeTags(session.node.item.tags),
+          ...(session.mixed || []),
           ...this.options.getAvailableTags(),
         ],
         query,
@@ -85,15 +124,19 @@
       const option = document.createElement("button");
       const marker = document.createElement("span");
       const isSelected = session.selected.has(tag);
+      const isMixed = session.mixed?.has(tag) && !session.touched?.has(tag);
       option.className = "tag-editor-option";
       option.type = "button";
-      option.setAttribute("aria-pressed", String(isSelected));
+      option.setAttribute("aria-pressed", isMixed ? "mixed" : String(isSelected));
       marker.className = "tag-editor-check";
-      marker.textContent = isSelected ? "✓" : "";
+      marker.textContent = isMixed ? "—" : isSelected ? "✓" : "";
+      option.classList.toggle("is-mixed", isMixed);
       option.append(marker, this.options.createTagChip(tag));
       this.appendAction(session, option, () => {
         if (session.selected.has(tag)) session.selected.delete(tag);
         else session.selected.add(tag);
+        session.mixed?.delete(tag);
+        session.touched?.add(tag);
         this.restartSearch(session);
       });
     }
@@ -105,6 +148,8 @@
       create.textContent = `建立「${tag}」`;
       this.appendAction(session, create, () => {
         session.selected.add(tag);
+        session.mixed?.delete(tag);
+        session.touched?.add(tag);
         this.restartSearch(session);
       });
     }
@@ -117,6 +162,10 @@
 
     async commit(session) {
       if (this.session !== session || session.node.isSaving) return;
+      if (session.multi) {
+        await this.commitMultiple(session);
+        return;
+      }
       const previousTags = normalizeTags(session.node.item.tags);
       const nextTags = [...session.selected];
       this.close();
@@ -127,6 +176,32 @@
         return;
       }
       await this.options.onCommit(session.node, nextTags, previousTags);
+    }
+
+    async commitMultiple(session) {
+      const nextByNode = new Map();
+      const previousByNode = new Map();
+      let changed = false;
+      for (const node of session.nodes) {
+        const previousTags = [...session.initialByNode.get(node)];
+        const nextTags = previousTags.filter(
+          (tag) => !session.touched.has(tag) || session.selected.has(tag),
+        );
+        for (const tag of session.selected) {
+          if (session.touched.has(tag) && !nextTags.includes(tag)) nextTags.push(tag);
+        }
+        previousByNode.set(node, previousTags);
+        nextByNode.set(node, nextTags);
+        if (
+          previousTags.length !== nextTags.length ||
+          previousTags.some((tag, index) => tag !== nextTags[index])
+        ) {
+          changed = true;
+        }
+      }
+      this.close();
+      if (!changed) return;
+      await this.options.onCommitMultiple?.(session.nodes, nextByNode, previousByNode);
     }
 
     refresh() {

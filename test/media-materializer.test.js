@@ -53,6 +53,7 @@ function createHarness() {
     },
   };
   const queue = createQueueProbe();
+  const clicks = [];
   const materializer = createMediaMaterializer({
     document,
     window: {
@@ -62,6 +63,9 @@ function createHarness() {
     world,
     mediaLoadQueue: queue,
     onPositionNode() {},
+    onClickNode(node, modifiers) {
+      clicks.push({ node, modifiers });
+    },
     onSelectNode() {},
     onOpenContextMenu() {},
     onLayoutChange() {},
@@ -72,7 +76,7 @@ function createHarness() {
     debugLog() {},
     startVideoPlayer() {},
   });
-  return { createdElements, materializer, queue, world };
+  return { clicks, createdElements, materializer, queue, world };
 }
 
 function createNode(id = "item-1") {
@@ -132,4 +136,17 @@ test("quality sync requests a better source without remounting the card", () => 
   assert.equal(harness.world.children.length, 1);
   assert.deepEqual(harness.queue.requests, [{ node, quality: "original" }]);
   assert.deepEqual(harness.queue.disposed, []);
+});
+
+test("media card click forwards selection modifiers", () => {
+  const harness = createHarness();
+  const node = createNode();
+  harness.materializer.mount(node);
+
+  node.element.emit("click", { ctrlKey: true, metaKey: false, shiftKey: true });
+
+  assert.deepEqual(harness.clicks, [{
+    node,
+    modifiers: { ctrlKey: true, metaKey: false, shiftKey: true },
+  }]);
 });

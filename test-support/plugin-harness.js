@@ -18,6 +18,8 @@ const BirdViewFolderBrowser = require("../folder-browser.js");
 const BirdViewFolderContent = require("../folder-content-intake.js");
 const BirdViewLibraryContent = require("../library-content-target.js");
 const BirdViewVideoThumbnail = require("../video-thumbnail.js");
+const BirdViewSelection = require("../selection-navigation.js");
+const BirdViewBulkMetadata = require("../bulk-metadata.js");
 
 const PLUGIN_SOURCE = fs.readFileSync(path.resolve(__dirname, "../plugin.js"), "utf8");
 const SELECTORS = [
@@ -400,6 +402,7 @@ function createPluginHarness({
     BirdViewSettingsPresets,
     BirdViewSettingsSnapshot,
     BirdViewRowLoad,
+    BirdViewBulkMetadata,
     BirdViewSelectionTags,
     BirdViewFolderBrowser,
     BirdViewFolderContent,
@@ -482,52 +485,24 @@ function createPluginHarness({
     BirdViewSelection: {
       createSelectionNavigation(options) {
         if (navigationProbe) {
-          const readRows = options.getRows || (() => options.state.rows);
-
-          function setSelectedNode(node) {
-            if (!node) return;
-            const previousNode = options.state.selectedNode;
-            options.state.selectedNode = node;
-            selectedNodeId = node.item.id;
-            options.onSelectNode?.(node, {
-              changed: node !== previousNode,
-              previousNode,
-              preserveVerticalNavigation: false,
-            });
-          }
-
-          return {
-            clearSelection() {
-              const previousNode = options.state.selectedNode;
-              options.state.selectedNode = null;
+          return BirdViewSelection.createSelectionNavigation({
+            ...options,
+            onSelectNode(node, details) {
+              selectedNodeId = node.item.id;
+              options.onSelectNode?.(node, details);
+            },
+            onClearSelection(node, details) {
               selectedNodeId = null;
-              options.onClearSelection?.(previousNode);
+              options.onClearSelection?.(node, details);
             },
-            moveSelection(direction) {
-              if (!options.state.selectedNode) return null;
-              const node = BirdViewCore.findDirectionalNeighbor(
-                readRows(),
-                options.state.selectedNode,
-                direction,
-                { wrapRows: true, layoutDirection: options.state.layoutDirection },
-              );
-              if (node) setSelectedNode(node);
-              return node || null;
-            },
-            selectNodeAtViewportCenter() {
-              const center = BirdViewCore.getViewportWorldCenter(options.state.camera, {
-                width: options.elements.viewport.clientWidth,
-                height: options.elements.viewport.clientHeight,
-              });
-              const node = BirdViewCore.findNearestNodeInRows(readRows(), center);
-              if (node) setSelectedNode(node);
-            },
-            setSelectedNode,
-          };
+          });
         }
         return {
           clearSelection() {},
           moveSelection() { return null; },
+          getSelectedNodes() { return new Set(); },
+          isMultipleSelection() { return false; },
+          selectNode() {},
           selectNodeAtViewportCenter() {},
           setSelectedNode() {},
         };
