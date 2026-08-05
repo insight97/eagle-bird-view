@@ -75,6 +75,14 @@ test("camera navigation pans and zooms around the requested viewport point", () 
   assert.equal(harness.updates.length, 2);
 });
 
+test("camera navigation allows zooming up to 1200 percent", () => {
+  const harness = createHarness();
+
+  harness.navigation.zoomAtPoint(400, 300, 100);
+
+  assert.equal(harness.state.camera.scale, 12);
+});
+
 test("camera navigation animates a selected node and cancels the pending focus", () => {
   const harness = createHarness();
   const node = { x: 100, y: 120, width: 200, mediaHeight: 100, isVideo: false };

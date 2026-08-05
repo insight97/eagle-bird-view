@@ -24,7 +24,7 @@
 
   const CAMERA_FOCUS_DURATION = 180;
   const MIN_ZOOM = 0.08;
-  const MAX_ZOOM = 8;
+  const MAX_ZOOM = 12;
   const VIEWPORT_PAN_FRACTION = 2 / 3;
   const CAMERA_FIT_PADDING = 64;
   const DEFAULT_FOCUS_ROW_EMPHASIS = 0.9;
