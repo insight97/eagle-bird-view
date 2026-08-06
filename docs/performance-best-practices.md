@@ -62,10 +62,32 @@ A/B 對照（隱藏 `.media-card`）：`RasterTask` 1560ms → 2.7ms，大型 de
 
 這是個通則：**為了掩蓋某個成本而加的降級，在成本被真正消除後必須跟著移除**，否則它會變成新的品質問題，而且很難歸因。
 
+### 第二輪 trace：預算只增不減（`Profile-20260807T021434.json`）
+
+bounded raster 上線後 `RasterTask` 從 1560ms 降到 253ms／7981 次（平均 0.03ms），但仍有殘留卡頓。`PaintImage` 顯示原因：
+
+```text
+src 2901 × 4096  →  實際畫在 127 × 180   過取樣 520 倍
+src 2898 × 4096  →  實際畫在 118 × 167   過取樣 602 倍
+```
+
+`refreshRasterBudget()` 當時只會**升級**預算。使用者放大過一次後，卡片拿到 4096 長邊的 raster（單張 47 MB），縮小回去卻永遠不會還回來——等於用 4096 重演了原本 7589 的問題。
+
+而且升級路徑本身也漏掉主要情況：`refreshRasterBudget()` 只對 `getQuality(node) === "original"` 的卡片執行，但縮小到 320px 門檻以下的卡片會回報 `"thumbnail"`，於是完全不會被重新檢視，就這樣一直畫著 4096 的 raster。
+
+連帶症狀：主執行緒的 `CompositeLayers` 出現 9 次超過 100ms（最長 165ms）。時間軸顯示每次長 commit 都在某個 100–180ms 的 raster-thread decode 開始後約 15ms 啟動、並在該 decode 結束時同時結束——**主執行緒在 commit 階段同步等待圖片解碼**。這是症狀不是獨立問題。
+
+修正：
+
+- `refreshRasterBudget(node, { allowShrink })` — 放大時立即升級（否則畫面看得出模糊），縮小則只在相機停下（`sync()`）時執行，避免縮放手勢期間每 120ms 重繪一次。
+- `dropOriginalRaster(node)` — 卡片掉到原圖門檻以下時，把 raster 交還並切回縮圖。
+
 ### 可推廣的判準
 
 - 先問「來源像素量與實際顯示像素量差幾倍」，再問 layer 怎麼提升。差距達兩、三個數量級時，任何 CSS hint 都救不了。
 - `Decode Image` 的 `imageType` 沒有尺寸資訊，但 `PaintImage` 的 `srcWidth`／`srcHeight` 對上 `width`／`height` 就能直接算出過取樣倍率；`Decode LazyPixelRef` 的重複 id 則能證明 cache 抖動。
+- 任何「依畫面尺寸調整資源品質」的機制，**降級路徑和升級路徑一樣重要**，而且要分別確認兩者的觸發條件涵蓋所有狀態。這次升級與降級各漏了一種情況：預算不會下降，以及掉出門檻的卡片完全不再被檢視。只測放大不會發現任何一個。
+- 主執行緒 `CompositeLayers` 異常長、但內部沒有對應的主執行緒子事件時，先對照 raster thread 的 decode 時間軸；commit 會同步等待當幀需要的圖片解碼，長 commit 往往只是解碼太慢的投影。
 
 ## 本專案現況對照
 

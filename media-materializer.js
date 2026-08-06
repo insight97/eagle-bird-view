@@ -115,15 +115,51 @@
       return { url, budget: target.budget };
     }
 
-    // Zooming past the size the card was rastered at reloads the master once and
-    // re-renders it sharper. The current raster stays on screen meanwhile.
-    function refreshRasterBudget(node) {
+    // Re-renders the card's raster when its budget no longer matches what the
+    // card paints. The existing raster stays on screen throughout.
+    //
+    // Growing has to be eager: the card is visibly soft until it happens.
+    // Shrinking has to wait for the camera to settle, because a zoom gesture
+    // asks for quality several times a second and would otherwise re-render on
+    // every step. It cannot be skipped, though — a budget that only ever grows
+    // leaves a zoomed-out board painting 4096px rasters into 180px cards, which
+    // is the same decode cache thrash that bounding was meant to remove.
+    function refreshRasterBudget(node, { allowShrink = false } = {}) {
       const raster = rasterByNode.get(node);
       if (!raster) return;
-      if (getRasterDimensionBudget(getNodeScreenLongEdge(node)) <= raster.budget) return;
+      const needed = getRasterDimensionBudget(getNodeScreenLongEdge(node));
+      if (needed === raster.budget) return;
+      if (needed < raster.budget && !allowShrink) return;
       if (mediaLoadQueue.snapshot(node)?.readyQuality !== "original") return;
       if (!mediaLoadQueue.invalidate(node, "original")) return;
       requestMediaByNode.get(node)?.("original");
+    }
+
+    // Zooming out far enough that the card no longer wants an original at all
+    // has to give the raster back too. refreshRasterBudget() cannot do it: it
+    // only runs for cards still asking for "original", so without this a card
+    // that drops below the threshold keeps painting whatever raster it grew to.
+    function dropOriginalRaster(node) {
+      const raster = rasterByNode.get(node);
+      if (!raster) return;
+      const thumbnail = thumbnailImageByNode.get(node);
+      const original = node.previewImage;
+      if (!thumbnail || !original || thumbnail === original) return;
+      const snapshot = mediaLoadQueue.snapshot(node);
+      if (snapshot?.readyQuality !== "original" || snapshot.thumbnailFailed) return;
+      if (!mediaLoadQueue.invalidate(node, "original")) return;
+
+      thumbnail.style.visibility = "visible";
+      original.removeAttribute("src");
+      original.remove();
+      rasterByImage.delete(original);
+      rasterByNode.delete(node);
+      imageDownscaler.revoke(raster.url);
+      node.previewImage = thumbnail;
+      node.mediaElement = thumbnail;
+      if (node.element) node.element.dataset.mediaQuality = "thumbnail";
+      applyMediaRotation(node);
+      debugLog(node.item, "bounded-raster-dropped", { budget: raster.budget });
     }
 
     function mount(node) {
@@ -227,7 +263,9 @@
       const retained = new Set(retainedNodes);
 
       for (const node of materializedNodes) {
-        if (getQuality(node) !== "original") mediaLoadQueue.cancel(node, "original");
+        if (getQuality(node) === "original") continue;
+        mediaLoadQueue.cancel(node, "original");
+        dropOriginalRaster(node);
       }
 
       for (const node of mountedNodes) {
@@ -241,7 +279,9 @@
       for (const node of loadNodes) {
         const quality = getQuality(node);
         requestMediaByNode.get(node)?.(quality);
-        if (quality === "original") refreshRasterBudget(node);
+        // sync() only runs once the camera has settled, so this is where a
+        // raster that grew during a zoom gets handed back.
+        if (quality === "original") refreshRasterBudget(node, { allowShrink: true });
       }
     }
 

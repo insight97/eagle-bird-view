@@ -391,6 +391,101 @@ test("zooming past the rastered size re-renders the master sharper", async () =>
   assert.equal(firstOriginal.isConnected, false, "the superseded original leaves the DOM");
 });
 
+// A budget that only ever grows leaves a zoomed-out board painting 4096px
+// rasters into 180px cards — the same decode cache thrash bounding removes.
+test("zooming back out hands the oversized raster back", async () => {
+  const harness = createRasterHarness({ screenLongEdge: 1500 });
+  const node = createMasterNode();
+  const zoomedOriginal = await loadOriginal(harness, node);
+  assert.equal(harness.downscaleCalls[0].budget, 2048);
+
+  harness.setScreenLongEdge(400);
+  harness.materializer.sync({
+    visibleNodes: [node],
+    retainedNodes: [node],
+    loadNodes: [node],
+    selectedNode: null,
+    getQuality: () => "original",
+  });
+
+  const shrunk = await settle(harness);
+  assert.notEqual(shrunk, zoomedOriginal);
+  shrunk.emit("load");
+  await settle(harness);
+
+  assert.equal(harness.downscaleCalls.at(-1).budget, 512);
+  assert.equal(node.previewImage, shrunk);
+  assert.deepEqual(harness.revoked, ["blob:raster-1"]);
+});
+
+// Observed in a trace: cards that had grown to a 4096px raster kept painting it
+// into 180px boxes long after zooming out, because they no longer asked for an
+// original and so were never revisited. Their decodes then blocked commit.
+test("dropping below the original threshold gives the raster back", async () => {
+  const harness = createRasterHarness({ screenLongEdge: 1500 });
+  const node = createMasterNode();
+  const zoomedOriginal = await loadOriginal(harness, node);
+  const thumbnail = harness.images()[0];
+  assert.equal(harness.downscaleCalls[0].budget, 2048);
+  assert.equal(node.previewImage, zoomedOriginal);
+
+  // Zoomed out far enough that the thumbnail is enough again.
+  harness.materializer.sync({
+    visibleNodes: [node],
+    retainedNodes: [node],
+    loadNodes: [node],
+    selectedNode: null,
+    getQuality: () => "thumbnail",
+  });
+
+  assert.equal(node.previewImage, thumbnail);
+  assert.equal(node.mediaElement, thumbnail);
+  assert.equal(thumbnail.style.visibility, "visible");
+  assert.equal(zoomedOriginal.isConnected, false);
+  assert.equal(node.element.dataset.mediaQuality, "thumbnail");
+  assert.deepEqual(harness.revoked, ["blob:raster-1"]);
+  assert.equal(harness.mediaLoadQueue.snapshot(node).readyQuality, "thumbnail");
+});
+
+test("zooming back in after a drop reloads the original", async () => {
+  const harness = createRasterHarness({ screenLongEdge: 1500 });
+  const node = createMasterNode();
+  await loadOriginal(harness, node);
+  harness.materializer.sync({
+    visibleNodes: [node],
+    retainedNodes: [node],
+    loadNodes: [node],
+    selectedNode: null,
+    getQuality: () => "thumbnail",
+  });
+
+  harness.setScreenLongEdge(400);
+  harness.materializer.syncQuality({ loadNodes: [node], getQuality: () => "original" });
+  const reloaded = await settle(harness);
+  reloaded.emit("load");
+  await settle(harness);
+
+  assert.equal(harness.downscaleCalls.at(-1).budget, 512);
+  assert.equal(node.previewImage, reloaded);
+  assert.equal(node.element.dataset.mediaQuality, "original");
+});
+
+test("a zoom gesture only grows the budget, never shrinking mid-gesture", async () => {
+  const harness = createRasterHarness({ screenLongEdge: 1500 });
+  const node = createMasterNode();
+  await loadOriginal(harness, node);
+  const renderCount = harness.downscaleCalls.length;
+
+  // syncQuality() runs several times a second while zooming; shrinking there
+  // would re-render on every step of the gesture.
+  harness.setScreenLongEdge(400);
+  harness.materializer.syncQuality({ loadNodes: [node], getQuality: () => "original" });
+  await settle(harness);
+
+  assert.equal(harness.downscaleCalls.length, renderCount);
+  assert.deepEqual(harness.revoked, []);
+});
+
 test("zooming within the rastered budget does not re-render anything", async () => {
   const harness = createRasterHarness({ screenLongEdge: 400 });
   const node = createMasterNode();
