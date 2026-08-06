@@ -82,12 +82,28 @@ src 2898 × 4096  →  實際畫在 118 × 167   過取樣 602 倍
 - `refreshRasterBudget(node, { allowShrink })` — 放大時立即升級（否則畫面看得出模糊），縮小則只在相機停下（`sync()`）時執行，避免縮放手勢期間每 120ms 重繪一次。
 - `dropOriginalRaster(node)` — 卡片掉到原圖門檻以下時，把 raster 交還並切回縮圖。
 
+### 第三輪：載入追不上平移速度
+
+卡頓解決後浮現的下一個問題，其實不是載入太慢，而是**平移期間完全不載入**。
+
+`scheduleViewportWork()` 在 `state.isPanning` 時直接 return，所以整個拖曳過程沒有任何 mount 或 load，要等放開手才開始。`getViewportWorkInterval(isPanning)` 本來就回傳 250ms，代表原本設計過平移期間的節流節奏，但那條分支已經變成無法到達的死碼。
+
+第二個因素：`preloadMargin` 固定 120px，且不知道相機往哪走。就算恢復載入，也是等素材快進畫面才開始抓。
+
+修正：
+
+- `runPanMediaWork()` — 平移期間以 250ms 節流只跑 `updateMediaVisibility()`；label、中央選取與自動探索仍然延後到手勢結束。
+- `getPreloadMargins(travel, base, maxLead)` — 純函式，依上一輪的相機位移只在**前進方向**加大預載帶（`PRELOAD_LEAD_FACTOR = 2`，約兩輪的runway），並以 mount 範圍為上限。四個方向平均加大會在相機正在離開的三個方向白做工。
+
+代價要講清楚：平移期間現在會建立 DOM。bounded raster 讓 raster／decode 變便宜之後，卡片 DOM 建立很可能成為平移期間新的主要主執行緒成本，若之後再出現卡頓，這是第一個該量的地方。
+
 ### 可推廣的判準
 
 - 先問「來源像素量與實際顯示像素量差幾倍」，再問 layer 怎麼提升。差距達兩、三個數量級時，任何 CSS hint 都救不了。
 - `Decode Image` 的 `imageType` 沒有尺寸資訊，但 `PaintImage` 的 `srcWidth`／`srcHeight` 對上 `width`／`height` 就能直接算出過取樣倍率；`Decode LazyPixelRef` 的重複 id 則能證明 cache 抖動。
 - 任何「依畫面尺寸調整資源品質」的機制，**降級路徑和升級路徑一樣重要**，而且要分別確認兩者的觸發條件涵蓋所有狀態。這次升級與降級各漏了一種情況：預算不會下降，以及掉出門檻的卡片完全不再被檢視。只測放大不會發現任何一個。
 - 主執行緒 `CompositeLayers` 異常長、但內部沒有對應的主執行緒子事件時，先對照 raster thread 的 decode 時間軸；commit 會同步等待當幀需要的圖片解碼，長 commit 往往只是解碼太慢的投影。
+- 「動畫期間延後昂貴工作」是對的，但要逐項判斷延後的代價。延後 label 與選取沒有後果；延後 media window 的後果是使用者到了目的地才開始載入。當一個常數（`getViewportWorkInterval(true) = 250`）沒有任何呼叫端能到達時，通常代表某次收緊把原本的分層壓成了一刀切。
 
 ## 本專案現況對照
 

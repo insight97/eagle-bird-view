@@ -25,7 +25,7 @@
 | 事件生命週期 | `pointermove`／`pointerup`／`pointercancel` 暫時掛在 `window` | 能追蹤離開 viewport 的拖曳，但可改成 viewport 的 Pointer Capture，讓所有事件屬於同一個 gesture |
 | 觸控瀏覽器行為 | `.viewport { touch-action: none; user-select: none; }` | 正確；自訂平移需要先宣告不要讓瀏覽器接手原生 pan／pinch |
 | 更新節奏 | `updateCamera()` 以 `requestAnimationFrame` 合併畫面更新 | 正確；連續輸入不應每個事件都做完整 render |
-| 昂貴工作 | 平移期間延後 media window、label、中央選取與自動探索 | 正確，符合目前專案的 transform-only 方向 |
+| 昂貴工作 | 平移期間延後 label、中央選取與自動探索；media window 以 250ms 節流持續執行 | 正確。但 media window 不能一起延後——整個手勢都不載入，等於平移到目的地才開始抓圖 |
 | 裝飾層 | 平移期間暫時隱藏 grid 與 labels，放開後恢復 | 減少移動中不影響定位的合成內容；仍需以 Eagle Performance trace 確認收益 |
 | 鍵盤平移 | 平滑模式使用共用的鍵盤操作加速反應；按住加速，放開後減速，完成後選取中央素材 | 符合鍵盤連續操作的建議模型 |
 | 慣性 | 放開立即停止 | 是目前唯一明顯可考慮的體感增強，但不是必須 |
@@ -91,7 +91,7 @@ Android `OverScroller` 明確區分合法範圍、overfling 範圍與 `springBac
 
 ### P0：保留目前行為
 
-- 保留直接 1:1 拖曳、4px threshold、rAF camera transform，以及平移期間延後昂貴工作。
+- 保留直接 1:1 拖曳、4px threshold、rAF camera transform，以及平移期間延後 label／選取／探索。media window 需要持續執行並依移動方向預載。
 - 不為滑鼠／觸控拖曳增加起步加速，也不增加 pointer drag speed 設定。
 
 ### P1：低風險改善

@@ -36,6 +36,9 @@
   // since a raster that large stops being a saving.
   const MIN_RASTER_DIMENSION = 512;
   const MAX_RASTER_DIMENSION = 4096;
+  // Preload roughly two passes ahead of the camera, so a load that starts now
+  // has until the node reaches the viewport to finish.
+  const PRELOAD_LEAD_FACTOR = 2;
   const EXPLORATION_RANK_WEIGHTS = Object.freeze([40, 25, 17, 11, 7]);
   const AI_EXPLORATION_RATIOS = Object.freeze([0, 25, 50, 75, 100]);
   const EXPLORATION_DIVERSITY_STRENGTHS = Object.freeze([0, 25, 50, 75, 100]);
@@ -131,6 +134,27 @@
       budget,
       width: Math.max(1, Math.round(width * ratio)),
       height: Math.max(1, Math.round(height * ratio)),
+    };
+  }
+
+  // Media has to start loading before it is on screen, or a fast pan outruns it.
+  // Extending the preload band evenly costs work in three directions the camera
+  // is leaving, so the lead goes only where the camera is heading, sized by how
+  // far it travelled last pass. A node's screen position is
+  // `camera.x + node.x * scale`, so a rising camera.x reveals content on the
+  // left and a falling one reveals it on the right.
+  function getPreloadMargins(travel, baseMargin = 0, maxLead = Infinity) {
+    const base = Math.max(0, Number(baseMargin) || 0);
+    const limit = Math.max(0, Number(maxLead) || 0);
+    const x = Number(travel?.x) || 0;
+    const y = Number(travel?.y) || 0;
+    const leadX = Math.min(Math.abs(x) * PRELOAD_LEAD_FACTOR, limit);
+    const leadY = Math.min(Math.abs(y) * PRELOAD_LEAD_FACTOR, limit);
+    return {
+      left: x > 0 ? base + leadX : base,
+      right: x < 0 ? base + leadX : base,
+      top: y > 0 ? base + leadY : base,
+      bottom: y < 0 ? base + leadY : base,
     };
   }
 
@@ -1125,6 +1149,7 @@
     getLabelRect,
     getLabelDetailLevel,
     getPanLayerTranslation,
+    getPreloadMargins,
     getRasterDimensionBudget,
     getRasterTargetSize,
     getWrappedGridTranslation,

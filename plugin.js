@@ -18,6 +18,7 @@ const {
   getLabelRect,
   getNodeScreenCenter,
   getPanLayerTranslation,
+  getPreloadMargins,
   getWrappedGridTranslation,
   getViewportWorkInterval,
   getTagColorStyle,
@@ -76,6 +77,9 @@ const SMOOTH_ZOOM_QUALITY_INTERVAL = 120;
 // TARGET_ROW_HEIGHT, a filled row is shorter, and a zoom ratio would compare
 // those against different baselines.
 const ORIGINAL_IMAGE_MIN_HEIGHT = 320;
+// Standing band around the viewport that media loads into. A moving camera adds
+// a lead on top of this, in the direction it is heading.
+const PRELOAD_MARGIN = 120;
 const AUTO_EXPLORE_MIN_ZOOM = 0.8;
 const RESOURCE_RELEASE_VIEWPORTS = 2;
 const GRID_LAYER_OVERFLOW = 768;
@@ -143,6 +147,8 @@ const state = {
   cameraSettleTimer: null,
   viewportWorkTimer: null,
   smoothZoomQualityTimer: null,
+  panMediaTimer: null,
+  lastMediaCamera: null,
   lastViewportWork: -Infinity,
   lastSmoothZoomQualityWork: -Infinity,
   isPanning: false,
@@ -3350,10 +3356,14 @@ function keepCameraLayerPromoted(scaleChanged = false) {
 }
 
 function scheduleViewportWork() {
-  // Pointer movement should stay on the camera transform path. Smooth zoom
-  // can request better media quality at a low cadence, while mounting,
-  // releasing, relabelling, and auto-exploring happen once the gesture ends.
-  if (state.isPanning) return;
+  // Pointer movement should stay on the camera transform path, so relabelling,
+  // centre selection and auto-exploring wait for the gesture to end. Mounting
+  // and loading cannot wait: suspending them for the whole gesture means a pan
+  // arrives somewhere with nothing loaded and only then starts fetching.
+  if (state.isPanning) {
+    schedulePanMediaWork();
+    return;
+  }
   if (state.isSmoothZooming) {
     scheduleSmoothZoomQualityWork();
     return;
@@ -3362,6 +3372,27 @@ function scheduleViewportWork() {
   const elapsed = performance.now() - state.lastViewportWork;
   const delay = Math.max(0, getViewportWorkInterval(state.isPanning) - elapsed);
   state.viewportWorkTimer = window.setTimeout(runViewportWork, delay);
+}
+
+function schedulePanMediaWork() {
+  if (!state.isPanning || state.panMediaTimer !== null) return;
+  const elapsed = performance.now() - state.lastViewportWork;
+  const delay = Math.max(0, getViewportWorkInterval(true) - elapsed);
+  state.panMediaTimer = window.setTimeout(runPanMediaWork, delay);
+}
+
+function runPanMediaWork() {
+  state.panMediaTimer = null;
+  if (!state.isPanning) return;
+  state.lastViewportWork = performance.now();
+  updateMediaVisibility();
+  schedulePanMediaWork();
+}
+
+function clearPanMediaWork() {
+  if (state.panMediaTimer === null) return;
+  window.clearTimeout(state.panMediaTimer);
+  state.panMediaTimer = null;
 }
 
 function scheduleSmoothZoomQualityWork() {
@@ -3388,12 +3419,14 @@ function runSmoothZoomQualityWork() {
 function rescheduleViewportWork() {
   if (state.viewportWorkTimer !== null) window.clearTimeout(state.viewportWorkTimer);
   state.viewportWorkTimer = null;
+  clearPanMediaWork();
   scheduleViewportWork();
 }
 
 function flushViewportWork() {
   if (state.viewportWorkTimer !== null) window.clearTimeout(state.viewportWorkTimer);
   state.viewportWorkTimer = null;
+  clearPanMediaWork();
   runViewportWork();
 }
 
@@ -3409,17 +3442,29 @@ function runViewportWork() {
 }
 
 function updateMediaVisibility() {
-  const plan = getViewportMediaPlan();
-  mediaMaterializer.sync(plan);
+  mediaMaterializer.sync(getViewportMediaPlan({ travel: consumeCameraTravel() }));
 }
 
 function updateMediaQuality() {
+  // Quality passes run several times a second while zooming; they decide how
+  // sharp mounted cards are, not how far ahead to reach, so they take no lead.
   const { loadNodes, getQuality } = getViewportMediaPlan();
   mediaMaterializer.syncQuality({ loadNodes, getQuality });
 }
 
-function getViewportMediaPlan() {
-  const preloadMargin = 120;
+// How far the camera moved since media coverage was last considered. That
+// window is the throttle interval, which is also how long the next pass has to
+// get ahead of the camera.
+function consumeCameraTravel() {
+  const previous = state.lastMediaCamera;
+  const travel = previous
+    ? { x: state.camera.x - previous.x, y: state.camera.y - previous.y }
+    : null;
+  state.lastMediaCamera = { x: state.camera.x, y: state.camera.y };
+  return travel;
+}
+
+function getViewportMediaPlan({ travel = null } = {}) {
   const viewportWidth = elements.viewport.clientWidth;
   const viewportHeight = elements.viewport.clientHeight;
   const scale = state.camera.scale;
@@ -3428,6 +3473,8 @@ function getViewportMediaPlan() {
   const retainedNodes = new Set(
     getNodesNearViewport(mountMargin * RESOURCE_RELEASE_VIEWPORTS),
   );
+  // Loading can never reach past what is mounted, so the lead is capped there.
+  const margins = getPreloadMargins(travel, PRELOAD_MARGIN, mountMargin);
   const loadNodes = [];
   for (const node of visibleNodes) {
     const left = state.camera.x + node.x * scale;
@@ -3435,10 +3482,10 @@ function getViewportMediaPlan() {
     const right = left + node.width * scale;
     const bottom = top + node.mediaHeight * scale;
     const isNearViewport =
-      right >= -preloadMargin &&
-      left <= viewportWidth + preloadMargin &&
-      bottom >= -preloadMargin &&
-      top <= viewportHeight + preloadMargin;
+      right >= -margins.left &&
+      left <= viewportWidth + margins.right &&
+      bottom >= -margins.top &&
+      top <= viewportHeight + margins.bottom;
 
     if (isNearViewport) loadNodes.push(node);
   }

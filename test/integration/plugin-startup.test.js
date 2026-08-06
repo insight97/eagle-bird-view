@@ -879,7 +879,11 @@ test("Ctrl+Home names the missing video thumbnail runtime capability", async () 
   assert.equal(plugin.elements.get("#toast").textContent, "無法建立影片縮圖：缺少：檔案寫入 API。");
 });
 
-test("dragging defers viewport maintenance until the pointer is released", async () => {
+// Media mounting has to keep up with the gesture: deferring it for the whole
+// drag means the pan arrives somewhere with nothing loaded and only then starts
+// fetching. Labels and centre selection stay deferred — those are main-thread
+// work the gesture does not need.
+test("dragging keeps media loading but defers labels and selection", async () => {
   const plugin = createPluginHarness({
     selectedItems: imageItems(48),
     runAnimationFrames: true,
@@ -891,16 +895,24 @@ test("dragging defers viewport maintenance until the pointer is released", async
 
   const viewport = plugin.elements.get("#viewport");
   const world = plugin.elements.get("#world");
+  const labels = plugin.elements.get("#labels");
   const cardsBeforePan = world.children.length;
+  const selectedBeforePan = plugin.state.selectedNode;
+  labels.style.transform = "labels-sentinel";
 
   viewport.emit("pointerdown", { button: 1, clientX: 0, clientY: 0 });
   plugin.windowEmit("pointermove", { clientX: 0, clientY: -1000 });
   plugin.flushTimers();
 
-  assert.equal(world.children.length, cardsBeforePan);
+  assert.ok(
+    world.children.length > cardsBeforePan,
+    "cards along the pan should mount while the pointer is still down",
+  );
+  assert.equal(labels.style.transform, "labels-sentinel");
+  assert.equal(plugin.state.selectedNode, selectedBeforePan);
 
   plugin.windowEmit("pointerup");
-  assert.ok(world.children.length > cardsBeforePan);
+  assert.notEqual(labels.style.transform, "labels-sentinel");
 });
 
 test("dragging keeps camera frames on the world transform until release", async () => {
@@ -936,4 +948,34 @@ test("dragging keeps camera frames on the world transform until release", async 
   assert.equal(world.classList.contains("is-moving"), false);
   assert.notEqual(grid.style.transform, "grid-sentinel");
   assert.notEqual(labels.style.transform, "labels-sentinel");
+});
+
+// The lead only helps if coverage is reconsidered repeatedly: a single pass at
+// the start of a drag is stale by the time the camera has travelled a viewport.
+test("a sustained drag keeps reconsidering media coverage", async () => {
+  const plugin = createPluginHarness({
+    selectedItems: imageItems(96),
+    runAnimationFrames: true,
+  });
+
+  plugin.start();
+  await flush();
+  plugin.flushTimers();
+
+  const viewport = plugin.elements.get("#viewport");
+  const world = plugin.elements.get("#world");
+  viewport.emit("pointerdown", { button: 1, clientX: 0, clientY: 0 });
+
+  const counts = [];
+  for (let step = 1; step <= 4; step += 1) {
+    plugin.windowEmit("pointermove", { clientX: 0, clientY: -400 * step });
+    plugin.flushTimers();
+    counts.push(world.children.length);
+  }
+
+  assert.ok(
+    counts.at(-1) > counts[0],
+    `coverage should keep growing through the drag, saw ${counts.join(", ")}`,
+  );
+  plugin.windowEmit("pointerup");
 });

@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const {
   MAX_RASTER_DIMENSION,
   MIN_RASTER_DIMENSION,
+  getPreloadMargins,
   getRasterDimensionBudget,
   getRasterTargetSize,
 } = require("../bird-view-core.js");
@@ -74,4 +75,63 @@ test("aspect ratio survives bounding", () => {
 
   assert.equal(target.budget, MAX_RASTER_DIMENSION);
   assert.ok(Math.abs(sourceRatio - targetRatio) < 0.001);
+});
+
+test("a still camera preloads an even band around the viewport", () => {
+  const margins = getPreloadMargins(null, 120, 1400);
+  assert.deepEqual(margins, { left: 120, right: 120, top: 120, bottom: 120 });
+
+  const settled = getPreloadMargins({ x: 0, y: 0 }, 120, 1400);
+  assert.deepEqual(settled, { left: 120, right: 120, top: 120, bottom: 120 });
+});
+
+test("the preload lead follows the direction the camera reveals content", () => {
+  // A node sits at `camera.x + node.x * scale`, so a falling camera.x slides
+  // nodes left and reveals content off the right edge.
+  const revealingRight = getPreloadMargins({ x: -200, y: 0 }, 120, 1400);
+  assert.equal(revealingRight.right, 520);
+  assert.equal(revealingRight.left, 120);
+  assert.equal(revealingRight.top, 120);
+  assert.equal(revealingRight.bottom, 120);
+
+  const revealingLeft = getPreloadMargins({ x: 200, y: 0 }, 120, 1400);
+  assert.equal(revealingLeft.left, 520);
+  assert.equal(revealingLeft.right, 120);
+
+  const revealingBottom = getPreloadMargins({ x: 0, y: -150 }, 120, 1400);
+  assert.equal(revealingBottom.bottom, 420);
+  assert.equal(revealingBottom.top, 120);
+
+  const revealingTop = getPreloadMargins({ x: 0, y: 150 }, 120, 1400);
+  assert.equal(revealingTop.top, 420);
+  assert.equal(revealingTop.bottom, 120);
+});
+
+test("a diagonal pan leads on both axes at once", () => {
+  const margins = getPreloadMargins({ x: -100, y: -100 }, 120, 1400);
+  assert.equal(margins.right, 320);
+  assert.equal(margins.bottom, 320);
+  assert.equal(margins.left, 120);
+  assert.equal(margins.top, 120);
+});
+
+test("the lead is capped so it cannot reach past what is mounted", () => {
+  const margins = getPreloadMargins({ x: -100_000, y: 100_000 }, 120, 1400);
+  assert.equal(margins.right, 1520);
+  assert.equal(margins.top, 1520);
+});
+
+test("unusable travel falls back to the standing band", () => {
+  assert.deepEqual(getPreloadMargins({ x: Number.NaN, y: undefined }, 120, 1400), {
+    left: 120,
+    right: 120,
+    top: 120,
+    bottom: 120,
+  });
+  assert.deepEqual(getPreloadMargins({ x: -50, y: 0 }, 0, 0), {
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+  });
 });
