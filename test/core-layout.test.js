@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const {
   LAYOUT_GAP,
   MIN_LAYOUT_WIDTH,
+  MIN_ROW_HEIGHT,
   ROW_GAP,
   TARGET_ROW_HEIGHT,
   VIDEO_CONTROLS_HEIGHT,
@@ -176,6 +177,29 @@ test("insertExplorationRow inserts below its anchor and shifts later rows", () =
   assert.deepEqual(
     result.nodes.slice(anchorRow.nodes.length, anchorRow.nodes.length + 4),
     result.insertedRow.nodes,
+  );
+});
+
+test("insertExplorationRow splits a long exploration result into readable rows", () => {
+  const layout = createJustifiedLayout([
+    { id: "anchor", width: 1600, height: 800, ext: "jpg" },
+  ]);
+  const explorationItems = Array.from({ length: 10 }, (_, index) => ({
+    id: `explore-${index}`,
+    width: 1600,
+    height: 800,
+    ext: "jpg",
+  }));
+
+  const result = insertExplorationRow(layout, layout.rows[0], explorationItems);
+
+  assert.ok(result.insertedRows.length > 1);
+  assert.ok(
+    result.insertedRows.every((row) => row.bottom - row.top >= MIN_ROW_HEIGHT),
+  );
+  assert.deepEqual(
+    result.insertedRows.flatMap((row) => row.nodes.map(({ item }) => item.id)),
+    explorationItems.map(({ id }) => id),
   );
 });
 

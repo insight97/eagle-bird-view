@@ -833,9 +833,11 @@
     }
 
     const top = afterRow.bottom + getRowControlsHeight(afterRow) + rowGap;
-    const itemGroups = normalizedLayoutWidth === MIN_LAYOUT_WIDTH
-      ? items.map((item) => [item])
-      : [items];
+    const itemGroups = splitExplorationItemsIntoRows(
+      items,
+      normalizedLayoutWidth,
+      gap,
+    );
     const insertedRows = [];
     let nextTop = top;
     for (const group of itemGroups) {
@@ -934,6 +936,27 @@
     const aspectRatioSum = items.reduce((sum, item) => sum + getAspectRatio(item), 0);
     const gapWidth = gap * Math.max(0, items.length - 1);
     return (normalizedLayoutWidth - gapWidth) / aspectRatioSum <= TARGET_ROW_HEIGHT;
+  }
+
+  function splitExplorationItemsIntoRows(items, layoutWidth, gap) {
+    if (layoutWidth === MIN_LAYOUT_WIDTH) return items.map((item) => [item]);
+
+    const groups = [];
+    let group = [];
+    let aspectRatioSum = 0;
+    for (const item of items) {
+      group.push(item);
+      aspectRatioSum += getAspectRatio(item);
+      const gapWidth = gap * Math.max(0, group.length - 1);
+      const fittedHeight = (layoutWidth - gapWidth) / aspectRatioSum;
+      if (fittedHeight <= TARGET_ROW_HEIGHT) {
+        groups.push(group);
+        group = [];
+        aspectRatioSum = 0;
+      }
+    }
+    if (group.length) groups.push(group);
+    return groups;
   }
 
   function getRowAdvance(row, rowGap = ROW_GAP) {
