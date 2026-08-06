@@ -158,6 +158,26 @@ test("canceling an active original frees its slot and allows a later retry", () 
   assert.equal(starts.at(-1).quality, "original");
 });
 
+test("demoting an original makes the thumbnail requestable again", () => {
+  const starts = [];
+  const queue = new MediaLoadQueue();
+  const node = register(queue, starts);
+
+  queue.request(node, "original");
+  queue.complete(node, "thumbnail", true);
+  queue.complete(node, "original", true);
+
+  assert.equal(queue.demote(node), true);
+  assert.equal(queue.snapshot(node).readyQuality, "thumbnail");
+  queue.request(node, "original");
+
+  assert.deepEqual(starts.map(({ quality }) => quality), [
+    "thumbnail",
+    "original",
+    "original",
+  ]);
+});
+
 test("image decoding stops waiting when the timeout wins", async () => {
   const cleared = [];
   const timers = {

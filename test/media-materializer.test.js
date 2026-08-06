@@ -34,6 +34,16 @@ function createQueueProbe() {
     snapshot(node) {
       return states.get(node) || null;
     },
+    demote(node, quality = "thumbnail") {
+      const state = states.get(node);
+      if (!state || state.readyQuality !== "original") return false;
+      state.readyQuality = quality;
+      return true;
+    },
+    setReadyQuality(node, quality) {
+      const state = states.get(node);
+      if (state) state.readyQuality = quality;
+    },
     cancel() {},
     dispose(node) {
       disposed.push(node);
@@ -42,7 +52,7 @@ function createQueueProbe() {
   };
 }
 
-function createHarness() {
+function createHarness({ isNodeSelected = () => false } = {}) {
   const createdElements = [];
   const world = createElementStub("div");
   const document = {
@@ -63,6 +73,7 @@ function createHarness() {
     world,
     mediaLoadQueue: queue,
     onPositionNode() {},
+    isNodeSelected,
     onClickNode(node, modifiers) {
       clicks.push({ node, modifiers });
     },
@@ -136,6 +147,47 @@ test("quality sync requests a better source without remounting the card", () => 
   assert.equal(harness.world.children.length, 1);
   assert.deepEqual(harness.queue.requests, [{ node, quality: "original" }]);
   assert.deepEqual(harness.queue.disposed, []);
+});
+
+test("motion quality swaps a ready original back to its thumbnail", () => {
+  const harness = createHarness();
+  const node = createNode();
+
+  harness.materializer.mount(node);
+  const thumbnail = node.previewImage;
+  const original = createElementStub("img");
+  original.style.visibility = "visible";
+  thumbnail.replaceWith(original);
+  node.previewImage = original;
+  node.mediaElement = original;
+  harness.queue.setReadyQuality(node, "original");
+
+  harness.materializer.downgradeForMotion();
+
+  assert.equal(node.previewImage, thumbnail);
+  assert.equal(node.mediaElement, thumbnail);
+  assert.equal(thumbnail.style.visibility, "visible");
+  assert.equal(node.element.querySelector(".media-frame").children[0], thumbnail);
+  assert.equal(harness.queue.snapshot(node).readyQuality, "thumbnail");
+});
+
+test("motion quality preserves the selected original", () => {
+  const harness = createHarness({ isNodeSelected: () => true });
+  const node = createNode();
+
+  harness.materializer.mount(node);
+  const thumbnail = node.previewImage;
+  const original = createElementStub("img");
+  original.style.visibility = "visible";
+  thumbnail.replaceWith(original);
+  node.previewImage = original;
+  node.mediaElement = original;
+  harness.queue.setReadyQuality(node, "original");
+
+  harness.materializer.downgradeForMotion();
+
+  assert.equal(node.previewImage, original);
+  assert.equal(harness.queue.snapshot(node).readyQuality, "original");
 });
 
 test("media card click forwards selection modifiers", () => {

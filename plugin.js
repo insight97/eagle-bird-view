@@ -408,7 +408,10 @@ function setup() {
     getBaseScale,
     updateCamera,
     selectNodeAtViewportCenter: () => selectionNavigation.selectNodeAtViewportCenter(),
-    onFocusStart: () => elements.labels?.classList.add("is-camera-focus"),
+    onFocusStart: () => {
+      elements.labels?.classList.add("is-camera-focus");
+      mediaMaterializer.downgradeForMotion();
+    },
     onFocusEnd: () => {
       elements.labels?.classList.remove("is-camera-focus");
       updateLabels();
@@ -429,6 +432,7 @@ function setup() {
         state.viewportWorkTimer = null;
       }
       elements.labels?.classList.add("is-smooth-zooming");
+      mediaMaterializer.downgradeForMotion();
       scheduleSmoothZoomQualityWork();
     },
     onSmoothZoomEnd: () => {
@@ -1774,6 +1778,7 @@ function startViewportPan() {
   state.isPanning = true;
   state.lastViewportWork = performance.now();
   elements.viewport.classList.add("is-panning");
+  mediaMaterializer.downgradeForMotion();
   rescheduleViewportWork();
 }
 

@@ -28,6 +28,7 @@ Chrome 的官方效能模型把每幀工作分成 JavaScript、style、layout、
 | 媒體 windowing | `updateMediaVisibility()` 取得 visible、retained、load 三種集合；`MediaMaterializer` 對非可視卡片 unmount，對遠處卡片 release；目前保留範圍為 2 個 viewport。 | 已有虛擬化，但 overscan 是固定 screen-space margin；低 zoom 時仍可能保留較多卡片。 |
 | 卡片與標籤 | 卡片位於 `.world`；標籤在獨立 `.labels-layer`，縮放改變時重新計算已掛載標籤位置。 | 標籤的 `left`／`top`／`width` 寫入是跨列動畫的主要可疑主執行緒工作。 |
 | 圖片 | 先載入 thumbnail；畫面高度達門檻後以最多 4 路併發載入 original；原圖替換前等待 `decode()`。 | queue 與釋放策略已避免無限載入；需在 trace 中區分網路、decode、raster 與 DOM 更新。 |
+| 動態畫質 | 相機移動開始時，非選取且已掛載的圖片會把已完成原圖退回 thumbnail；移動結束後沿用 viewport quality plan 恢復 original。 | 以一次性的素材交換降低移動期間的高解析度 texture 壓力；仍需在 Eagle 以 trace 驗證實際 GPU／raster 改善。 |
 | layer hint | `.world.is-moving` 動態設定 `will-change: transform`，動畫停止後移除；`.grid-layer` 與 `.labels-layer` 常駐 `will-change: transform`。 | `.world` 的動態 hint 比常駐所有卡片安全；grid／labels 常駐 hint 是否有益仍應用 layer borders 驗證。 |
 
 相機與媒體範圍的具體實作可參考：[camera-navigation.js](../camera-navigation.js)、[plugin.js](../plugin.js)、[media-materializer.js](../media-materializer.js)、[styles.css](../styles.css)。這些是本專案的觀察，不是外部效能保證。
@@ -154,6 +155,7 @@ Chrome DevTools 的官方文件把 `Request Animation Frame`、`Animation Frame 
 
 ### P1：最可能對目前症狀有效
 
+- 相機移動期間使用縮圖，完成後再依 viewport quality plan 恢復原圖；這是低風險、可回復的 texture 壓力實驗，仍要以 Eagle trace 驗證是否改善。
 - 將跨列相機動畫拆成「輕量 camera transform」與「完成後的標籤／媒體同步」兩階段。
 - 讓 overscan 依 zoom、方向與跳躍落點調整，並限制低 zoom 時的 retained card／label 數量；保留 selected node 與落點預熱例外。
 - 保留動態 `.world.is-moving` hint，但用 trace 決定是否需要常駐 grid／labels hint；避免 per-card `will-change`。

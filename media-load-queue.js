@@ -157,6 +157,24 @@
       return canceled;
     }
 
+    demote(node, quality = "thumbnail") {
+      const state = this.#states.get(node);
+      if (
+        !state ||
+        state.disposed ||
+        quality !== "thumbnail" ||
+        state.readyQuality !== "original" ||
+        !state.hasThumbnail ||
+        state.loading ||
+        state.queued ||
+        state.pendingQuality
+      ) {
+        return false;
+      }
+      state.readyQuality = quality;
+      return true;
+    }
+
     dispose(node) {
       const state = this.#states.get(node);
       if (!state || state.disposed) return;
