@@ -26,6 +26,7 @@
 | 觸控瀏覽器行為 | `.viewport { touch-action: none; user-select: none; }` | 正確；自訂平移需要先宣告不要讓瀏覽器接手原生 pan／pinch |
 | 更新節奏 | `updateCamera()` 以 `requestAnimationFrame` 合併畫面更新 | 正確；連續輸入不應每個事件都做完整 render |
 | 昂貴工作 | 平移期間延後 media window、label、中央選取與自動探索 | 正確，符合目前專案的 transform-only 方向 |
+| 裝飾層 | 平移期間暫時隱藏 grid 與 labels，放開後恢復 | 減少移動中不影響定位的合成內容；仍需以 Eagle Performance trace 確認收益 |
 | 鍵盤平移 | 平滑模式使用共用的鍵盤操作加速反應；按住加速，放開後減速，完成後選取中央素材 | 符合鍵盤連續操作的建議模型 |
 | 慣性 | 放開立即停止 | 是目前唯一明顯可考慮的體感增強，但不是必須 |
 | 邊界 | 沒有 clamp／回彈 | 對可自由瀏覽的白板合理；若未來限制內容範圍，再加入 soft boundary |

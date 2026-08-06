@@ -643,7 +643,11 @@ test("folder browser reveals a small folder without viewport interaction", async
   plugin.resolvePendingImageLoads();
   await flush();
 
-  assert.equal(card.querySelector("img").style.visibility, "visible");
+  const visibleImages = card
+    .querySelectorAll("img")
+    .filter(({ style }) => style.visibility === "visible");
+  assert.equal(visibleImages.length, 1, "exactly one image should be showing");
+  assert.equal(card.dataset.mediaQuality, "original");
 });
 
 test("folder browser keeps completed items and retries a failed folder query", async () => {
@@ -897,4 +901,39 @@ test("dragging defers viewport maintenance until the pointer is released", async
 
   plugin.windowEmit("pointerup");
   assert.ok(world.children.length > cardsBeforePan);
+});
+
+test("dragging keeps camera frames on the world transform until release", async () => {
+  const plugin = createPluginHarness({
+    selectedItems: imageItems(12),
+    runAnimationFrames: true,
+  });
+
+  plugin.start();
+  await flush();
+  plugin.flushTimers();
+
+  const viewport = plugin.elements.get("#viewport");
+  const world = plugin.elements.get("#world");
+  const grid = plugin.elements.get("#grid");
+  const labels = plugin.elements.get("#labels");
+  viewport.emit("pointerdown", { button: 1, clientX: 0, clientY: 0 });
+  grid.style.transform = "grid-sentinel";
+  labels.style.transform = "labels-sentinel";
+
+  plugin.windowEmit("pointermove", { clientX: 0, clientY: -100 });
+
+  assert.match(world.style.transform, /translate\(/);
+  assert.equal(world.classList.contains("is-moving"), false);
+  assert.equal(grid.style.transform, "grid-sentinel");
+  assert.equal(labels.style.transform, "labels-sentinel");
+
+  // The harness invokes requestAnimationFrame synchronously; clear its
+  // simulated pending frame before exercising the pointer-up refresh.
+  plugin.state.cameraFrame = null;
+  plugin.windowEmit("pointerup");
+
+  assert.equal(world.classList.contains("is-moving"), false);
+  assert.notEqual(grid.style.transform, "grid-sentinel");
+  assert.notEqual(labels.style.transform, "labels-sentinel");
 });

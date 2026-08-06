@@ -1368,6 +1368,11 @@ button {
   cursor: grabbing;
 }
 
+.viewport.is-panning .grid-layer,
+.viewport.is-panning .labels-layer {
+  visibility: hidden;
+}
+
 .grid-layer {
   position: absolute;
   inset: -768px;

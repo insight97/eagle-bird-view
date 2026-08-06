@@ -87,6 +87,21 @@
       return this.request(node, requestedQuality);
     }
 
+    // Drops a ready quality so it can be requested again. Used when the card is
+    // still showing the right quality but needs it re-rastered at a sharper
+    // size; the caller keeps the current pixels on screen until the reload
+    // lands, so this never blanks a card.
+    invalidate(node, quality = "original") {
+      const state = this.#states.get(node);
+      if (!state || state.disposed) return false;
+      if (state.readyQuality !== quality) return false;
+      state.readyQuality =
+        quality === "original" && state.hasThumbnail && !state.thumbnailFailed
+          ? "thumbnail"
+          : null;
+      return true;
+    }
+
     fail(node, failedQuality = "original") {
       const state = this.#states.get(node);
       if (!state || state.disposed) return false;
@@ -155,24 +170,6 @@
         this.#pump();
       }
       return canceled;
-    }
-
-    demote(node, quality = "thumbnail") {
-      const state = this.#states.get(node);
-      if (
-        !state ||
-        state.disposed ||
-        quality !== "thumbnail" ||
-        state.readyQuality !== "original" ||
-        !state.hasThumbnail ||
-        state.loading ||
-        state.queued ||
-        state.pendingQuality
-      ) {
-        return false;
-      }
-      state.readyQuality = quality;
-      return true;
     }
 
     dispose(node) {

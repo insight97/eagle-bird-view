@@ -146,6 +146,7 @@ const state = {
   lastViewportWork: -Infinity,
   lastSmoothZoomQualityWork: -Infinity,
   isPanning: false,
+  skipCameraLayerPromotion: false,
   suppressNextMediaClick: false,
   explorationSource: null,
   explorationLoading: false,
@@ -373,6 +374,7 @@ function setup() {
     document,
     window,
     world: elements.world,
+    getNodeScreenLongEdge,
     onPositionNode: positionNode,
     onClickNode: (node, modifiers) => {
       if (state.suppressNextMediaClick) {
@@ -410,7 +412,6 @@ function setup() {
     selectNodeAtViewportCenter: () => selectionNavigation.selectNodeAtViewportCenter(),
     onFocusStart: () => {
       elements.labels?.classList.add("is-camera-focus");
-      mediaMaterializer.downgradeForMotion();
     },
     onFocusEnd: () => {
       elements.labels?.classList.remove("is-camera-focus");
@@ -432,7 +433,6 @@ function setup() {
         state.viewportWorkTimer = null;
       }
       elements.labels?.classList.add("is-smooth-zooming");
-      mediaMaterializer.downgradeForMotion();
       scheduleSmoothZoomQualityWork();
     },
     onSmoothZoomEnd: () => {
@@ -1778,13 +1778,20 @@ function startViewportPan() {
   state.isPanning = true;
   state.lastViewportWork = performance.now();
   elements.viewport.classList.add("is-panning");
-  mediaMaterializer.downgradeForMotion();
+  window.clearTimeout(state.cameraSettleTimer);
+  state.cameraSettleTimer = null;
+  elements.world.classList.remove("is-moving");
   rescheduleViewportWork();
 }
 
 function finishViewportPan() {
   state.isPanning = false;
+  state.skipCameraLayerPromotion = true;
   elements.viewport.classList.remove("is-panning");
+  window.clearTimeout(state.cameraSettleTimer);
+  state.cameraSettleTimer = null;
+  elements.world.classList.remove("is-moving");
+  updateCamera();
   flushViewportWork();
 }
 
@@ -3281,6 +3288,8 @@ function renderCamera() {
   state.cameraFrame = null;
   const scaleChanged = state.renderedScale !== state.camera.scale;
   const baseScaleChanged = state.renderedBaseScale !== state.baseScale;
+  const skipCameraLayerPromotion = state.skipCameraLayerPromotion;
+  state.skipCameraLayerPromotion = false;
   if (scaleChanged) {
     const inverseScale = 1 / state.camera.scale;
     elements.world.style.setProperty("--media-border-width", `${inverseScale}px`);
@@ -3289,7 +3298,8 @@ function renderCamera() {
     state.renderedScale = state.camera.scale;
   }
   elements.world.style.transform = `translate(${state.camera.x}px, ${state.camera.y}px) scale(${state.camera.scale})`;
-  keepCameraLayerPromoted();
+  if (state.isPanning) return;
+  keepCameraLayerPromoted(scaleChanged && !skipCameraLayerPromotion);
   if (scaleChanged || baseScaleChanged) {
     elements.zoomLabel.textContent = `${Math.round((state.camera.scale / getBaseScale()) * 100)}%`;
     state.renderedBaseScale = state.baseScale;
@@ -3311,9 +3321,15 @@ function renderCamera() {
 // A standing will-change hint keeps the board on its own compositor layer, but
 // it also pins the raster scale: after zooming in, the layer keeps painting the
 // bitmap it rastered at the old scale, so even a fully loaded original looks
-// soft. Hold the hint only while the camera is moving and drop it once it
-// settles, which lets the compositor re-raster at the scale actually on screen.
-function keepCameraLayerPromoted() {
+// soft. Use the hint for scale changes, but keep pure panning on the normal
+// rendering path so the board does not need a delayed post-pan re-raster.
+function keepCameraLayerPromoted(scaleChanged = false) {
+  if (!scaleChanged && !state.isSmoothZooming) {
+    window.clearTimeout(state.cameraSettleTimer);
+    state.cameraSettleTimer = null;
+    elements.world.classList.remove("is-moving");
+    return;
+  }
   const isSlowSmoothZoom =
     state.isSmoothZooming &&
     state.smoothZoomKeys.size === 0 &&
@@ -3441,6 +3457,15 @@ function getViewportMediaPlan() {
 
 function wantsOriginalImage(node, scale) {
   return !node.isVideo && node.mediaHeight * scale >= ORIGINAL_IMAGE_MIN_HEIGHT;
+}
+
+// Device pixels along the card's longest edge. This is what a bounded raster has
+// to cover, so it decides how sharp the card's original needs to be rendered.
+function getNodeScreenLongEdge(node) {
+  if (!node) return 0;
+  const longEdge = Math.max(Number(node.width) || 0, Number(node.mediaHeight) || 0);
+  const pixelRatio = Number(window.devicePixelRatio) || 1;
+  return longEdge * state.camera.scale * pixelRatio;
 }
 
 function getNodesNearViewport(screenMargin) {

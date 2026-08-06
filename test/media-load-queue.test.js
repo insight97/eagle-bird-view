@@ -158,26 +158,6 @@ test("canceling an active original frees its slot and allows a later retry", () 
   assert.equal(starts.at(-1).quality, "original");
 });
 
-test("demoting an original makes the thumbnail requestable again", () => {
-  const starts = [];
-  const queue = new MediaLoadQueue();
-  const node = register(queue, starts);
-
-  queue.request(node, "original");
-  queue.complete(node, "thumbnail", true);
-  queue.complete(node, "original", true);
-
-  assert.equal(queue.demote(node), true);
-  assert.equal(queue.snapshot(node).readyQuality, "thumbnail");
-  queue.request(node, "original");
-
-  assert.deepEqual(starts.map(({ quality }) => quality), [
-    "thumbnail",
-    "original",
-    "original",
-  ]);
-});
-
 test("image decoding stops waiting when the timeout wins", async () => {
   const cleared = [];
   const timers = {
@@ -208,4 +188,54 @@ test("image decoding clears its timeout after decoding succeeds", async () => {
 
   await waitForImageDecode({ decode: () => Promise.resolve() }, 1500, timers);
   assert.deepEqual(cleared, [11]);
+});
+
+test("invalidating a ready original lets it be requested again", () => {
+  const starts = [];
+  const queue = new MediaLoadQueue();
+  const node = register(queue, starts);
+
+  queue.request(node, "original");
+  queue.complete(node, "thumbnail", true);
+  queue.complete(node, "original", true);
+  starts.length = 0;
+
+  // A second request is a no-op while the original is still considered ready.
+  assert.equal(queue.request(node, "original"), false);
+  assert.deepEqual(starts, []);
+
+  assert.equal(queue.invalidate(node, "original"), true);
+  // The card falls back to the thumbnail it still has, so it never blanks.
+  assert.equal(queue.snapshot(node).readyQuality, "thumbnail");
+
+  assert.equal(queue.request(node, "original"), true);
+  assert.deepEqual(starts.map(({ quality }) => quality), ["original"]);
+});
+
+test("invalidating drops to nothing when there is no thumbnail to fall back on", () => {
+  const starts = [];
+  const queue = new MediaLoadQueue();
+  const node = register(queue, starts, { hasThumbnail: false, preferThumbnailFirst: false });
+
+  queue.request(node, "original");
+  queue.complete(node, "original", true);
+
+  assert.equal(queue.invalidate(node, "original"), true);
+  assert.equal(queue.snapshot(node).readyQuality, null);
+});
+
+test("invalidating a quality that is not ready changes nothing", () => {
+  const starts = [];
+  const queue = new MediaLoadQueue();
+  const node = register(queue, starts);
+
+  assert.equal(queue.invalidate(node, "original"), false);
+
+  queue.request(node, "original");
+  queue.complete(node, "thumbnail", true);
+  // The original is loading, not ready, so it must not be dropped underneath.
+  assert.equal(queue.invalidate(node, "original"), false);
+  assert.equal(queue.snapshot(node).readyQuality, "thumbnail");
+
+  assert.equal(queue.invalidate({}, "original"), false);
 });

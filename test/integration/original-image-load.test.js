@@ -75,6 +75,37 @@ test("a stalled original image load times out, offers retry, and recovers", asyn
   assert.equal(card.dataset.mediaQuality, "original");
 });
 
+// The bounded raster is small enough to keep painting through a gesture, so the
+// card no longer downgrades to the 320px thumbnail while the camera moves. That
+// downgrade existed only to hide the cost of rastering a full-resolution master.
+test("camera motion keeps painting the original at full quality", async () => {
+  const plugin = await startWithItem(jpgItem());
+  const viewport = plugin.elements.get("#viewport");
+  viewport.emit("pointerdown", { button: 1, clientX: 0, clientY: 0 });
+  plugin.windowEmit("pointerup");
+  const thumbnailImage = plugin.createdElementsOfTag("img")[0];
+  const card = thumbnailImage.parentNode.parentNode;
+
+  thumbnailImage.emit("load");
+  const originalImage = plugin.createdElementsOfTag("img")[1];
+  originalImage.emit("load");
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(card.dataset.mediaQuality, "original");
+  assert.equal(thumbnailImage.style.visibility, "hidden");
+  assert.equal(originalImage.style.visibility, "visible");
+
+  viewport.emit("pointerdown", { button: 1, clientX: 0, clientY: 0 });
+  assert.equal(originalImage.style.visibility, "visible");
+  assert.equal(thumbnailImage.style.visibility, "hidden");
+  assert.equal(card.dataset.mediaQuality, "original");
+
+  plugin.windowEmit("pointerup");
+  assert.equal(originalImage.style.visibility, "visible");
+  assert.equal(thumbnailImage.style.visibility, "hidden");
+  assert.equal(plugin.createdElementsOfTag("img").length, 2);
+});
+
 // A lone selection sits on an unjustified row at TARGET_ROW_HEIGHT while a
 // filled row is shorter, so both boards are at 100% zoom here yet paint their
 // first card at the same 72px. The quality tier has to follow the painted

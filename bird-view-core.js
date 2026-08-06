@@ -25,6 +25,17 @@
   const CROSS_ROW_FOCUS_MAX_DURATION = 420;
   const CROSS_ROW_FOCUS_DISTANCE_FACTOR = 0.1;
   const CROSS_ROW_FOCUS_SCALE_FACTOR = 100;
+  // Eagle originals are full-resolution masters: a painting can be 5374x7589
+  // (40 MP, 156 MiB once decoded to RGBA), which on its own overruns Chromium's
+  // image decode cache. Every raster then misses the cache and re-decodes the
+  // master on a compositor tile worker, which is what drops frames while the
+  // camera moves. Cards paint a bounded raster instead, sized in power-of-two
+  // steps so a small zoom change does not churn through re-rasters.
+  // The ceiling only binds when a card paints larger than this on screen, which
+  // at 1200% zoom means one or two cards. Past it the master itself is used,
+  // since a raster that large stops being a saving.
+  const MIN_RASTER_DIMENSION = 512;
+  const MAX_RASTER_DIMENSION = 4096;
   const EXPLORATION_RANK_WEIGHTS = Object.freeze([40, 25, 17, 11, 7]);
   const AI_EXPLORATION_RATIOS = Object.freeze([0, 25, 50, 75, 100]);
   const EXPLORATION_DIVERSITY_STRENGTHS = Object.freeze([0, 25, 50, 75, 100]);
@@ -80,6 +91,47 @@
         Number.isFinite(threshold) &&
         screenHeight >= threshold,
     );
+  }
+
+  // How many pixels along the longest edge a card is allowed to raster at the
+  // given on-screen size. Quantised so panning and small zoom steps keep hitting
+  // the same budget, and only a real zoom-in pays for a sharper raster.
+  function getRasterDimensionBudget(screenLongEdge, options = {}) {
+    const {
+      minDimension = MIN_RASTER_DIMENSION,
+      maxDimension = MAX_RASTER_DIMENSION,
+    } = options;
+    const floor = Math.max(1, Number(minDimension) || MIN_RASTER_DIMENSION);
+    const ceiling = Math.max(floor, Number(maxDimension) || MAX_RASTER_DIMENSION);
+    const needed = Number(screenLongEdge);
+    if (!Number.isFinite(needed) || needed <= 0) return floor;
+    let budget = floor;
+    while (budget < needed && budget < ceiling) budget *= 2;
+    return Math.min(budget, ceiling);
+  }
+
+  // Returns the size a card should raster its original at, or null when the
+  // source is already within budget and can be painted untouched.
+  function getRasterTargetSize(sourceWidth, sourceHeight, screenLongEdge, options = {}) {
+    const width = Number(sourceWidth);
+    const height = Number(sourceHeight);
+    if (
+      !Number.isFinite(width) ||
+      !Number.isFinite(height) ||
+      width <= 0 ||
+      height <= 0
+    ) {
+      return null;
+    }
+    const budget = getRasterDimensionBudget(screenLongEdge, options);
+    const sourceLongEdge = Math.max(width, height);
+    if (sourceLongEdge <= budget) return null;
+    const ratio = budget / sourceLongEdge;
+    return {
+      budget,
+      width: Math.max(1, Math.round(width * ratio)),
+      height: Math.max(1, Math.round(height * ratio)),
+    };
   }
 
   function getViewportPanDelta(key, viewport, fraction = 2 / 3) {
@@ -1046,6 +1098,8 @@
     MAX_ROW_HEIGHT,
     MIN_EXPLORATION_ITEMS,
     MIN_LAYOUT_WIDTH,
+    MIN_RASTER_DIMENSION,
+    MAX_RASTER_DIMENSION,
     MIN_ROW_HEIGHT,
     TARGET_ROW_HEIGHT,
     VIDEO_AUTOPLAY_MIN_HEIGHT,
@@ -1071,6 +1125,8 @@
     getLabelRect,
     getLabelDetailLevel,
     getPanLayerTranslation,
+    getRasterDimensionBudget,
+    getRasterTargetSize,
     getWrappedGridTranslation,
     getViewportWorkInterval,
     getTagColorStyle,

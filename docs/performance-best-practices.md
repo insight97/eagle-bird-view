@@ -18,6 +18,55 @@
 
 Chrome 的官方效能模型把每幀工作分成 JavaScript、style、layout、paint 與 composite；動畫／平移的目標是盡量只走 composite，但 `transform` 仍可能因 layer、raster、圖片與主執行緒工作而卡頓。[web.dev：Rendering performance](https://web.dev/articles/rendering-performance)；[web.dev：Animations and performance](https://web.dev/articles/animations-and-performance)
 
+## 已量測並修正：高解析度原圖的 decode cache 抖動（2026-08-07）
+
+上述第 4 點在 2026-08-07 的 trace 中得到確認，而且是當時卡頓的**主因**，與 layer 提升無關。
+
+`PaintImage` 直接顯示了問題：
+
+```text
+src 5374 × 7589（40.8 MP）  →  實際畫在 120.98 × 170.84
+src 4000 × 3000（12 MP）    →  實際畫在 213.33 × 159.98
+```
+
+Eagle 的 `fileURL` 是全解析度母檔，而 `thumbnailURL` 只有 320px 長邊，中間沒有任何階梯。`wantsOriginalImage()` 一旦判定卡片夠大，就直接把 40 MP 的母檔交給 compositor：單張解碼後就是 156 MiB RGBA，本身已超過 Chromium image decode cache 的預算。
+
+結果是每次 raster 都 cache miss 並重新解碼：
+
+```text
+同一個 LazyPixelRef 在 7 秒內被 decode 6 次
+>150ms 的 decode 共 14 次，合計約 2.9 秒
+全部發生在 CompositorTileWorker1~4，也就是產生 frame 的關鍵路徑
+```
+
+A/B 對照（隱藏 `.media-card`）：`RasterTask` 1560ms → 2.7ms，大型 decode 14 次 → 1 次。
+
+### 為什麼 layer 類的嘗試都無效
+
+`will-change`、`contain: paint`、`translate3d`、調整 `.world` 提升時機、暫停原圖 queue，調整的都是 composite 與載入。成本在 raster worker 的 decode，只要母檔還是 paint source，重新 raster 就一定重新解碼。「移動結束後約 0.5 秒才清晰」也不是 queue 排程太晚，而是切回母檔後的一次完整 decode。
+
+### 採用的修正：bounded raster
+
+母檔不再作為 paint source，改成先渲染一張有上限的點陣圖再交給 compositor：
+
+- `bird-view-core.js` 的 `getRasterTargetSize()`／`getRasterDimensionBudget()` 是純函式，依卡片在螢幕上的最長邊決定預算，量化成 512／1024／2048／4096 四階，讓平移與小幅縮放不會反覆重繪。
+- `image-downscaler.js` 以 `fetch()` 取得編碼位元組後交給 `createImageBitmap(blob, { resizeWidth, resizeHeight })`，讓瀏覽器**直接解碼到目標尺寸**；JPEG 會在 DCT 階段就縮放，全解析度點陣圖完全不會產生。編碼優先走 `OffscreenCanvas.convertToBlob()`，讓 WebP encode 離開主執行緒。
+- 若 `fetch` 讀不到檔案（例如 file:// 被擋），退回讓 `<img>` 載入母檔再從元素縮圖；這條路仍能消除重複解碼，但省不掉第一次全解析度解碼。兩條路都失敗才直接顯示母檔。
+- `media-materializer.js` 在載入前就用 Eagle metadata 的 `item.width`／`item.height` 算出目標尺寸，所以不必先解碼才知道要縮多少。縮放超過目前預算時透過 `MediaLoadQueue.invalidate()` 重新算一張，期間畫面維持既有 raster 不閃爍。
+
+效果：40 MP 母檔在一般 zoom 下只需 512 長邊（約 0.74 MB 解碼），15 張卡片合計約 11 MB，可完整放進 decode cache。
+
+### 連帶移除：移動期間的縮圖降級
+
+原本 `setMotionImageQuality()` 會在平移／縮放期間把畫面換成 320px 縮圖，那是為了掩蓋母檔 raster 成本而加的。bounded raster 之後這個降級只剩副作用——縮放時整個白板變模糊——因此連同 `applyMotionImageQuality()` 一起移除。
+
+這是個通則：**為了掩蓋某個成本而加的降級，在成本被真正消除後必須跟著移除**，否則它會變成新的品質問題，而且很難歸因。
+
+### 可推廣的判準
+
+- 先問「來源像素量與實際顯示像素量差幾倍」，再問 layer 怎麼提升。差距達兩、三個數量級時，任何 CSS hint 都救不了。
+- `Decode Image` 的 `imageType` 沒有尺寸資訊，但 `PaintImage` 的 `srcWidth`／`srcHeight` 對上 `width`／`height` 就能直接算出過取樣倍率；`Decode LazyPixelRef` 的重複 id 則能證明 cache 抖動。
+
 ## 本專案現況對照
 
 | 路徑 | 目前行為 | 與卡頓的關聯 |
@@ -28,8 +77,7 @@ Chrome 的官方效能模型把每幀工作分成 JavaScript、style、layout、
 | 媒體 windowing | `updateMediaVisibility()` 取得 visible、retained、load 三種集合；`MediaMaterializer` 對非可視卡片 unmount，對遠處卡片 release；目前保留範圍為 2 個 viewport。 | 已有虛擬化，但 overscan 是固定 screen-space margin；低 zoom 時仍可能保留較多卡片。 |
 | 卡片與標籤 | 卡片位於 `.world`；標籤在獨立 `.labels-layer`，縮放改變時重新計算已掛載標籤位置。 | 標籤的 `left`／`top`／`width` 寫入是跨列動畫的主要可疑主執行緒工作。 |
 | 圖片 | 先載入 thumbnail；畫面高度達門檻後以最多 4 路併發載入 original；原圖替換前等待 `decode()`。 | queue 與釋放策略已避免無限載入；需在 trace 中區分網路、decode、raster 與 DOM 更新。 |
-| 動態畫質 | 相機移動開始時，非選取且已掛載的圖片會把已完成原圖退回 thumbnail；移動結束後沿用 viewport quality plan 恢復 original。 | 以一次性的素材交換降低移動期間的高解析度 texture 壓力；仍需在 Eagle 以 trace 驗證實際 GPU／raster 改善。 |
-| layer hint | `.world.is-moving` 動態設定 `will-change: transform`，動畫停止後移除；`.grid-layer` 與 `.labels-layer` 常駐 `will-change: transform`。 | `.world` 的動態 hint 比常駐所有卡片安全；grid／labels 常駐 hint 是否有益仍應用 layer borders 驗證。 |
+| layer hint | `.world.is-moving` 只在縮放 raster 需要時動態設定 `will-change: transform`；純平移不提升整個 world；`.grid-layer` 與 `.labels-layer` 常駐 `will-change: transform`。 | 避免平移結束後等待整個 world 重新 raster；grid／labels 常駐 hint 是否有益仍應用 layer borders 驗證。 |
 
 相機與媒體範圍的具體實作可參考：[camera-navigation.js](../camera-navigation.js)、[plugin.js](../plugin.js)、[media-materializer.js](../media-materializer.js)、[styles.css](../styles.css)。這些是本專案的觀察，不是外部效能保證。
 
@@ -87,7 +135,7 @@ W3C 的 Will Change 規範也說明，元素與其內容可能被提升為獨立
 ### 本專案判斷
 
 - `.world` 的單一 camera transform 是合理的主動畫 seam；不要把每張 `.media-card` 都加 `will-change: transform`。那會把 100–200 張圖片／卡片轉成大量候選 layer，可能比原本更慢。
-- `.world.is-moving` 只在相機移動時出現、settle 後移除，方向上符合官方建議；保留這種動態 hint，但必須用 Layer Borders、GPU memory 與 trace 驗證它是否真的改善。
+- `.world.is-moving` 只在縮放造成 raster 尺寸變化時出現、settle 後移除；純平移不提升整個 world，避免放開後等待大型 layer 重新 raster。仍必須用 Layer Borders、GPU memory 與 trace 驗證收益。
 - `.grid-layer` 與 `.labels-layer` 的常駐 `will-change` 應視為可疑的獨立實驗，不要和 `.world` 的效果混為一談。若 layer borders 顯示沒有收益，移除常駐 hint 可能降低記憶體壓力。
 - 變更 `transform` 不代表每幀只剩 composite。跨列動畫若同時更新標籤 `left`／`top`／`width`、class 或圖片狀態，仍可能觸發 style/layout/paint；必須看 trace，不可只看程式碼中的 `transform` 字串。
 
@@ -139,9 +187,9 @@ Chrome DevTools 的官方文件把 `Request Animation Frame`、`Animation Frame 
 | Trace 症狀 | 優先調查 | 不要先做的事 |
 | --- | --- | --- |
 | Animation Frame Fired 內 Recalculate Style／Layout 很高，且與 label 更新同時出現 | 動畫期間延後 label layout；讓落點後一次定位 | 不要先增加 `will-change` |
-| Paint 很高，paint flashing 覆蓋大量卡片或 label | 減少動畫期間非必要 DOM、label detail、box-shadow；測試 row/card containment | 不要只把 transform 改成 `translate3d` 就宣稱完成 |
+| Paint 很高，paint flashing 覆蓋大量卡片或 label | 減少動畫期間非必要 DOM、label detail、box-shadow；必要時再測試 row/card containment | 不要只把 transform 改成 `translate3d` 就宣稱完成 |
 | Composite Layers 或 GPU memory 很高 | 檢查 `.world` 尺寸、layer 數、常駐 `.grid-layer`／`.labels-layer` hint | 不要把每張卡片提升成 layer |
-| Image Decode／Image Resize 佔尖峰 | 降低動畫期間 original 需求、控制 decode 交換、縮圖尺寸與 queue 優先序 | 不要無條件提高併發數 |
+| Image Decode／Image Resize 佔尖峰 | 先用 `PaintImage` 比對 `srcWidth`／`srcHeight` 與實際 `width`／`height`；過取樣就改成 bounded raster（見上方 2026-08-07 段落），而不是調整交換時機 | 不要無條件提高併發數 |
 | script／mount/release 長任務高 | 收斂 window、批次 DOM 變更、預先建立 row bounds／索引 | 不要只調 CSS |
 | trace 幾乎沒有上述成本但仍卡 | 檢查 Eagle Chromium／GPU／影片解碼與裝置環境；比較硬體加速設定 | 不要把所有問題歸因於 DOM 數量 |
 
@@ -155,7 +203,6 @@ Chrome DevTools 的官方文件把 `Request Animation Frame`、`Animation Frame 
 
 ### P1：最可能對目前症狀有效
 
-- 相機移動期間使用縮圖，完成後再依 viewport quality plan 恢復原圖；這是低風險、可回復的 texture 壓力實驗，仍要以 Eagle trace 驗證是否改善。
 - 將跨列相機動畫拆成「輕量 camera transform」與「完成後的標籤／媒體同步」兩階段。
 - 讓 overscan 依 zoom、方向與跳躍落點調整，並限制低 zoom 時的 retained card／label 數量；保留 selected node 與落點預熱例外。
 - 保留動態 `.world.is-moving` hint，但用 trace 決定是否需要常駐 grid／labels hint；避免 per-card `will-change`。
