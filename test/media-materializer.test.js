@@ -470,6 +470,78 @@ test("zooming back in after a drop reloads the original", async () => {
   assert.equal(node.element.dataset.mediaQuality, "original");
 });
 
+// Sweeping across a board crosses hundreds of cards for a moment each, and every
+// original costs a full decode of the master to build its raster.
+test("a moving camera leaves new cards on the thumbnail", async () => {
+  const harness = createRasterHarness({ screenLongEdge: 400 });
+  const node = createMasterNode();
+
+  harness.materializer.mount(node);
+  harness.materializer.sync({
+    visibleNodes: [node],
+    retainedNodes: [node],
+    loadNodes: [node],
+    selectedNode: null,
+    getQuality: () => "original",
+    deferOriginals: true,
+  });
+  harness.images()[0].emit("load");
+  await settle(harness);
+
+  assert.deepEqual(harness.downscaleCalls, [], "no master should be decoded mid-gesture");
+  assert.equal(harness.images().length, 1, "no original element should be created");
+  assert.equal(node.element.dataset.mediaQuality, "thumbnail");
+});
+
+// Deferring a load is not the same as taking back a raster the card already has.
+// Downgrading loaded cards during motion blurred the whole board while zooming.
+test("a moving camera keeps rasters that cards already have", async () => {
+  const harness = createRasterHarness({ screenLongEdge: 400 });
+  const node = createMasterNode();
+  const originalImage = await loadOriginal(harness, node);
+
+  harness.materializer.sync({
+    visibleNodes: [node],
+    retainedNodes: [node],
+    loadNodes: [node],
+    selectedNode: null,
+    getQuality: () => "original",
+    deferOriginals: true,
+  });
+  await settle(harness);
+
+  assert.equal(node.previewImage, originalImage);
+  assert.equal(originalImage.style.visibility, "visible");
+  assert.equal(node.element.dataset.mediaQuality, "original");
+  assert.deepEqual(harness.revoked, []);
+});
+
+test("the original is picked up once the camera stops", async () => {
+  const harness = createRasterHarness({ screenLongEdge: 400 });
+  const node = createMasterNode();
+  const plan = {
+    visibleNodes: [node],
+    retainedNodes: [node],
+    loadNodes: [node],
+    selectedNode: null,
+    getQuality: () => "original",
+  };
+
+  harness.materializer.mount(node);
+  harness.materializer.sync({ ...plan, deferOriginals: true });
+  harness.images()[0].emit("load");
+  await settle(harness);
+  assert.deepEqual(harness.downscaleCalls, []);
+
+  harness.materializer.sync({ ...plan, deferOriginals: false });
+  const original = await settle(harness);
+  original.emit("load");
+  await settle(harness);
+
+  assert.equal(harness.downscaleCalls.length, 1);
+  assert.equal(node.element.dataset.mediaQuality, "original");
+});
+
 test("a zoom gesture only grows the budget, never shrinking mid-gesture", async () => {
   const harness = createRasterHarness({ screenLongEdge: 1500 });
   const node = createMasterNode();

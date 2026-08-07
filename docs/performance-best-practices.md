@@ -123,12 +123,35 @@ src 2898 × 4096  →  實際畫在 118 × 167   過取樣 602 倍
 
 沒有任何卡片會取樣不足：不變條件仍是「預算 ≥ 卡片實際顯示的裝置像素」。
 
+### 第六輪 trace：raster 路徑已乾淨，瓶頸換成 GC（`Profile-20260807T111743.json`）
+
+39.5 秒、瀏覽 322 張卡片。原始問題確認解決：
+
+```text
+Decode Image @ CompositorTileWorker*   369 ms / 224 次   （原本 3613 ms）
+RasterTask                             315 ms / 21127 次（平均 0.015 ms）
+CompositeLayers                        250 ms / 1989 次  （原本 1707 ms，其中 9 次 >100 ms）
+```
+
+decode 已完全離開 raster 關鍵路徑——全部落在 `ThreadPoolForegroundWorker`，也就是 `createImageBitmap`。
+
+但仍有 226 dropped frames。主執行緒有 247 個 >16ms 的 task、49 個 >50ms，而其中最大宗是 `RunMicrotasks`（60–80ms）。展開後裡面幾乎全是 GC：`MajorGC`、`V8.GC_MARK_COMPACTOR`，以及關鍵線索 **`V8.ExternalMemoryPressure`**——外部記憶體（blob、ImageBitmap、解碼後的母檔）在逼出 major GC。
+
+記憶體計數器確認**不是洩漏**：jsHeap 全程穩定在約 32 MB，nodes／listeners 隨掛載釋放起伏。是**短期配置量太大**：39.5 秒內建了 167 張 bounded raster，每張都要在 `createImageBitmap` 內完整解碼一次母檔（合計 24.9 秒，平均 58 ms）。
+
+原因是第三輪「平移期間持續載入」矯枉過正：平移會掃過幾百張只出現一瞬間的卡片，而每張只要超過 320px 門檻就會去抓原圖。
+
+修正：`sync()` 新增 `deferOriginals`，平移期間尚未取得原圖的卡片只載縮圖，相機停下再補。縮放不套用——縮放才是使用者在判斷銳利度的時候，而且不會掃過幾百張。
+
+**這和已移除的 `setMotionImageQuality()` 是不同的東西**，容易混淆：那個會把**已載入**的原圖降級成縮圖，導致整個白板在縮放時變模糊；這個只是延後**尚未開始**的載入，已經有 raster 的卡片完全不受影響。測試把這個區別明確釘住。
+
 ### 可推廣的判準
 
 - 先問「來源像素量與實際顯示像素量差幾倍」，再問 layer 怎麼提升。差距達兩、三個數量級時，任何 CSS hint 都救不了。
 - `Decode Image` 的 `imageType` 沒有尺寸資訊，但 `PaintImage` 的 `srcWidth`／`srcHeight` 對上 `width`／`height` 就能直接算出過取樣倍率；`Decode LazyPixelRef` 的重複 id 則能證明 cache 抖動。
 - 任何「依畫面尺寸調整資源品質」的機制，**降級路徑和升級路徑一樣重要**，而且要分別確認兩者的觸發條件涵蓋所有狀態。這次升級與降級各漏了一種情況：預算不會下降，以及掉出門檻的卡片完全不再被檢視。只測放大不會發現任何一個。
 - 主執行緒 `CompositeLayers` 異常長、但內部沒有對應的主執行緒子事件時，先對照 raster thread 的 decode 時間軸；commit 會同步等待當幀需要的圖片解碼，長 commit 往往只是解碼太慢的投影。
+- 主執行緒的長 task 若展開後只有 GC，不要去找「哪段 JS 慢」。看 `V8.ExternalMemoryPressure` 與記憶體計數器：heap 平穩就不是洩漏，而是短期配置量太大，該減少的是**產生配置的次數**，不是配置本身的大小。
 - 「動畫期間延後昂貴工作」是對的，但要逐項判斷延後的代價。延後 label 與選取沒有後果；延後 media window 的後果是使用者到了目的地才開始載入。當一個常數（`getViewportWorkInterval(true) = 250`）沒有任何呼叫端能到達時，通常代表某次收緊把原本的分層壓成了一刀切。
 
 ## 本專案現況對照

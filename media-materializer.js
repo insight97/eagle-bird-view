@@ -258,6 +258,7 @@
       loadNodes = visibleNodes,
       selectedNode = null,
       getQuality = () => "thumbnail",
+      deferOriginals = false,
     } = {}) {
       const visible = new Set(visibleNodes);
       const retained = new Set(retainedNodes);
@@ -278,11 +279,23 @@
       for (const node of visible) mount(node);
       for (const node of loadNodes) {
         const quality = getQuality(node);
-        requestMediaByNode.get(node)?.(quality);
-        // sync() only runs once the camera has settled, so this is where a
-        // raster that grew during a zoom gets handed back.
+        requestMediaByNode.get(node)?.(requestedQuality(node, quality, deferOriginals));
         if (quality === "original") refreshRasterBudget(node, { allowShrink: true });
       }
+    }
+
+    // Sweeping across a board crosses hundreds of cards that are on screen for a
+    // moment each, and every original costs a full decode of the master to build
+    // its raster. While the camera is moving, cards that have not earned one yet
+    // settle for the thumbnail and pick the original up once it stops.
+    //
+    // This defers starting a load; it never takes back a raster a card already
+    // has. Downgrading loaded cards during motion is a different thing, it made
+    // the whole board blur while zooming, and it is not what this does.
+    function requestedQuality(node, quality, deferOriginals) {
+      if (!deferOriginals || quality !== "original") return quality;
+      if (mediaLoadQueue.snapshot(node)?.readyQuality === "original") return quality;
+      return "thumbnail";
     }
 
     function syncQuality({ loadNodes = [], getQuality = () => "thumbnail" } = {}) {

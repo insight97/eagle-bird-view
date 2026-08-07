@@ -3375,6 +3375,9 @@ function getViewportMediaPlan({ travel = null } = {}) {
     retainedNodes,
     loadNodes,
     selectedNode: state.selectedNode,
+    // Dragging sweeps past far more cards than it settles on. Zooming does not,
+    // and it is where sharpness is actually being judged, so it is not deferred.
+    deferOriginals: state.isPanning,
     getQuality: (node) => {
       if (node === state.selectedNode && !node.isVideo) return "original";
       return wantsOriginalImage(node, scale) ? "original" : "thumbnail";
