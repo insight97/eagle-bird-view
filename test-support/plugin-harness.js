@@ -344,6 +344,10 @@ function createPluginHarness({
   let cameraUpdate = null;
   let nextTimerId = 1;
   const timers = [];
+  // Firing a timer means that much time passed. The plugin reads the clock to
+  // decide whether the camera has stopped moving, so a frozen clock would leave
+  // it looking permanently in motion.
+  let clock = 0;
   const createdElements = [];
   const windowListeners = new Map();
   const documentListeners = new Map();
@@ -602,7 +606,7 @@ function createPluginHarness({
       return 1;
     },
     cancelAnimationFrame() {},
-    performance: { now: () => 0 },
+    performance: { now: () => clock },
     localStorage: storage || undefined,
     console: quiet ? { ...console, error() {}, warn() {} } : console,
   };
@@ -661,12 +665,31 @@ function createPluginHarness({
       const index = timers.findIndex((timer) => timer.delay === delay);
       if (index === -1) throw new Error(`no timer scheduled with delay ${delay}`);
       const [timer] = timers.splice(index, 1);
+      clock += timer.delay || 0;
       timer.callback();
     },
     // Runs the timers scheduled so far, which is what drives the deferred
     // viewport work that mounts media cards and labels.
     flushTimers() {
-      for (const timer of timers.splice(0, timers.length)) timer.callback();
+      for (const timer of timers.splice(0, timers.length)) {
+        clock += timer.delay || 0;
+        timer.callback();
+      }
+    },
+    advanceClock(ms) {
+      clock += ms;
+    },
+    // Runs only the short-interval timers, which is what drives viewport work.
+    // A blanket flush would also fire the original-load watchdog and fail loads
+    // that are legitimately still in flight.
+    flushTimersUnder(maxDelay) {
+      const due = timers.filter((timer) => (timer.delay || 0) < maxDelay);
+      for (const timer of due) {
+        const index = timers.indexOf(timer);
+        if (index !== -1) timers.splice(index, 1);
+        clock += timer.delay || 0;
+        timer.callback();
+      }
     },
     windowEmit(type, eventLike = {}) {
       const callback = windowListeners.get(type);

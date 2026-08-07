@@ -145,12 +145,32 @@ decode 已完全離開 raster 關鍵路徑——全部落在 `ThreadPoolForegrou
 
 **這和已移除的 `setMotionImageQuality()` 是不同的東西**，容易混淆：那個會把**已載入**的原圖降級成縮圖，導致整個白板在縮放時變模糊；這個只是延後**尚未開始**的載入，已經有 raster 的卡片完全不受影響。測試把這個區別明確釘住。
 
+### 第七輪 trace：延後根本沒有生效（`Profile-20260807T112528.json`）
+
+第六輪的修正沒有降低 decode：24883ms → 24365ms（幾乎不變）。原因在輸入事件的分布：
+
+```text
+InputLatency::RawKeyDown   502
+EventDispatch keydown      251
+pointerup                    1
+```
+
+**這位使用者是用鍵盤瀏覽，不是拖曳。** 而 `deferOriginals: state.isPanning` 只在指標拖曳時為真——`startViewportPan()` 是唯一設定它的地方。鍵盤平移走 `smoothPanFrame`（平滑模式）或每次 keydown 直接 `panBy`（離散模式），兩者都不碰 `isPanning`，所以延後一次都沒有觸發。
+
+更糟的是同一個判斷也決定了排程模式：鍵盤平移期間 `scheduleViewportWork()` 走的是 **settled** 分支，也就是相機正在飛越白板時，每 100ms 跑一次完整維護（labels、中央選取、自動探索）。
+
+修正：`isCameraMoving()` 改問「相機是否在動」而不是「哪個輸入裝置在動」，涵蓋 `isPanning`、`isSmoothZooming`、`smoothPanFrame`、`cameraFocusFrame`，再加上「最近 180ms 內相機是否變動過」作為兜底——後者同時涵蓋離散鍵盤重複與滾輪縮放，那兩者也都沒有持續性狀態旗標。
+
+因為時間窗比 settled 間隔長，落在飛行途中的那一次 pass 會延後並重新排程，而不是誤判相機已停。`runViewportWork()` 因此必須在延後時自行重排——相機停止後 `renderCamera` 不再觸發任何排程，沒有別的東西會喚醒它。
+
 ### 可推廣的判準
 
 - 先問「來源像素量與實際顯示像素量差幾倍」，再問 layer 怎麼提升。差距達兩、三個數量級時，任何 CSS hint 都救不了。
 - `Decode Image` 的 `imageType` 沒有尺寸資訊，但 `PaintImage` 的 `srcWidth`／`srcHeight` 對上 `width`／`height` 就能直接算出過取樣倍率；`Decode LazyPixelRef` 的重複 id 則能證明 cache 抖動。
 - 任何「依畫面尺寸調整資源品質」的機制，**降級路徑和升級路徑一樣重要**，而且要分別確認兩者的觸發條件涵蓋所有狀態。這次升級與降級各漏了一種情況：預算不會下降，以及掉出門檻的卡片完全不再被檢視。只測放大不會發現任何一個。
 - 主執行緒 `CompositeLayers` 異常長、但內部沒有對應的主執行緒子事件時，先對照 raster thread 的 decode 時間軸；commit 會同步等待當幀需要的圖片解碼，長 commit 往往只是解碼太慢的投影。
+- **先確認使用者實際怎麼操作，再決定優化掛在哪個狀態上。** 「平移」在程式裡被等同於 `isPanning`，而那只涵蓋指標拖曳；實際使用者幾乎全用鍵盤。任何「手勢期間如何如何」的優化，都要先問「這個旗標涵蓋所有讓相機移動的路徑嗎」。trace 裡的 `InputLatency::*` 與 `EventDispatch` 分布可以直接回答。
+- 條件要描述**狀態**（相機在動嗎）而不是**成因**（指標按下了嗎）。以成因命名的旗標會隨著新增輸入方式默默失效，而且不會有任何測試變紅。
 - 主執行緒的長 task 若展開後只有 GC，不要去找「哪段 JS 慢」。看 `V8.ExternalMemoryPressure` 與記憶體計數器：heap 平穩就不是洩漏，而是短期配置量太大，該減少的是**產生配置的次數**，不是配置本身的大小。
 - 「動畫期間延後昂貴工作」是對的，但要逐項判斷延後的代價。延後 label 與選取沒有後果；延後 media window 的後果是使用者到了目的地才開始載入。當一個常數（`getViewportWorkInterval(true) = 250`）沒有任何呼叫端能到達時，通常代表某次收緊把原本的分層壓成了一刀切。
 

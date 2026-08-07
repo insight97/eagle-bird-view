@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const { createPluginHarness } = require("../../test-support/plugin-harness.js");
 
 const ORIGINAL_IMAGE_LOAD_TIMEOUT = 8000;
+const CAMERA_MOTION_IDLE = 180;
 
 function jpgItem(overrides = {}) {
   return {
@@ -33,7 +34,16 @@ async function startWithItems(items, { viewportHeight } = {}) {
   }
   plugin.start();
   await new Promise((resolve) => setImmediate(resolve));
+  await settleCamera(plugin);
   return plugin;
+}
+
+// Laying the board out moves the camera, and originals are held back until it
+// stops. Let the motion window lapse so the board reaches its resting state.
+async function settleCamera(plugin) {
+  plugin.advanceClock(CAMERA_MOTION_IDLE);
+  plugin.flushTimers();
+  await new Promise((resolve) => setImmediate(resolve));
 }
 
 function startWithItem(item) {

@@ -632,6 +632,10 @@ test("folder browser reveals a small folder without viewport interaction", async
   await flush();
   plugin.elements.get("#folder-browser-tree").querySelectorAll(".folder-browser-item")[0].click();
   await flush();
+  // Mounting the folder moves the camera, and originals wait for it to stop.
+  plugin.advanceClock(200);
+  plugin.flushTimers();
+  await flush();
 
   const world = plugin.elements.get("#world");
   const card = world.children[0];
@@ -978,4 +982,53 @@ test("a sustained drag keeps reconsidering media coverage", async () => {
     `coverage should keep growing through the drag, saw ${counts.join(", ")}`,
   );
   plugin.windowEmit("pointerup");
+});
+
+// Originals were deferred on state.isPanning, which only the pointer drag path
+// sets. Keyboard smooth panning runs off smoothPanFrame and repeated arrow keys
+// just step the camera, so a keyboard flight across the board looked stationary
+// and fetched an original for every card it swept past, each costing a full
+// decode of the master. A trace of a real session had 502 key events and one
+// pointerup, so this was the common case, not the edge case.
+test("a camera moving without a pointer still defers originals", async () => {
+  const plugin = createPluginHarness({
+    selectedItems: imageItems(24),
+    runAnimationFrames: true,
+  });
+  plugin.start();
+  await flush();
+
+  // Keyboard smooth pan, set before the board's first maintenance pass so the
+  // cards it mounts are ones the camera is sweeping past. No pointer is
+  // involved, so isPanning stays false throughout.
+  plugin.state.smoothPanFrame = 1;
+  plugin.advanceClock(200);
+  plugin.flushTimersUnder(1000);
+  await flush();
+
+  const card = plugin.elements.get("#world").children[0];
+  const thumbnail = card.querySelector("img");
+  assert.equal(thumbnail.src, "file:///image-0-thumb.jpg");
+
+  thumbnail.emit("load");
+  await flush();
+  plugin.flushTimersUnder(1000);
+  await flush();
+
+  assert.equal(plugin.state.isPanning, false, "no pointer drag should be in play");
+  assert.equal(
+    card.querySelectorAll("img").length,
+    1,
+    "no original element should be created while the camera is flying",
+  );
+  assert.equal(card.dataset.mediaQuality, "thumbnail");
+
+  // Stopping brings it back.
+  plugin.state.smoothPanFrame = null;
+  plugin.advanceClock(200);
+  plugin.flushTimersUnder(1000);
+  await flush();
+
+  assert.equal(card.querySelectorAll("img").length, 2, "the original should follow");
+  assert.equal(card.dataset.mediaQuality, "loading-original");
 });

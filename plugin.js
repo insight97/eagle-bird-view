@@ -79,6 +79,10 @@ const ORIGINAL_IMAGE_MIN_HEIGHT = 320;
 // Standing band around the viewport that media loads into. A moving camera adds
 // a lead on top of this, in the direction it is heading.
 const PRELOAD_MARGIN = 120;
+// How still the camera has to be before an original is worth fetching. Longer
+// than the settled work interval, so a pass that lands mid-flight defers and
+// comes back rather than deciding the camera has stopped.
+const CAMERA_MOTION_IDLE = 180;
 const AUTO_EXPLORE_MIN_ZOOM = 0.8;
 const RESOURCE_RELEASE_VIEWPORTS = 2;
 const GRID_LAYER_OVERFLOW = 768;
@@ -133,6 +137,7 @@ const state = {
   aiExplorationAvailable: false,
   videoVolume: 1,
   smoothPanKeys: new Set(),
+  lastCameraChange: -Infinity,
   smoothPanFrame: null,
   smoothPanLastTimestamp: null,
   smoothZoomKeys: new Set(),
@@ -3273,6 +3278,7 @@ function getViewportSize() {
 
 function renderCamera() {
   state.cameraFrame = null;
+  state.lastCameraChange = performance.now();
   const scaleChanged = state.renderedScale !== state.camera.scale;
   const baseScaleChanged = state.renderedBaseScale !== state.baseScale;
   if (scaleChanged) {
@@ -3315,10 +3321,29 @@ function flushViewportWork() {
 }
 
 function runViewportWork() {
+  const moving = isCameraMoving();
   updateMediaVisibility();
   updateLabels();
   selectionNavigation.selectNodeAtViewportCenter();
   maybeLoadNextUnratedRow();
+  // Originals were held back because the camera was still moving. Nothing else
+  // will wake this up once the camera stops — renderCamera only schedules while
+  // it is changing — so come back for them.
+  if (moving) scheduleViewportWork();
+}
+
+// Whether the camera is in motion, by any route. Keying this on the pointer
+// drag flag alone missed both keyboard modes: smooth panning runs off
+// smoothPanFrame and repeated arrow keys just step the camera, so neither ever
+// set isPanning and a keyboard flight across the board looked stationary.
+function isCameraMoving() {
+  return Boolean(
+    state.isPanning ||
+      state.isSmoothZooming ||
+      state.smoothPanFrame !== null ||
+      state.cameraFocusFrame !== null ||
+      performance.now() - state.lastCameraChange < CAMERA_MOTION_IDLE,
+  );
 }
 
 function updateMediaVisibility() {
@@ -3377,7 +3402,7 @@ function getViewportMediaPlan({ travel = null } = {}) {
     selectedNode: state.selectedNode,
     // Dragging sweeps past far more cards than it settles on. Zooming does not,
     // and it is where sharpness is actually being judged, so it is not deferred.
-    deferOriginals: state.isPanning,
+    deferOriginals: isCameraMoving(),
     getQuality: (node) => {
       if (node === state.selectedNode && !node.isVideo) return "original";
       return wantsOriginalImage(node, scale) ? "original" : "thumbnail";
