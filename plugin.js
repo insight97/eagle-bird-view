@@ -37,6 +37,7 @@ const { createBoardState } = BirdViewBoard;
 const { createBoardHistory } = BirdViewBoardHistory;
 const { createRowLoadCoordinator } = BirdViewRowLoad;
 const { createMediaMaterializer } = BirdViewMaterializer;
+const { createViewportWorkScheduler } = BirdViewViewportWork;
 const { createAutoExploreSettings } = BirdViewAutoExploreSettings;
 const {
   AiSimilarItemSource,
@@ -69,7 +70,6 @@ const KEYBOARD_ZOOM_FACTOR = 1.5;
 const KEYBOARD_SEEK_STEP = 5;
 const KEYBOARD_VOLUME_STEP = 0.05;
 const PAN_START_THRESHOLD = 4;
-const SMOOTH_ZOOM_QUALITY_INTERVAL = 120;
 // How tall a card has to paint on screen before Eagle's thumbnail stops being
 // enough. Measured in screen pixels so the decision does not depend on how the
 // row happened to be laid out: a lone selection lands on an unjustified row at
@@ -143,12 +143,7 @@ const state = {
   toastTimer: null,
   cameraFrame: null,
   cameraFocusFrame: null,
-  viewportWorkTimer: null,
-  smoothZoomQualityTimer: null,
-  panMediaTimer: null,
   lastMediaCamera: null,
-  lastViewportWork: -Infinity,
-  lastSmoothZoomQualityWork: -Infinity,
   isPanning: false,
   suppressNextMediaClick: false,
   explorationSource: null,
@@ -186,6 +181,7 @@ const elements = {};
 let cameraNavigation = null;
 let selectionNavigation = null;
 let mediaMaterializer = null;
+let viewportWork = null;
 let autoExploreSettings = null;
 let settingsPresetStore = null;
 let settingsSnapshotStore = null;
@@ -373,6 +369,15 @@ function setup() {
     onSelect: handleFolderBrowserSelect,
   });
 
+  viewportWork = createViewportWorkScheduler({
+    window,
+    isPanning: () => state.isPanning,
+    isSmoothZooming: () => state.isSmoothZooming,
+    isCameraFocusing: () => state.cameraFocusFrame !== null,
+    onPanMedia: updateMediaVisibility,
+    onZoomQuality: updateMediaQuality,
+    onSettled: runViewportWork,
+  });
   mediaMaterializer = createMediaMaterializer({
     document,
     window,
@@ -426,25 +431,12 @@ function setup() {
     getFocusTargetHeight: () => state.focusMediaSize,
     onSmoothZoomStart: () => {
       state.isSmoothZooming = true;
-      state.lastSmoothZoomQualityWork = -Infinity;
-      if (state.smoothZoomQualityTimer !== null) {
-        window.clearTimeout(state.smoothZoomQualityTimer);
-        state.smoothZoomQualityTimer = null;
-      }
-      if (state.viewportWorkTimer !== null) {
-        window.clearTimeout(state.viewportWorkTimer);
-        state.viewportWorkTimer = null;
-      }
       elements.labels?.classList.add("is-smooth-zooming");
-      scheduleSmoothZoomQualityWork();
+      viewportWork.restartZoomQuality();
     },
     onSmoothZoomEnd: () => {
       state.isSmoothZooming = false;
-      if (state.smoothZoomQualityTimer !== null) {
-        window.clearTimeout(state.smoothZoomQualityTimer);
-        state.smoothZoomQualityTimer = null;
-      }
-      state.lastSmoothZoomQualityWork = -Infinity;
+      viewportWork.stopZoomQuality();
       elements.labels?.classList.remove("is-smooth-zooming");
       flushViewportWork();
     },
@@ -1779,7 +1771,6 @@ function startViewportPan() {
   cameraNavigation.cancelCameraFocus();
   tagEditor.close();
   state.isPanning = true;
-  state.lastViewportWork = performance.now();
   elements.viewport.classList.add("is-panning");
   rescheduleViewportWork();
 }
@@ -3312,85 +3303,18 @@ function renderCamera() {
 }
 
 function scheduleViewportWork() {
-  // Pointer movement should stay on the camera transform path, so relabelling,
-  // centre selection and auto-exploring wait for the gesture to end. Mounting
-  // and loading cannot wait: suspending them for the whole gesture means a pan
-  // arrives somewhere with nothing loaded and only then starts fetching.
-  if (state.isPanning) {
-    schedulePanMediaWork();
-    return;
-  }
-  if (state.isSmoothZooming) {
-    scheduleSmoothZoomQualityWork();
-    return;
-  }
-  if (state.viewportWorkTimer !== null) return;
-  const elapsed = performance.now() - state.lastViewportWork;
-  const delay = Math.max(0, getViewportWorkInterval(state.isPanning) - elapsed);
-  state.viewportWorkTimer = window.setTimeout(runViewportWork, delay);
-}
-
-function schedulePanMediaWork() {
-  if (!state.isPanning || state.panMediaTimer !== null) return;
-  const elapsed = performance.now() - state.lastViewportWork;
-  const delay = Math.max(0, getViewportWorkInterval(true) - elapsed);
-  state.panMediaTimer = window.setTimeout(runPanMediaWork, delay);
-}
-
-function runPanMediaWork() {
-  state.panMediaTimer = null;
-  if (!state.isPanning) return;
-  state.lastViewportWork = performance.now();
-  updateMediaVisibility();
-  schedulePanMediaWork();
-}
-
-function clearPanMediaWork() {
-  if (state.panMediaTimer === null) return;
-  window.clearTimeout(state.panMediaTimer);
-  state.panMediaTimer = null;
-}
-
-function scheduleSmoothZoomQualityWork() {
-  if (
-    !state.isSmoothZooming ||
-    state.isPanning ||
-    state.smoothZoomQualityTimer !== null
-  ) {
-    return;
-  }
-  const elapsed = performance.now() - state.lastSmoothZoomQualityWork;
-  const delay = Math.max(0, SMOOTH_ZOOM_QUALITY_INTERVAL - elapsed);
-  state.smoothZoomQualityTimer = window.setTimeout(runSmoothZoomQualityWork, delay);
-}
-
-function runSmoothZoomQualityWork() {
-  state.smoothZoomQualityTimer = null;
-  if (!state.isSmoothZooming || state.isPanning) return;
-  state.lastSmoothZoomQualityWork = performance.now();
-  updateMediaQuality();
-  scheduleSmoothZoomQualityWork();
+  viewportWork.schedule();
 }
 
 function rescheduleViewportWork() {
-  if (state.viewportWorkTimer !== null) window.clearTimeout(state.viewportWorkTimer);
-  state.viewportWorkTimer = null;
-  clearPanMediaWork();
-  scheduleViewportWork();
+  viewportWork.reschedule();
 }
 
 function flushViewportWork() {
-  if (state.viewportWorkTimer !== null) window.clearTimeout(state.viewportWorkTimer);
-  state.viewportWorkTimer = null;
-  clearPanMediaWork();
-  runViewportWork();
+  viewportWork.flush();
 }
 
 function runViewportWork() {
-  state.viewportWorkTimer = null;
-  if (state.isPanning || state.isSmoothZooming) return;
-  if (state.cameraFocusFrame !== null) return;
-  state.lastViewportWork = performance.now();
   updateMediaVisibility();
   updateLabels();
   selectionNavigation.selectNodeAtViewportCenter();

@@ -8,6 +8,7 @@ const BirdViewBoardHistory = require("../board-history.js");
 const BirdViewCore = require("../bird-view-core.js");
 const BirdViewMedia = require("../media-load-queue.js");
 const BirdViewMaterializer = require("../media-materializer.js");
+const BirdViewViewportWork = require("../viewport-work-scheduler.js");
 const BirdViewExploration = require("../exploration-source.js");
 const BirdViewAutoExploreSettings = require("../auto-explore-settings.js");
 const BirdViewSettingsPresets = require("../settings-presets.js");
@@ -398,6 +399,7 @@ function createPluginHarness({
     BirdViewCore,
     BirdViewMedia,
     BirdViewMaterializer,
+    BirdViewViewportWork,
     BirdViewAutoExploreSettings,
     BirdViewSettingsPresets,
     BirdViewSettingsSnapshot,
