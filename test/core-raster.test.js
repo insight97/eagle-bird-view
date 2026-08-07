@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const {
   MAX_RASTER_DIMENSION,
   MIN_RASTER_DIMENSION,
+  getNodeScreenLongEdge,
   getPreloadMargins,
   getRasterDimensionBudget,
   getRasterTargetSize,
@@ -134,4 +135,57 @@ test("unusable travel falls back to the standing band", () => {
     top: 0,
     bottom: 0,
   });
+});
+
+// devicePixelRatio had no coverage at all: the only reader sat in plugin.js and
+// every observation of this feature was made on a dpr 1 display, so the
+// multiplication had never run with any other value.
+test("the screen long edge is measured in device pixels", () => {
+  const node = { width: 121, mediaHeight: 171 };
+
+  assert.equal(getNodeScreenLongEdge(node, 2, 1), 342);
+  assert.equal(getNodeScreenLongEdge(node, 2, 2), 684);
+  assert.equal(getNodeScreenLongEdge(node, 2, 3), 1026);
+  // The longest edge wins whichever way the card is oriented.
+  assert.equal(getNodeScreenLongEdge({ width: 400, mediaHeight: 100 }, 1, 1), 400);
+});
+
+test("a HiDPI screen lands a card one budget step higher", () => {
+  const node = { width: 121, mediaHeight: 171 };
+  const scale = 2; // 342 CSS px along the long edge
+
+  assert.equal(getRasterDimensionBudget(getNodeScreenLongEdge(node, scale, 1)), 512);
+  assert.equal(getRasterDimensionBudget(getNodeScreenLongEdge(node, scale, 2)), 1024);
+
+  // Which is correct — the card really does paint twice as many pixels — but it
+  // is also why the same board costs four times the raster memory there.
+  const standard = getRasterTargetSize(5374, 7589, getNodeScreenLongEdge(node, scale, 1));
+  const hiDpi = getRasterTargetSize(5374, 7589, getNodeScreenLongEdge(node, scale, 2));
+  const growth = (hiDpi.width * hiDpi.height) / (standard.width * standard.height);
+  assert.ok(Math.abs(growth - 4) < 0.01, `expected ~4x the pixels, got ${growth}`);
+});
+
+test("the ceiling is reached at half the CSS size on a HiDPI screen", () => {
+  const node = { width: 1, mediaHeight: 2200 };
+
+  assert.equal(getRasterDimensionBudget(getNodeScreenLongEdge(node, 1, 1)), 4096);
+  assert.equal(getRasterDimensionBudget(getNodeScreenLongEdge(node, 1, 2)), MAX_RASTER_DIMENSION);
+  // Past the ceiling the master is used untouched rather than rastered larger.
+  assert.equal(getRasterTargetSize(3000, 4000, getNodeScreenLongEdge(node, 4, 2)), null);
+});
+
+test("an unusable pixel ratio falls back to one rather than zeroing the card", () => {
+  const node = { width: 121, mediaHeight: 171 };
+
+  assert.equal(getNodeScreenLongEdge(node, 2, 0), 342);
+  assert.equal(getNodeScreenLongEdge(node, 2, -1), 342);
+  assert.equal(getNodeScreenLongEdge(node, 2, Number.NaN), 342);
+  assert.equal(getNodeScreenLongEdge(node, 2, undefined), 342);
+});
+
+test("a missing node or stopped camera reports no screen size", () => {
+  assert.equal(getNodeScreenLongEdge(null, 2, 1), 0);
+  assert.equal(getNodeScreenLongEdge({}, 2, 1), 0);
+  assert.equal(getNodeScreenLongEdge({ width: 121, mediaHeight: 171 }, 0, 1), 0);
+  assert.equal(getNodeScreenLongEdge({ width: 121, mediaHeight: 171 }, Number.NaN, 1), 0);
 });

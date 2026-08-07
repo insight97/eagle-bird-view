@@ -31,9 +31,10 @@
   // master on a compositor tile worker, which is what drops frames while the
   // camera moves. Cards paint a bounded raster instead, sized in power-of-two
   // steps so a small zoom change does not churn through re-rasters.
-  // The ceiling only binds when a card paints larger than this on screen, which
-  // at 1200% zoom means one or two cards. Past it the master itself is used,
-  // since a raster that large stops being a saving.
+  //
+  // The ceiling only binds when a card paints larger than that many device
+  // pixels, which at 1200% zoom means one or two cards. Past it the master
+  // itself is used, since a raster that large stops being a saving.
   const MIN_RASTER_DIMENSION = 512;
   const MAX_RASTER_DIMENSION = 4096;
   // Preload roughly two passes ahead of the camera, so a load that starts now
@@ -94,6 +95,22 @@
         Number.isFinite(threshold) &&
         screenHeight >= threshold,
     );
+  }
+
+  // Device pixels along the card's longest edge. Everything downstream reasons
+  // in device pixels, so a HiDPI screen asks for a proportionally larger raster:
+  // at devicePixelRatio 2 the same card lands one budget step higher, which is
+  // correct — it really does paint twice as many pixels — but it also means the
+  // same board costs four times the raster memory there.
+  function getNodeScreenLongEdge(node, scale, pixelRatio = 1) {
+    const width = Number(node?.width) || 0;
+    const mediaHeight = Number(node?.mediaHeight) || 0;
+    const longEdge = Math.max(width, mediaHeight);
+    const cameraScale = Number(scale);
+    const ratio = Number(pixelRatio);
+    if (!Number.isFinite(longEdge) || longEdge <= 0) return 0;
+    if (!Number.isFinite(cameraScale) || cameraScale <= 0) return 0;
+    return longEdge * cameraScale * (Number.isFinite(ratio) && ratio > 0 ? ratio : 1);
   }
 
   // How many pixels along the longest edge a card is allowed to raster at the
@@ -1173,6 +1190,7 @@
     shouldLoadUnratedRow,
     zoomCameraAtPoint,
     getNodeScreenCenter,
+    getNodeScreenLongEdge,
     reanchorCameraToNode,
   });
 });

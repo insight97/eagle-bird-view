@@ -17,6 +17,7 @@ const {
   getLabelDetailLevel,
   getLabelRect,
   getNodeScreenCenter,
+  getNodeScreenLongEdge,
   getPanLayerTranslation,
   getPreloadMargins,
   getWrappedGridTranslation,
@@ -68,8 +69,6 @@ const KEYBOARD_ZOOM_FACTOR = 1.5;
 const KEYBOARD_SEEK_STEP = 5;
 const KEYBOARD_VOLUME_STEP = 0.05;
 const PAN_START_THRESHOLD = 4;
-const CAMERA_SETTLE_DELAY = 100;
-const SMOOTH_ZOOM_RASTER_VELOCITY_THRESHOLD = 0.12;
 const SMOOTH_ZOOM_QUALITY_INTERVAL = 120;
 // How tall a card has to paint on screen before Eagle's thumbnail stops being
 // enough. Measured in screen pixels so the decision does not depend on how the
@@ -144,7 +143,6 @@ const state = {
   toastTimer: null,
   cameraFrame: null,
   cameraFocusFrame: null,
-  cameraSettleTimer: null,
   viewportWorkTimer: null,
   smoothZoomQualityTimer: null,
   panMediaTimer: null,
@@ -152,7 +150,6 @@ const state = {
   lastViewportWork: -Infinity,
   lastSmoothZoomQualityWork: -Infinity,
   isPanning: false,
-  skipCameraLayerPromotion: false,
   suppressNextMediaClick: false,
   explorationSource: null,
   explorationLoading: false,
@@ -380,7 +377,7 @@ function setup() {
     document,
     window,
     world: elements.world,
-    getNodeScreenLongEdge,
+    getNodeScreenLongEdge: getCardScreenLongEdge,
     onPositionNode: positionNode,
     onClickNode: (node, modifiers) => {
       if (state.suppressNextMediaClick) {
@@ -1784,19 +1781,12 @@ function startViewportPan() {
   state.isPanning = true;
   state.lastViewportWork = performance.now();
   elements.viewport.classList.add("is-panning");
-  window.clearTimeout(state.cameraSettleTimer);
-  state.cameraSettleTimer = null;
-  elements.world.classList.remove("is-moving");
   rescheduleViewportWork();
 }
 
 function finishViewportPan() {
   state.isPanning = false;
-  state.skipCameraLayerPromotion = true;
   elements.viewport.classList.remove("is-panning");
-  window.clearTimeout(state.cameraSettleTimer);
-  state.cameraSettleTimer = null;
-  elements.world.classList.remove("is-moving");
   updateCamera();
   flushViewportWork();
 }
@@ -3294,8 +3284,6 @@ function renderCamera() {
   state.cameraFrame = null;
   const scaleChanged = state.renderedScale !== state.camera.scale;
   const baseScaleChanged = state.renderedBaseScale !== state.baseScale;
-  const skipCameraLayerPromotion = state.skipCameraLayerPromotion;
-  state.skipCameraLayerPromotion = false;
   if (scaleChanged) {
     const inverseScale = 1 / state.camera.scale;
     elements.world.style.setProperty("--media-border-width", `${inverseScale}px`);
@@ -3305,7 +3293,6 @@ function renderCamera() {
   }
   elements.world.style.transform = `translate(${state.camera.x}px, ${state.camera.y}px) scale(${state.camera.scale})`;
   if (state.isPanning) return;
-  keepCameraLayerPromoted(scaleChanged && !skipCameraLayerPromotion);
   if (scaleChanged || baseScaleChanged) {
     elements.zoomLabel.textContent = `${Math.round((state.camera.scale / getBaseScale()) * 100)}%`;
     state.renderedBaseScale = state.baseScale;
@@ -3322,37 +3309,6 @@ function renderCamera() {
     else updateLabelLayerTransform();
   }
   scheduleViewportWork();
-}
-
-// A standing will-change hint keeps the board on its own compositor layer, but
-// it also pins the raster scale: after zooming in, the layer keeps painting the
-// bitmap it rastered at the old scale, so even a fully loaded original looks
-// soft. Use the hint for scale changes, but keep pure panning on the normal
-// rendering path so the board does not need a delayed post-pan re-raster.
-function keepCameraLayerPromoted(scaleChanged = false) {
-  if (!scaleChanged && !state.isSmoothZooming) {
-    window.clearTimeout(state.cameraSettleTimer);
-    state.cameraSettleTimer = null;
-    elements.world.classList.remove("is-moving");
-    return;
-  }
-  const isSlowSmoothZoom =
-    state.isSmoothZooming &&
-    state.smoothZoomKeys.size === 0 &&
-    Math.abs(state.smoothZoomVelocity) <= SMOOTH_ZOOM_RASTER_VELOCITY_THRESHOLD;
-  if (isSlowSmoothZoom) {
-    window.clearTimeout(state.cameraSettleTimer);
-    state.cameraSettleTimer = null;
-    elements.world.classList.remove("is-moving");
-    return;
-  }
-
-  elements.world.classList.add("is-moving");
-  window.clearTimeout(state.cameraSettleTimer);
-  state.cameraSettleTimer = window.setTimeout(() => {
-    state.cameraSettleTimer = null;
-    elements.world.classList.remove("is-moving");
-  }, CAMERA_SETTLE_DELAY);
 }
 
 function scheduleViewportWork() {
@@ -3506,13 +3462,8 @@ function wantsOriginalImage(node, scale) {
   return !node.isVideo && node.mediaHeight * scale >= ORIGINAL_IMAGE_MIN_HEIGHT;
 }
 
-// Device pixels along the card's longest edge. This is what a bounded raster has
-// to cover, so it decides how sharp the card's original needs to be rendered.
-function getNodeScreenLongEdge(node) {
-  if (!node) return 0;
-  const longEdge = Math.max(Number(node.width) || 0, Number(node.mediaHeight) || 0);
-  const pixelRatio = Number(window.devicePixelRatio) || 1;
-  return longEdge * state.camera.scale * pixelRatio;
+function getCardScreenLongEdge(node) {
+  return getNodeScreenLongEdge(node, state.camera.scale, window.devicePixelRatio);
 }
 
 function getNodesNearViewport(screenMargin) {

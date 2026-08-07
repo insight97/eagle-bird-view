@@ -2,10 +2,11 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const { createPluginHarness } = require("../../test-support/plugin-harness.js");
 
-const CAMERA_SETTLE_DELAY = 100;
-const SMOOTH_ZOOM_RASTER_VELOCITY_THRESHOLD = 0.12;
+const ROOT = path.resolve(__dirname, "..", "..");
 
 function jpgItem() {
   return {
@@ -22,10 +23,16 @@ function jpgItem() {
   };
 }
 
-// The compositor pins its raster scale while a will-change hint stands, so a
-// board that keeps the hint after zooming in stays blurry however good the
-// loaded image is. The hint has to be released once the camera stops.
-test("the board layer drops its compositing hint once the camera settles", async () => {
+// The board used to promote itself to its own compositor layer while the camera
+// scaled, then release the hint once the camera settled. A will-change hint pins
+// the compositor's raster scale, so for as long as it stood the board painted a
+// stretched bitmap of the pre-zoom raster — zooming looked blurry however good
+// the loaded image was. The hint was there to avoid re-rastering full-resolution
+// masters every zoom frame, and bounding the rasters removed that cost: a trace
+// of the bounded build measured RasterTask at 253ms across 7981 tasks. With
+// nothing left to protect, the hint is pure blur, so the board no longer
+// promotes at all and the compositor is free to re-raster at the live scale.
+test("the board never takes a compositing hint while the camera scales", async () => {
   const plugin = createPluginHarness({
     selectedItems: [jpgItem()],
     runAnimationFrames: true,
@@ -35,14 +42,21 @@ test("the board layer drops its compositing hint once the camera settles", async
 
   const world = plugin.elements.get("#world");
   assert.match(world.style.transform, /scale\(/, "the camera should have rendered");
-  assert.equal(world.classList.contains("is-moving"), true);
+  assert.equal(world.className, "", "nothing should be promoting the board at rest");
 
-  plugin.fireTimer(CAMERA_SETTLE_DELAY);
+  // A scale change is what used to trigger the promotion, so drive one straight
+  // through the render pass. The harness leaves a simulated frame pending;
+  // clear it or updateCamera() treats the change as already scheduled.
+  const zoomed = plugin.state.camera.scale * 2;
+  plugin.state.camera = { ...plugin.state.camera, scale: zoomed };
+  plugin.state.cameraFrame = null;
+  plugin.updateCamera();
 
-  assert.equal(world.classList.contains("is-moving"), false);
+  assert.match(world.style.transform, new RegExp(`scale\\(${zoomed}\\)`));
+  assert.equal(world.className, "", "a scale change must not promote the board");
 });
 
-test("the board layer can drop its hint during the slow end of smooth zoom", async () => {
+test("smooth zoom leaves the board unpromoted too", async () => {
   const plugin = createPluginHarness({
     selectedItems: [],
     runAnimationFrames: true,
@@ -60,12 +74,23 @@ test("the board layer can drop its hint during the slow end of smooth zoom", asy
   });
 
   const world = plugin.elements.get("#world");
-  assert.equal(world.classList.contains("is-moving"), true);
+  assert.equal(world.className, "");
 
-  plugin.state.smoothZoomVelocity = SMOOTH_ZOOM_RASTER_VELOCITY_THRESHOLD - 0.01;
   plugin.state.smoothZoomKeys.clear();
   plugin.state.cameraFrame = null;
   plugin.updateCamera();
 
-  assert.equal(world.classList.contains("is-moving"), false);
+  assert.equal(world.className, "");
+});
+
+// A standing hint in the stylesheet would pin the raster scale permanently,
+// which is the same blur with no way to observe it from the plugin state.
+test("no stylesheet rule leaves a standing hint on the board layer", () => {
+  const css = fs.readFileSync(path.join(ROOT, "styles.css"), "utf8");
+  const worldRules = [...css.matchAll(/^\.world[^{]*\{([^}]*)\}/gm)].map(([, body]) => body);
+
+  assert.ok(worldRules.length > 0, "styles.css should still define .world");
+  for (const body of worldRules) {
+    assert.doesNotMatch(body, /will-change/, "the board layer must not be promoted");
+  }
 });

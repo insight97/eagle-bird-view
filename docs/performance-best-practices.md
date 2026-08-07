@@ -97,6 +97,16 @@ src 2898 × 4096  →  實際畫在 118 × 167   過取樣 602 倍
 
 代價要講清楚：平移期間現在會建立 DOM。bounded raster 讓 raster／decode 變便宜之後，卡片 DOM 建立很可能成為平移期間新的主要主執行緒成本，若之後再出現卡頓，這是第一個該量的地方。
 
+### 第四輪：移除 `.world` 的 layer 提升
+
+`keepCameraLayerPromoted()` 會在縮放期間為 `.world` 加上 `will-change: transform`，settle 後 100ms 移除。它存在的理由是避免縮放每幀重新 raster 整個 world——而那個成本已經被 bounded raster 消掉了（`RasterTask` 7981 次共 253ms）。
+
+剩下的只有副作用：will-change 會釘住 compositor 的 raster scale，所以縮放期間畫面是被拉伸的舊點陣圖。因此整套移除：`keepCameraLayerPromoted()`、`CAMERA_SETTLE_DELAY`、`SMOOTH_ZOOM_RASTER_VELOCITY_THRESHOLD`、`cameraSettleTimer`、`skipCameraLayerPromotion` 與 `.world.is-moving`。
+
+平移路徑本來就沒有提升，而平移是順的，所以縮放改走同一條路是有依據的，不是猜測。
+
+`test/integration/camera-layer.test.js` 現在斷言相反的不變條件：`.world` 不會被加上任何 class，且 `styles.css` 裡沒有任何 `.world` 規則帶 `will-change`。
+
 ### 可推廣的判準
 
 - 先問「來源像素量與實際顯示像素量差幾倍」，再問 layer 怎麼提升。差距達兩、三個數量級時，任何 CSS hint 都救不了。

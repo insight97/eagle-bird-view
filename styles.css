@@ -1392,12 +1392,6 @@ button {
   transform-origin: 0 0;
 }
 
-/* Only while the camera moves: a standing hint pins the compositor's raster
-   scale and leaves zoomed-in media blurry. See keepCameraLayerPromoted(). */
-.world.is-moving {
-  will-change: transform;
-}
-
 .labels-layer {
   position: absolute;
   inset: 0;

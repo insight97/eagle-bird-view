@@ -235,47 +235,17 @@ npm test
 
 `git diff --check` 也通過。
 
-## 建議下一步
+## 當時的「建議下一步」已作廢
 
-下一個 agent 不應再盲目調整 `will-change` 或 `translate3d`，應先用目前版本重新錄製同樣操作的 trace，區分以下兩種情況。
+原本這裡建議下一個 agent 去區分兩種情況：
 
-### 情況 A：原圖尚未完成 decode
+- 情況 A：原圖尚未完成 decode
+- 情況 B：原圖已 ready 但 compositor／layer 有問題
 
-在放開滑鼠的時間點確認：
+**兩個都不是答案。** 實際原因是第三種：原圖早已載入完成，但它是 40 MP 的全解析度母檔，每次 raster 都超出 Chromium 的 image decode cache 而被重新解碼。照著 A／B 去查會一路查錯方向——這也正是文件前半段那些 `will-change`／`contain`／layer 實驗全部無效的原因。
 
-```text
-card.dataset.mediaQuality
-mediaLoadQueue.snapshot(node).readyQuality
-originalImage.complete
-originalImage.decode()
-```
+完整的分析、修正與後續兩輪 trace（預算只增不減、平移期間不載入）記錄在：
 
-如果放開時仍然不是 `readyQuality: original`，問題可能是：
+[performance-best-practices.md](./performance-best-practices.md)
 
-- 原圖 queue 排程太晚
-- 4 路併發不足
-- Image Decode／Upload 在放開後才發生
-
-這時才考慮更早預載，但不要直接提高併發數，因為 Decode／Upload 本身可能再次造成移動卡頓。
-
-### 情況 B：原圖早已 ready，但畫面仍模糊
-
-如果放開時：
-
-```text
-readyQuality === "original"
-originalImage.complete === true
-```
-
-但仍要等約 0.5 秒才清晰，則應調查 compositor／GPU raster：
-
-- `.world` 是否仍被提升為大型 layer
-- Layer Borders
-- RasterTask
-- CompositeLayers
-- ImageUploadTask
-- GPU memory
-- Eagle Chromium 的硬體加速狀態
-
-這種情況下，繼續修改 queue 或 JavaScript 幫助有限。
-
+那份文件是這個主題目前的單一事實來源。本文件只保留當時的調查過程與失敗嘗試，供了解「為什麼那些方向沒用」時參考。
