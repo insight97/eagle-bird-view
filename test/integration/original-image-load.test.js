@@ -52,8 +52,11 @@ test("a stalled original image load times out, offers retry, and recovers", asyn
 
   const originalImage = plugin.createdElementsOfTag("img")[1];
   assert.ok(originalImage, "original <img> should start loading right after the thumbnail");
-  assert.equal(originalImage.src, "file:///fake/original.jpg");
   assert.equal(card.dataset.mediaQuality, "loading-original");
+  // The card tries to render a bounded raster from the file first, so the
+  // element only falls back to the master once that has been ruled out.
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(originalImage.src, "file:///fake/original.jpg");
 
   // The original never fires "load" or "error" (a stalled file:// request).
   // Only the watchdog timer can recover from this.

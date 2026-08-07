@@ -116,6 +116,15 @@
   // How many pixels along the longest edge a card is allowed to raster at the
   // given on-screen size. Quantised so panning and small zoom steps keep hitting
   // the same budget, and only a real zoom-in pays for a sharper raster.
+  //
+  // The ladder doubles but puts a step halfway through each octave — 512, 768,
+  // 1024, 1536, 2048 — because whatever the budget overshoots by is pixels the
+  // card can never display, and they still cost memory and decode time. Doubling
+  // alone overshoots by up to 2x on the longest edge, so 4x in pixels; halving
+  // the gap caps that at 2.25x. Every doubling point is still on the ladder, so
+  // a card can only ever land on a smaller budget than plain doubling gave it,
+  // never a larger one, and the budget still never falls below what the card
+  // paints.
   function getRasterDimensionBudget(screenLongEdge, options = {}) {
     const {
       minDimension = MIN_RASTER_DIMENSION,
@@ -126,8 +135,14 @@
     const needed = Number(screenLongEdge);
     if (!Number.isFinite(needed) || needed <= 0) return floor;
     let budget = floor;
-    while (budget < needed && budget < ceiling) budget *= 2;
-    return Math.min(budget, ceiling);
+    let step = 0;
+    while (budget < needed && budget < ceiling) {
+      step += 1;
+      const octave = 2 ** Math.floor(step / 2);
+      const midpoint = step % 2 === 1 ? 1.5 : 1;
+      budget = Math.min(Math.round(floor * midpoint * octave), ceiling);
+    }
+    return budget;
   }
 
   // Returns the size a card should raster its original at, or null when the

@@ -381,7 +381,7 @@ test("zooming past the rastered size re-renders the master sharper", async () =>
     harness.downscaleCalls.map(({ width, height }) => ({ width, height })),
     [
       { width: 363, height: 512 },
-      { width: 1450, height: 2048 },
+      { width: 1088, height: 1536 },
     ],
   );
   assert.equal(reloaded.src, "blob:raster-2");
@@ -397,7 +397,7 @@ test("zooming back out hands the oversized raster back", async () => {
   const harness = createRasterHarness({ screenLongEdge: 1500 });
   const node = createMasterNode();
   const zoomedOriginal = await loadOriginal(harness, node);
-  assert.equal(harness.downscaleCalls[0].budget, 2048);
+  assert.equal(harness.downscaleCalls[0].budget, 1536);
 
   harness.setScreenLongEdge(400);
   harness.materializer.sync({
@@ -426,7 +426,7 @@ test("dropping below the original threshold gives the raster back", async () => 
   const node = createMasterNode();
   const zoomedOriginal = await loadOriginal(harness, node);
   const thumbnail = harness.images()[0];
-  assert.equal(harness.downscaleCalls[0].budget, 2048);
+  assert.equal(harness.downscaleCalls[0].budget, 1536);
   assert.equal(node.previewImage, zoomedOriginal);
 
   // Zoomed out far enough that the thumbnail is enough again.

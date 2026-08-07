@@ -11,18 +11,38 @@ const {
   getRasterTargetSize,
 } = require("../bird-view-core.js");
 
-test("raster budget grows in power-of-two steps so panning keeps one size", () => {
+test("the raster budget climbs a ladder with a step inside each octave", () => {
   assert.equal(getRasterDimensionBudget(120), MIN_RASTER_DIMENSION);
-  assert.equal(getRasterDimensionBudget(512), 512);
-  assert.equal(getRasterDimensionBudget(513), 1024);
-  assert.equal(getRasterDimensionBudget(1024), 1024);
-  assert.equal(getRasterDimensionBudget(1500), 2048);
-  assert.equal(getRasterDimensionBudget(2049), 4096);
+  assert.deepEqual(
+    [512, 513, 768, 769, 1024, 1025, 1536, 1537, 2048, 2049, 3072, 3073].map((needed) =>
+      getRasterDimensionBudget(needed),
+    ),
+    [512, 768, 768, 1024, 1024, 1536, 1536, 2048, 2048, 3072, 3072, 4096],
+  );
 
   // Every size within a step maps to the same budget, so nudging the camera
   // never re-rasters a card.
-  for (const screenLongEdge of [520, 700, 900, 1024]) {
-    assert.equal(getRasterDimensionBudget(screenLongEdge), 1024);
+  for (const screenLongEdge of [1025, 1200, 1400, 1536]) {
+    assert.equal(getRasterDimensionBudget(screenLongEdge), 1536);
+  }
+});
+
+// The overshoot is pixels the card can never display, and they still cost
+// memory and decode time. Every doubling point stays on the ladder, so this can
+// only ever pick a smaller budget than doubling alone would have.
+test("the ladder never overshoots by more than half, and never more than doubling", () => {
+  for (let needed = 400; needed <= 4200; needed += 7) {
+    const budget = getRasterDimensionBudget(needed);
+    assert.ok(budget >= Math.min(needed, MAX_RASTER_DIMENSION), `undersampled at ${needed}`);
+
+    let doubling = MIN_RASTER_DIMENSION;
+    while (doubling < needed && doubling < MAX_RASTER_DIMENSION) doubling *= 2;
+    doubling = Math.min(doubling, MAX_RASTER_DIMENSION);
+    assert.ok(budget <= doubling, `${needed}: ${budget} is worse than doubling's ${doubling}`);
+
+    if (needed >= MIN_RASTER_DIMENSION && budget < MAX_RASTER_DIMENSION) {
+      assert.ok(budget / needed <= 1.5 + 1e-9, `${needed}: overshot to ${budget}`);
+    }
   }
 });
 
@@ -155,20 +175,20 @@ test("a HiDPI screen lands a card one budget step higher", () => {
   const scale = 2; // 342 CSS px along the long edge
 
   assert.equal(getRasterDimensionBudget(getNodeScreenLongEdge(node, scale, 1)), 512);
-  assert.equal(getRasterDimensionBudget(getNodeScreenLongEdge(node, scale, 2)), 1024);
+  assert.equal(getRasterDimensionBudget(getNodeScreenLongEdge(node, scale, 2)), 768);
 
   // Which is correct — the card really does paint twice as many pixels — but it
-  // is also why the same board costs four times the raster memory there.
+  // is also why the same board costs more raster memory there.
   const standard = getRasterTargetSize(5374, 7589, getNodeScreenLongEdge(node, scale, 1));
   const hiDpi = getRasterTargetSize(5374, 7589, getNodeScreenLongEdge(node, scale, 2));
   const growth = (hiDpi.width * hiDpi.height) / (standard.width * standard.height);
-  assert.ok(Math.abs(growth - 4) < 0.01, `expected ~4x the pixels, got ${growth}`);
+  assert.ok(Math.abs(growth - 2.25) < 0.01, `expected ~2.25x the pixels, got ${growth}`);
 });
 
 test("the ceiling is reached at half the CSS size on a HiDPI screen", () => {
   const node = { width: 1, mediaHeight: 2200 };
 
-  assert.equal(getRasterDimensionBudget(getNodeScreenLongEdge(node, 1, 1)), 4096);
+  assert.equal(getRasterDimensionBudget(getNodeScreenLongEdge(node, 1, 1)), 3072);
   assert.equal(getRasterDimensionBudget(getNodeScreenLongEdge(node, 1, 2)), MAX_RASTER_DIMENSION);
   // Past the ceiling the master is used untouched rather than rastered larger.
   assert.equal(getRasterTargetSize(3000, 4000, getNodeScreenLongEdge(node, 4, 2)), null);
