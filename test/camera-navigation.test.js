@@ -242,7 +242,7 @@ test("smooth keyboard pan drops its imperceptible low-speed tail promptly", () =
   assert.ok(harness.state.camera.x < xAtRelease, "the release should still decelerate");
   assert.notEqual(endedAt, null, "the motion lifecycle should end");
   assert.ok(
-    endedAt - releasedAt <= 240,
+    endedAt - releasedAt <= 160,
     `the low-speed tail held back settled work for ${endedAt - releasedAt}ms`,
   );
 });
@@ -273,7 +273,7 @@ test("smooth keyboard pan adapts its braking at the maximum configured speed", (
 
   assert.notEqual(endedAt, null, "the high-speed pan lifecycle should end");
   assert.ok(
-    endedAt - releasedAt <= 240,
+    endedAt - releasedAt <= 160,
     `high-speed pan held back settled work for ${endedAt - releasedAt}ms`,
   );
 });
@@ -441,7 +441,7 @@ test("smooth keyboard zoom adapts its braking at the maximum configured speed", 
 
   assert.notEqual(endedAt, null, "the high-speed zoom lifecycle should end");
   assert.ok(
-    endedAt - releasedAt <= 240,
+    endedAt - releasedAt <= 160,
     `high-speed zoom held back settled work for ${endedAt - releasedAt}ms`,
   );
 });

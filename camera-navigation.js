@@ -37,7 +37,7 @@
   // camera technically moving for 350–600ms after key release. Original raster
   // work is deferred for that entire lifecycle, so adapt only the release
   // response enough to reach the existing visual settle threshold promptly.
-  const MAX_SMOOTH_MOTION_SETTLE_SECONDS = 0.22;
+  const MAX_SMOOTH_MOTION_SETTLE_SECONDS = 0.15;
   const SMOOTH_PAN_VELOCITY_EPSILON = 0.5;
   // Below 30px/s the exponential tail travels only about two more screen pixels.
   const SMOOTH_PAN_SETTLE_VELOCITY = 30;
