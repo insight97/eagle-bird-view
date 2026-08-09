@@ -3374,25 +3374,36 @@ function getViewportMediaPlan({ travel = null } = {}) {
   const viewportHeight = elements.viewport.clientHeight;
   const scale = state.camera.scale;
   const mountMargin = Math.max(viewportWidth, viewportHeight);
+  const moving = isCameraMoving();
   const visibleNodes = getNodesNearViewport(mountMargin);
   const retainedNodes = new Set(
     getNodesNearViewport(mountMargin * RESOURCE_RELEASE_VIEWPORTS),
   );
   // Loading can never reach past what is mounted, so the lead is capped there.
   const margins = getPreloadMargins(travel, PRELOAD_MARGIN, mountMargin);
+  const standing = getPreloadMargins(null, PRELOAD_MARGIN, mountMargin);
   const loadNodes = [];
+  // The lead exists so cards are not blank when the camera arrives, which is a
+  // thumbnail's job. An original costs a decode of the master, and asking for a
+  // band's worth of them the moment the camera stops lands them all at once: a
+  // trace showed 13 master decodes starting inside one 250ms window, saturating
+  // the worker pool and dropping 39 frames. Those wait until the card is
+  // actually near the viewport.
+  const sharpNodes = new Set();
   for (const node of visibleNodes) {
     const left = state.camera.x + node.x * scale;
     const top = state.camera.y + node.y * scale;
     const right = left + node.width * scale;
     const bottom = top + node.mediaHeight * scale;
-    const isNearViewport =
-      right >= -margins.left &&
-      left <= viewportWidth + margins.right &&
-      bottom >= -margins.top &&
-      top <= viewportHeight + margins.bottom;
+    const within = (band) =>
+      right >= -band.left &&
+      left <= viewportWidth + band.right &&
+      bottom >= -band.top &&
+      top <= viewportHeight + band.bottom;
 
-    if (isNearViewport) loadNodes.push(node);
+    if (!within(margins)) continue;
+    loadNodes.push(node);
+    if (within(standing)) sharpNodes.add(node);
   }
 
   return {
@@ -3400,9 +3411,11 @@ function getViewportMediaPlan({ travel = null } = {}) {
     retainedNodes,
     loadNodes,
     selectedNode: state.selectedNode,
+    // Holds back starting an original; never takes one a card already has, so
+    // this stays a position and motion question and quality stays a size one.
     // Dragging sweeps past far more cards than it settles on. Zooming does not,
     // and it is where sharpness is actually being judged, so it is not deferred.
-    deferOriginals: isCameraMoving(),
+    deferOriginals: (node) => moving || !sharpNodes.has(node),
     getQuality: (node) => {
       if (node === state.selectedNode && !node.isVideo) return "original";
       return wantsOriginalImage(node, scale) ? "original" : "thumbnail";

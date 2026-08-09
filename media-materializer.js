@@ -227,7 +227,7 @@
       loadNodes = visibleNodes,
       selectedNode = null,
       getQuality = () => "thumbnail",
-      deferOriginals = false,
+      deferOriginals = () => false,
     } = {}) {
       const visible = new Set(visibleNodes);
       const retained = new Set(retainedNodes);
@@ -262,7 +262,7 @@
     // has. Downgrading loaded cards during motion is a different thing, it made
     // the whole board blur while zooming, and it is not what this does.
     function requestedQuality(node, quality, deferOriginals) {
-      if (!deferOriginals || quality !== "original") return quality;
+      if (quality !== "original" || !deferOriginals(node)) return quality;
       if (mediaLoadQueue.snapshot(node)?.readyQuality === "original") return quality;
       return "thumbnail";
     }

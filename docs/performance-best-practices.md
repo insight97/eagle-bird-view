@@ -231,12 +231,37 @@ RunMicrotasks      66 ms/s        4 ms/s        3 ms/s
 
 目前剩下的主要成本：`createImageBitmap` 解碼母檔約 296 ms/s（在 worker 上，不在關鍵路徑），以及 `step @camera-navigation.js` 約 1367 ms 的相機動畫迴圈（既有程式碼，與圖片管線無關）。
 
+### 第十輪：settle 瞬間的解碼突發
+
+`191309` 仍有 251 dropped frames，且集中成突發：最大一段是 1.27 秒內掉 39 幀，228/251 落在 20 個這樣的突發裡。
+
+該視窗內的實際情況：
+
+```text
+Decode Image @ ThreadPoolForegroundWorker   2008 ms / 16 次   ← 1.4 秒的視窗
+  其中單筆 372 ms、368 ms、307 ms、209 ms、191 ms
+CrRendererMain RunTask                      1178 ms / 523 次  ← 主執行緒 84% 忙碌
+```
+
+不是主執行緒長任務（最長僅 89.7 ms），而是**worker pool 被解碼塞滿**，把 renderer 餓著。整份 trace 有 250ms 視窗內啟動 13 次母檔解碼的情況，59/153 的解碼集中在這類突發。
+
+原因是預載 lead：它會把 `loadNodes` 往前方擴張近一個 viewport，而相機停下後的第一個 settled pass 仍帶著移動期間的 travel，於是整條帶子同時要原圖。
+
+修正：**lead 只服務縮圖**。lead 存在的理由是「相機到達時卡片不要空白」，那是縮圖的職責；原圖成本是一次母檔解碼，等卡片真的靠近 viewport 再要。
+
+實作上要注意一個陷阱：不能改 `getQuality` 來達成這件事。`sync()` 會對 `getQuality(node) !== "original"` 的卡片呼叫 `dropOriginalRaster()`，所以那樣會讓漂進 lead 區的卡片把已經建好的 raster 丟掉再重建。正確的做法是走既有的 `deferOriginals` 機制（改成 per-node predicate）——**它只延後「開始載入」，永遠不收回已經有的 raster**。
+
+也就是說：**品質是尺寸問題，延後是位置與動態問題，兩者不能混用同一個判斷。**
+
+順帶記錄，JPEG 的 `createImageBitmap` 平均 124 ms、最長 372 ms。這代表帶 `resizeWidth` 並沒有讓它走 DCT 縮放解碼——母檔仍是完整解碼後再縮。先前文件裡「JPEG 會在 DCT 階段就縮放」的說法應視為未經證實。
+
 ### 可推廣的判準
 
 - 先問「來源像素量與實際顯示像素量差幾倍」，再問 layer 怎麼提升。差距達兩、三個數量級時，任何 CSS hint 都救不了。
 - `Decode Image` 的 `imageType` 沒有尺寸資訊，但 `PaintImage` 的 `srcWidth`／`srcHeight` 對上 `width`／`height` 就能直接算出過取樣倍率；`Decode LazyPixelRef` 的重複 id 則能證明 cache 抖動。
 - 任何「依畫面尺寸調整資源品質」的機制，**降級路徑和升級路徑一樣重要**，而且要分別確認兩者的觸發條件涵蓋所有狀態。這次升級與降級各漏了一種情況：預算不會下降，以及掉出門檻的卡片完全不再被檢視。只測放大不會發現任何一個。
 - 主執行緒 `CompositeLayers` 異常長、但內部沒有對應的主執行緒子事件時，先對照 raster thread 的 decode 時間軸；commit 會同步等待當幀需要的圖片解碼，長 commit 往往只是解碼太慢的投影。
+- **一個判斷同時服務兩個目的時，先確認兩邊的語意真的一致。** 「這張卡片該用什麼品質」是尺寸問題，「現在該不該開始載入」是位置與動態問題。用同一個 `getQuality` 表達兩者，會讓「暫時不要載」被當成「不該擁有」，於是已經建好的 raster 被丟掉。
 - **退路的終點不能是你正在避免的那件事。** bounded raster 的失敗退路是「直接畫母檔」，而那正是整個功能要消除的行為——所以一個選項不被支援，就讓效能退回原點。退路應該往「便宜但略差」收斂（保留縮圖），不是往「正確但昂貴」收斂。
 - **新增 API 選項時，要假設平台可能拒絕它，而測試 stub 永遠不會告訴你。** `imageOrientation` 在自製 stub 下必定成功，測試全綠；真實 build 拒絕它，整條 raster 路徑就斷了。對可選參數要嘛做能力偵測，要嘛失敗後降級重試。
 - **不要相信「這個 API 在背景執行」的直覺，用 CPU profile 確認。** `OffscreenCanvas.convertToBlob()` 的規格寫 in parallel，我據此在 commit 訊息裡寫了「encode 離開主執行緒」，實際上它佔了主執行緒 1911ms。trace 的事件層級看不出來（那段時間只會顯示為 `RunMicrotasks`），要靠 ProfileChunk 裡的 V8 CPU profile 才看得到函式名稱。長微任務內若 GC 佔比不高，就該直接去看 CPU profile。

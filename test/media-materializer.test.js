@@ -476,7 +476,7 @@ test("a moving camera leaves new cards on the thumbnail", async () => {
     loadNodes: [node],
     selectedNode: null,
     getQuality: () => "original",
-    deferOriginals: true,
+    deferOriginals: () => true,
   });
   harness.images()[0].emit("load");
   await settle();
@@ -499,7 +499,7 @@ test("a moving camera keeps rasters that cards already have", async () => {
     loadNodes: [node],
     selectedNode: null,
     getQuality: () => "original",
-    deferOriginals: true,
+    deferOriginals: () => true,
   });
   await settle();
 
@@ -521,12 +521,12 @@ test("the original is picked up once the camera stops", async () => {
   };
 
   harness.materializer.mount(node);
-  harness.materializer.sync({ ...plan, deferOriginals: true });
+  harness.materializer.sync({ ...plan, deferOriginals: () => true });
   harness.images()[0].emit("load");
   await settle();
   assert.deepEqual(harness.downscaleCalls, []);
 
-  harness.materializer.sync({ ...plan, deferOriginals: false });
+  harness.materializer.sync({ ...plan, deferOriginals: () => false });
   await settle();
 
   assert.equal(harness.downscaleCalls.length, 1);
@@ -679,4 +679,57 @@ test("a bitmap that lands after the card was released is closed", async () => {
   assert.deepEqual(harness.released, ["late-raster"]);
   assert.equal(node.element, null);
   assert.deepEqual(harness.canvases(), [], "and never reached a canvas");
+});
+
+// The preload lead exists so cards are not blank when the camera arrives, which
+// is a thumbnail's job. Asking a whole band for originals the moment the camera
+// stops lands them all at once: a trace showed 13 master decodes starting inside
+// one 250ms window, saturating the worker pool and dropping 39 frames.
+test("a per-node defer holds back only the cards it names", async () => {
+  const harness = createRasterHarness({ screenLongEdge: 400 });
+  const near = createMasterNode();
+  const ahead = createMasterNode();
+  ahead.item = { ...ahead.item, id: "ahead", fileURL: "file:///ahead.png" };
+
+  for (const node of [near, ahead]) harness.materializer.mount(node);
+  harness.materializer.sync({
+    visibleNodes: [near, ahead],
+    retainedNodes: [near, ahead],
+    loadNodes: [near, ahead],
+    selectedNode: null,
+    getQuality: () => "original",
+    deferOriginals: (node) => node === ahead,
+  });
+  for (const image of harness.images()) image.emit("load");
+  await settle();
+
+  assert.deepEqual(
+    harness.downscaleCalls.map(({ url }) => url),
+    ["file:///painting.png"],
+    "only the card inside the standing band should decode its master",
+  );
+  assert.equal(near.element.dataset.mediaQuality, "original");
+  assert.equal(ahead.element.dataset.mediaQuality, "thumbnail");
+});
+
+// Quality is a size question and deferral a position one. Conflating them made
+// a card drifting into the lead band lose the raster it already had.
+test("a deferred card keeps a raster it already built", async () => {
+  const harness = createRasterHarness({ screenLongEdge: 400 });
+  const node = createMasterNode();
+  const canvas = await loadOriginal(harness, node);
+
+  harness.materializer.sync({
+    visibleNodes: [node],
+    retainedNodes: [node],
+    loadNodes: [node],
+    selectedNode: null,
+    getQuality: () => "original",
+    deferOriginals: () => true,
+  });
+  await settle();
+
+  assert.equal(node.previewImage, canvas);
+  assert.equal(canvas.width, 363, "the raster must not be handed back");
+  assert.equal(node.element.dataset.mediaQuality, "original");
 });
