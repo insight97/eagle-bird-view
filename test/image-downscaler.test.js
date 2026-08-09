@@ -65,6 +65,24 @@ test("rendering from a URL decodes straight to the bounded size", async () => {
   assert.equal(bitmap.closed, false, "the caller owns the bitmap");
 });
 
+test("PNG URL decodes use medium resize quality", async () => {
+  const environment = createEnvironment({
+    fetch: async (url) => ({
+      ok: true,
+      async blob() {
+        return { url, type: "image/png" };
+      },
+    }),
+  });
+
+  const bitmap = await environment.downscaler.renderFromURL("file:///painting.png", {
+    width: 363,
+    height: 512,
+  });
+
+  assert.equal(bitmap.options.resizeQuality, "medium");
+});
+
 test("rendering from an already decoded element is the fallback path", async () => {
   const environment = createEnvironment();
   const image = { naturalWidth: 5374, naturalHeight: 7589 };

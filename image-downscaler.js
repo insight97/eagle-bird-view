@@ -63,7 +63,7 @@
         return null;
       }
       try {
-        return await decodeBounded(blob, size);
+        return await decodeBounded(blob, size, url);
       } catch {
         reportFailure(onFailure, { stage: "decode", reason: "bitmap-failed" });
         return null;
@@ -98,11 +98,14 @@
     // here used to take the whole raster down with it, which is far worse than
     // an unrotated photo: the card fell back to painting the full-resolution
     // master. So it is requested, and dropped if the platform refuses it.
-    async function decodeBounded(source, { width, height }) {
+    async function decodeBounded(source, { width, height }, sourceURL = "") {
       const options = {
         resizeWidth: Math.round(width),
         resizeHeight: Math.round(height),
-        resizeQuality: "high",
+        // Eagle traces associate PNG ImageBitmap completion with long renderer
+        // tasks. Medium isolates the suspected high-quality resize path for the
+        // A/B without reducing JPEG or WebP quality; every decode stays bounded.
+        resizeQuality: getResizeQuality(source, sourceURL),
       };
       if (orientationSupported !== false) {
         try {
@@ -118,6 +121,13 @@
         }
       }
       return windowRef.createImageBitmap(source, options);
+    }
+
+    function getResizeQuality(source, sourceURL) {
+      const mimeType = String(source?.type || "").toLowerCase();
+      if (mimeType) return mimeType === "image/png" ? "medium" : "high";
+      const fallbackURL = String(sourceURL || source?.currentSrc || source?.src || "");
+      return /\.png(?:$|[?#])/i.test(fallbackURL) ? "medium" : "high";
     }
 
     function hasUsableSize(size) {
