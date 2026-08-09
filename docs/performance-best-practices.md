@@ -50,7 +50,9 @@ A/B 對照（隱藏 `.media-card`）：`RasterTask` 1560ms → 2.7ms，大型 de
 母檔不再作為 paint source，改成先渲染一張有上限的點陣圖再交給 compositor：
 
 - `bird-view-core.js` 的 `getRasterTargetSize()`／`getRasterDimensionBudget()` 是純函式，依卡片在螢幕上的最長邊決定預算，量化成 512／1024／2048／4096 四階，讓平移與小幅縮放不會反覆重繪。
-- `image-downscaler.js` 以 `fetch()` 取得編碼位元組後交給 `createImageBitmap(blob, { resizeWidth, resizeHeight })`，讓瀏覽器**直接解碼到目標尺寸**；JPEG 會在 DCT 階段就縮放，全解析度點陣圖完全不會產生。編碼優先走 `OffscreenCanvas.convertToBlob()`，讓 WebP encode 離開主執行緒。
+- `image-downscaler.js` 以 `fetch()` 取得編碼位元組後交給 `createImageBitmap(blob, { resizeWidth, resizeHeight })`，回傳有上限的 `ImageBitmap`，由卡片轉移進 `<canvas>`（見第八、九輪）。
+
+  這裡原本寫著兩件事，後來都被 trace 推翻，保留在此以免有人重蹈：**「JPEG 會在 DCT 階段就縮放，全解析度點陣圖不會產生」**——實測 JPEG 平均 124ms、最長 372ms，母檔仍是完整解碼後再縮；**「`OffscreenCanvas.convertToBlob()` 讓編碼離開主執行緒」**——CPU profile 顯示它佔用主執行緒 1911ms。兩者都是從規格措辭推斷、未經量測就寫下的。
 - 若 `fetch` 讀不到檔案（例如 file:// 被擋），退回讓 `<img>` 載入母檔再從元素縮圖；這條路仍能消除重複解碼，但省不掉第一次全解析度解碼。兩條路都失敗才直接顯示母檔。
 - `media-materializer.js` 在載入前就用 Eagle metadata 的 `item.width`／`item.height` 算出目標尺寸，所以不必先解碼才知道要縮多少。縮放超過目前預算時透過 `MediaLoadQueue.invalidate()` 重新算一張，期間畫面維持既有 raster 不閃爍。
 
