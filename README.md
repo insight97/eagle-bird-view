@@ -71,6 +71,10 @@ Eagle 的白板式媒體瀏覽器概念驗證。它會載入 Eagle 目前選取�
 - F：搜尋 Eagle 資料夾並編輯目前素材的資料夾；多選時編輯整個選取集合；既有資料夾會先勾選，選取後可加入或移除，按 Enter 完成
 - 影片中央播放鍵：載入原始影片，影片下方保留細進度條；移到喇叭圖示時顯示音量滑桿與百分比
 
+## 圖片清晰化診斷
+
+若要分析縮放後等待清晰的時間，可在 Eagle 開發者工具 Console 執行 `localStorage.setItem("bird-view-debug", "1")` 後重新開啟外掛。Console 會依序記錄 `original-quality-requested`、`original-load-started` 與 `bounded-raster-built`，其中 `queueWaitMs`、`buildMs`、`totalMs` 可分辨 queue 等待與母檔／raster 處理時間；`raster-budget-change-requested` 代表縮放跨過目前 raster 預算。完成後執行 `localStorage.removeItem("bird-view-debug")` 關閉紀錄。
+
 ## POC 限制
 
 - 關閉外掛後不保存素材位置。

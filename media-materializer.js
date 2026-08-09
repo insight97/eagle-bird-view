@@ -46,6 +46,7 @@
       window: windowRef = root.window || root,
       mediaLoadQueue = new MediaLoadQueue({ maxConcurrent: MAX_CONCURRENT_IMAGE_LOADS }),
       imageDownscaler = createImageDownscaler({ window: windowRef }),
+      now = () => (windowRef.performance || root.performance || Date).now(),
       // Longest edge, in device pixels, that the card currently paints at.
       getNodeScreenLongEdge = () => 0,
       onPositionNode = () => {},
@@ -97,11 +98,19 @@
     function refreshRasterBudget(node, { allowShrink = false } = {}) {
       const raster = rasterByNode.get(node);
       if (!raster) return;
-      const needed = getRasterDimensionBudget(getNodeScreenLongEdge(node));
+      const screenLongEdge = getNodeScreenLongEdge(node);
+      const needed = getRasterDimensionBudget(screenLongEdge);
       if (needed === raster.budget) return;
       if (needed < raster.budget && !allowShrink) return;
       if (mediaLoadQueue.snapshot(node)?.readyQuality !== "original") return;
       if (!mediaLoadQueue.invalidate(node, "original")) return;
+      debugLog(node.item, "raster-budget-change-requested", {
+        atMs: readNow(now),
+        screenLongEdge,
+        currentBudget: raster.budget,
+        requestedBudget: needed,
+        direction: needed > raster.budget ? "grow" : "shrink",
+      });
       requestMediaByNode.get(node)?.("original");
     }
 
@@ -371,8 +380,13 @@
       // reads the file and paints a canvas without any element at all. A token
       // per attempt is what tells a late result that it has been superseded.
       let originalLoadToken = null;
+      let originalRequestedAt = null;
       const beginOriginalLoad = () => {
-        originalLoadToken = {};
+        const startedAt = readNow(now);
+        originalLoadToken = {
+          requestedAt: originalRequestedAt ?? startedAt,
+          startedAt,
+        };
         return originalLoadToken;
       };
       const isCurrentOriginalLoad = (token) =>
@@ -410,15 +424,33 @@
         }, ORIGINAL_IMAGE_LOAD_TIMEOUT);
       };
       const requestMedia = (quality = "thumbnail") => {
+        if (quality === "original" && originalImageURL) traceOriginalQualityRequest();
         const requested = mediaLoadQueue.request(node, quality);
         if (quality === "original" && originalImageURL) watchOriginalLoad();
         return requested;
       };
       const retry = () => {
+        traceOriginalQualityRequest({ force: true });
         const requested = mediaLoadQueue.retry(node, "original");
         watchOriginalLoad();
         return requested;
       };
+
+      function traceOriginalQualityRequest({ force = false } = {}) {
+        const snapshot = mediaLoadQueue.snapshot(node);
+        if (!force && !shouldTraceOriginalRequest(snapshot)) return;
+        originalRequestedAt = readNow(now);
+        const screenLongEdge = getNodeScreenLongEdge(node);
+        const target = getRasterTargetSize(item.width, item.height, screenLongEdge);
+        debugLog(item, "original-quality-requested", {
+          atMs: originalRequestedAt,
+          screenLongEdge,
+          requestedBudget:
+            target?.budget || Math.max(Number(item.width) || 0, Number(item.height) || 0),
+          queueState: describeQueueState(snapshot),
+        });
+      }
+
       requestMediaByNode.set(node, requestMedia);
       retryOriginalByNode.set(node, retry);
       mediaLoadQueue.register(node, {
@@ -431,6 +463,7 @@
           if (quality !== "original") return;
           clearOriginalLoadTimeout();
           originalLoadToken = null;
+          originalRequestedAt = null;
           const originalImage = node.preloadImage;
           if (originalImage) {
             node.preloadImage = null;
@@ -498,7 +531,7 @@
         return canvas;
       }
 
-      function showRaster(canvas, budget, source) {
+      function showRaster(canvas, budget, source, token) {
         clearOriginalLoadTimeout();
         frame.append(canvas);
         showMedia(canvas);
@@ -507,24 +540,34 @@
         applyMediaRotation(node);
         mediaLoadQueue.complete(node, "original", true);
         debugLog(item, "bounded-raster-built", {
+          ...getTimingDetails(token, now),
           source,
           budget,
           width: canvas.width,
           height: canvas.height,
         });
+        originalRequestedAt = null;
       }
 
       async function startOriginalLoad(mediaURL) {
-        debugLog(item, "original-load-started", { fileURL: mediaURL });
         const token = beginOriginalLoad();
         // Eagle's metadata already carries the master's dimensions, so the
         // bounded size is known before a single pixel is read. Decoding straight
         // from the file keeps the full-resolution bitmap from ever existing.
+        const screenLongEdge = getNodeScreenLongEdge(node);
         const target = getRasterTargetSize(
           item.width,
           item.height,
-          getNodeScreenLongEdge(node),
+          screenLongEdge,
         );
+        debugLog(item, "original-load-started", {
+          atMs: token.startedAt,
+          queueWaitMs: elapsedMs(token.requestedAt, token.startedAt),
+          screenLongEdge,
+          requestedBudget:
+            target?.budget || Math.max(Number(item.width) || 0, Number(item.height) || 0),
+          fileURL: mediaURL,
+        });
         if (target) {
           const bitmap = await imageDownscaler.renderFromURL(mediaURL, target);
           if (!isCurrentOriginalLoad(token)) {
@@ -534,7 +577,7 @@
           if (bitmap) {
             const canvas = createRasterCanvas(bitmap);
             if (canvas) {
-              showRaster(canvas, target.budget, "file");
+              showRaster(canvas, target.budget, "file", token);
               return;
             }
             imageDownscaler.release(bitmap);
@@ -575,7 +618,7 @@
               node.preloadImage = null;
               originalImage.removeAttribute("src");
               originalImage.remove();
-              showRaster(canvas, target.budget, "element");
+              showRaster(canvas, target.budget, "element", token);
               return;
             }
             imageDownscaler.release(bitmap);
@@ -590,6 +633,7 @@
             mediaLoadQueue.complete(node, "original", false);
             card.dataset.mediaQuality = "original-failed";
             debugLog(item, "bounded-raster-unavailable", {
+              ...getTimingDetails(token, now),
               budget: target.budget,
               fileURL: mediaURL,
             });
@@ -605,7 +649,11 @@
           card.dataset.mediaQuality = "original";
           applyMediaRotation(node);
           mediaLoadQueue.complete(node, "original", true);
-          debugLog(item, "original-load-succeeded", { fileURL: mediaURL });
+          debugLog(item, "original-load-succeeded", {
+            ...getTimingDetails(token, now),
+            fileURL: mediaURL,
+          });
+          originalRequestedAt = null;
         });
         originalImage.addEventListener("error", () => {
           failOriginalLoad("error", token);
@@ -753,6 +801,46 @@
       id: item?.id,
       ...details,
     });
+  }
+
+  function shouldTraceOriginalRequest(snapshot) {
+    if (!snapshot || snapshot.originalFailed || snapshot.readyQuality === "original") return false;
+    return ![
+      snapshot.loadingQuality,
+      snapshot.queuedQuality,
+      snapshot.pendingQuality,
+    ].includes("original");
+  }
+
+  function describeQueueState(snapshot) {
+    if (!snapshot) return "unregistered";
+    if (snapshot.loadingQuality) return `loading-${snapshot.loadingQuality}`;
+    if (snapshot.queuedQuality) return `queued-${snapshot.queuedQuality}`;
+    if (snapshot.pendingQuality) return `pending-${snapshot.pendingQuality}`;
+    if (snapshot.readyQuality) return `ready-${snapshot.readyQuality}`;
+    return "idle";
+  }
+
+  function getTimingDetails(token, now) {
+    const atMs = readNow(now);
+    const requestedAt = Number(token?.requestedAt);
+    const startedAt = Number(token?.startedAt);
+    return {
+      atMs,
+      queueWaitMs: elapsedMs(requestedAt, startedAt),
+      buildMs: elapsedMs(startedAt, atMs),
+      totalMs: elapsedMs(requestedAt, atMs),
+    };
+  }
+
+  function elapsedMs(start, end) {
+    if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+    return Math.round(Math.max(0, end - start) * 10) / 10;
+  }
+
+  function readNow(now) {
+    const value = Number(now());
+    return Number.isFinite(value) ? value : 0;
   }
 
   return Object.freeze({ createMediaMaterializer });

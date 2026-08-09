@@ -155,8 +155,9 @@ test("media card click forwards selection modifiers", () => {
 // Eagle serves full-resolution masters, so a card that paints one directly makes
 // the compositor re-decode tens of megapixels every time it rasters. These cover
 // the bounded raster that replaces the master before it reaches the screen.
-function createRasterHarness({ screenLongEdge = 400 } = {}) {
+function createRasterHarness({ screenLongEdge = 400, renderDuration = 0 } = {}) {
   const createdElements = [];
+  const debugEvents = [];
   const world = createElementStub("div");
   const document = {
     createElement(tag) {
@@ -167,6 +168,7 @@ function createRasterHarness({ screenLongEdge = 400 } = {}) {
   };
   const downscaleCalls = [];
   const released = [];
+  let clock = 0;
   let rasterCount = 0;
   const makeBitmap = (size) => {
     rasterCount += 1;
@@ -182,10 +184,12 @@ function createRasterHarness({ screenLongEdge = 400 } = {}) {
     canRenderFromURL: () => true,
     async renderFromURL(url, size) {
       downscaleCalls.push({ source: "file", url, ...size });
+      clock += renderDuration;
       return makeBitmap(size);
     },
     async renderFromImage(image, size) {
       downscaleCalls.push({ source: "element", image, ...size });
+      clock += renderDuration;
       return makeBitmap(size);
     },
     release(bitmap) {
@@ -211,6 +215,7 @@ function createRasterHarness({ screenLongEdge = 400 } = {}) {
     world,
     mediaLoadQueue,
     imageDownscaler,
+    now: () => clock,
     getNodeScreenLongEdge: () => longEdge,
     onPositionNode() {},
     onClickNode() {},
@@ -221,11 +226,14 @@ function createRasterHarness({ screenLongEdge = 400 } = {}) {
     getVideoVolume: () => 1,
     onVolumeChange() {},
     showToast() {},
-    debugLog() {},
+    debugLog(item, event, details) {
+      debugEvents.push({ item, event, details });
+    },
     startVideoPlayer() {},
   });
   return {
     createdElements,
+    debugEvents,
     downscaleCalls,
     imageDownscaler,
     materializer,
@@ -238,6 +246,9 @@ function createRasterHarness({ screenLongEdge = 400 } = {}) {
       createdElements.filter(({ tagName, width }) => tagName === "CANVAS" && width > 0),
     setScreenLongEdge(value) {
       longEdge = value;
+    },
+    advanceClock(ms) {
+      clock += ms;
     },
     firePendingTimers() {
       const pending = [...timers.values()];
@@ -303,6 +314,89 @@ test("a card paints its raster into a canvas, never decoding the master", async 
   assert.equal(canvas.style.visibility, "visible");
   assert.equal(node.element.dataset.mediaQuality, "original");
   assert.equal(harness.mediaLoadQueue.snapshot(node).readyQuality, "original");
+});
+
+test("raster debug events distinguish quality demand, queue wait, and build time", async () => {
+  const harness = createRasterHarness({ screenLongEdge: 400, renderDuration: 175 });
+  const node = createMasterNode();
+
+  harness.materializer.mount(node);
+  harness.materializer.syncQuality({ loadNodes: [node], getQuality: () => "original" });
+  harness.advanceClock(80);
+  harness.images()[0].emit("load");
+  await settle();
+
+  assert.deepEqual(
+    harness.debugEvents
+      .filter(({ event }) =>
+        [
+          "original-quality-requested",
+          "original-load-started",
+          "bounded-raster-built",
+        ].includes(event),
+      )
+      .map(({ event, details }) => ({ event, details })),
+    [
+      {
+        event: "original-quality-requested",
+        details: {
+          atMs: 0,
+          screenLongEdge: 400,
+          requestedBudget: 512,
+          queueState: "idle",
+        },
+      },
+      {
+        event: "original-load-started",
+        details: {
+          atMs: 80,
+          queueWaitMs: 80,
+          screenLongEdge: 400,
+          requestedBudget: 512,
+          fileURL: "file:///painting.png",
+        },
+      },
+      {
+        event: "bounded-raster-built",
+        details: {
+          atMs: 255,
+          queueWaitMs: 80,
+          buildMs: 175,
+          totalMs: 255,
+          source: "file",
+          budget: 512,
+          width: 363,
+          height: 512,
+        },
+      },
+    ],
+  );
+});
+
+test("raster debug events identify a zoom budget upgrade", async () => {
+  const harness = createRasterHarness({ screenLongEdge: 400, renderDuration: 100 });
+  const node = createMasterNode();
+  await loadOriginal(harness, node);
+  harness.debugEvents.length = 0;
+  harness.advanceClock(50);
+  harness.setScreenLongEdge(1500);
+
+  harness.materializer.syncQuality({ loadNodes: [node], getQuality: () => "original" });
+  await settle();
+
+  const upgrade = harness.debugEvents.find(
+    ({ event }) => event === "raster-budget-change-requested",
+  );
+  assert.deepEqual(upgrade?.details, {
+    atMs: 150,
+    screenLongEdge: 1500,
+    currentBudget: 512,
+    requestedBudget: 1536,
+    direction: "grow",
+  });
+  const built = harness.debugEvents.find(({ event }) => event === "bounded-raster-built");
+  assert.equal(built?.details.totalMs, 100);
+  assert.equal(built?.details.budget, 1536);
 });
 
 test("the raster stays on screen during camera motion", async () => {
