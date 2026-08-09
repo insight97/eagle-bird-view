@@ -28,7 +28,6 @@
   const {
     VIDEO_CONTROLS_HEIGHT,
     VIDEO_EXTENSIONS,
-    canPaintMasterDirectly,
     getRasterDimensionBudget,
     getRasterTargetSize,
   } = core;
@@ -228,14 +227,17 @@
       selectedNode = null,
       getQuality = () => "thumbnail",
       deferOriginals = () => false,
+      preserveOriginals = false,
     } = {}) {
       const visible = new Set(visibleNodes);
       const retained = new Set(retainedNodes);
 
-      for (const node of materializedNodes) {
-        if (getQuality(node) === "original") continue;
-        mediaLoadQueue.cancel(node, "original");
-        dropOriginalRaster(node);
+      if (!preserveOriginals) {
+        for (const node of materializedNodes) {
+          if (getQuality(node) === "original") continue;
+          mediaLoadQueue.cancel(node, "original");
+          dropOriginalRaster(node);
+        }
       }
 
       for (const node of mountedNodes) {
@@ -249,7 +251,7 @@
       for (const node of loadNodes) {
         const quality = getQuality(node);
         requestMediaByNode.get(node)?.(requestedQuality(node, quality, deferOriginals));
-        if (quality === "original") refreshRasterBudget(node, { allowShrink: true });
+        if (quality === "original") refreshRasterBudget(node, { allowShrink: !preserveOriginals });
       }
     }
 
@@ -577,33 +579,21 @@
               return;
             }
             imageDownscaler.release(bitmap);
-            // Falling through to the master is only safe when it is close to
-            // what the card displays. A trace of doing it unconditionally showed
-            // 40 MP masters painted into 130px cards at over 1000x oversample,
-            // with tile-worker decode back up at 282ms/s — the exact thrash this
-            // feature exists to prevent. Past that, the thumbnail is the better
-            // answer, so keep it and stop asking.
-            if (
-              !canPaintMasterDirectly(
-                originalImage.naturalWidth || item.width,
-                originalImage.naturalHeight || item.height,
-                getNodeScreenLongEdge(node),
-              )
-            ) {
-              clearOriginalLoadTimeout();
-              node.preloadImage = null;
-              originalImage.removeAttribute("src");
-              originalImage.remove();
-              card.dataset.mediaQuality =
-                mediaLoadQueue.snapshot(node)?.readyQuality || "thumbnail";
-              mediaLoadQueue.complete(node, "original", false);
-              debugLog(item, "bounded-raster-unavailable", {
-                budget: target.budget,
-                fileURL: mediaURL,
-              });
-              return;
-            }
-            debugLog(item, "master-painted-unbounded", { budget: target.budget });
+            // Once the source exceeds the card's raster budget, every failure
+            // stays on the thumbnail and remains retryable. Falling through to
+            // the master would make the failure path violate the same memory
+            // bound that the normal path enforces.
+            clearOriginalLoadTimeout();
+            node.preloadImage = null;
+            originalImage.removeAttribute("src");
+            originalImage.remove();
+            mediaLoadQueue.complete(node, "original", false);
+            card.dataset.mediaQuality = "original-failed";
+            debugLog(item, "bounded-raster-unavailable", {
+              budget: target.budget,
+              fileURL: mediaURL,
+            });
+            return;
           }
 
           clearOriginalLoadTimeout();

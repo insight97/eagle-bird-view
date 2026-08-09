@@ -12,8 +12,10 @@ function jpgItem(overrides = {}) {
     id: "item-1",
     name: "photo.jpg",
     ext: "jpg",
-    width: 1600,
-    height: 1000,
+    // Small enough to paint directly after the fallback <img> loads. Oversized
+    // bounded-raster failures are covered separately and must stay retryable.
+    width: 480,
+    height: 300,
     size: 5_000_000,
     star: 0,
     tags: [],

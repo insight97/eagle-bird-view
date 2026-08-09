@@ -509,6 +509,29 @@ test("a moving camera keeps rasters that cards already have", async () => {
   assert.equal(node.element.dataset.mediaQuality, "original");
 });
 
+test("a moving camera does not shrink a raster even when the new plan wants a thumbnail", async () => {
+  const harness = createRasterHarness({ screenLongEdge: 1500 });
+  const node = createMasterNode();
+  const canvas = await loadOriginal(harness, node);
+
+  harness.setScreenLongEdge(100);
+  harness.materializer.sync({
+    visibleNodes: [node],
+    retainedNodes: [node],
+    loadNodes: [node],
+    selectedNode: null,
+    getQuality: () => "thumbnail",
+    deferOriginals: () => true,
+    preserveOriginals: true,
+  });
+  await settle();
+
+  assert.equal(node.previewImage, canvas);
+  assert.equal(canvas.style.visibility, "visible");
+  assert.equal(canvas.width, 1088, "motion keeps the last settled raster budget");
+  assert.equal(node.element.dataset.mediaQuality, "original");
+});
+
 test("the original is picked up once the camera stops", async () => {
   const harness = createRasterHarness({ screenLongEdge: 400 });
   const node = createMasterNode();
@@ -602,17 +625,18 @@ test("a master far past its budget is left on the thumbnail", async () => {
   assert.deepEqual(harness.canvases(), []);
   assert.equal(originalImage.isConnected, false, "the master must not be painted");
   assert.equal(node.previewImage, thumbnail);
-  assert.equal(node.element.dataset.mediaQuality, "thumbnail");
+  assert.equal(node.element.dataset.mediaQuality, "original-failed");
   // Marked failed so the card stops asking for an original it cannot use.
   assert.equal(harness.mediaLoadQueue.snapshot(node).originalFailed, true);
 });
 
-test("a master close to its budget is painted when it cannot be bounded", async () => {
+test("bounded raster failure stays on the thumbnail even when the master is close", async () => {
   const harness = createRasterHarness({ screenLongEdge: 400 });
   harness.imageDownscaler.renderFromURL = async () => null;
   harness.imageDownscaler.renderFromImage = async () => null;
   const node = createMasterNode();
-  // Just over the 512 budget, so painting it costs almost nothing.
+  // Just over the 512 budget. Once a bounded raster was required, failure must
+  // remain retryable rather than silently changing the fallback contract.
   node.item.width = 600;
   node.item.height = 800;
 
@@ -625,9 +649,10 @@ test("a master close to its budget is painted when it cannot be bounded", async 
   await settle();
 
   assert.deepEqual(harness.canvases(), []);
-  assert.equal(originalImage.src, "file:///painting.png");
-  assert.equal(originalImage.style.visibility, "visible");
-  assert.equal(node.element.dataset.mediaQuality, "original");
+  assert.equal(originalImage.isConnected, false);
+  assert.equal(node.previewImage, harness.images()[0]);
+  assert.equal(node.element.dataset.mediaQuality, "original-failed");
+  assert.equal(harness.mediaLoadQueue.snapshot(node).originalFailed, true);
 });
 
 test("a stalled raster still times out so the load slot is freed", async () => {

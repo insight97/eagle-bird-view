@@ -19,9 +19,7 @@ const {
   getNodeScreenCenter,
   getNodeScreenLongEdge,
   getPanLayerTranslation,
-  getPreloadMargins,
   getWrappedGridTranslation,
-  getViewportWorkInterval,
   getTagColorStyle,
   isPlayingVideo,
   normalizeTags,
@@ -37,7 +35,7 @@ const { createBoardState } = BirdViewBoard;
 const { createBoardHistory } = BirdViewBoardHistory;
 const { createRowLoadCoordinator } = BirdViewRowLoad;
 const { createMediaMaterializer } = BirdViewMaterializer;
-const { createViewportWorkScheduler } = BirdViewViewportWork;
+const { createViewportMediaController } = BirdViewViewportMedia;
 const { createAutoExploreSettings } = BirdViewAutoExploreSettings;
 const {
   AiSimilarItemSource,
@@ -70,21 +68,7 @@ const KEYBOARD_ZOOM_FACTOR = 1.5;
 const KEYBOARD_SEEK_STEP = 5;
 const KEYBOARD_VOLUME_STEP = 0.05;
 const PAN_START_THRESHOLD = 4;
-// How tall a card has to paint on screen before Eagle's thumbnail stops being
-// enough. Measured in screen pixels so the decision does not depend on how the
-// row happened to be laid out: a lone selection lands on an unjustified row at
-// TARGET_ROW_HEIGHT, a filled row is shorter, and a zoom ratio would compare
-// those against different baselines.
-const ORIGINAL_IMAGE_MIN_HEIGHT = 320;
-// Standing band around the viewport that media loads into. A moving camera adds
-// a lead on top of this, in the direction it is heading.
-const PRELOAD_MARGIN = 120;
-// How still the camera has to be before an original is worth fetching. Longer
-// than the settled work interval, so a pass that lands mid-flight defers and
-// comes back rather than deciding the camera has stopped.
-const CAMERA_MOTION_IDLE = 180;
 const AUTO_EXPLORE_MIN_ZOOM = 0.8;
-const RESOURCE_RELEASE_VIEWPORTS = 2;
 const GRID_LAYER_OVERFLOW = 768;
 const METADATA_SUCCESS_TOAST_MS = 1200;
 const BOARD_HISTORY_MAX_ENTRIES = 10;
@@ -137,7 +121,6 @@ const state = {
   aiExplorationAvailable: false,
   videoVolume: 1,
   smoothPanKeys: new Set(),
-  lastCameraChange: -Infinity,
   smoothPanFrame: null,
   smoothPanLastTimestamp: null,
   smoothZoomKeys: new Set(),
@@ -148,7 +131,6 @@ const state = {
   toastTimer: null,
   cameraFrame: null,
   cameraFocusFrame: null,
-  lastMediaCamera: null,
   isPanning: false,
   suppressNextMediaClick: false,
   explorationSource: null,
@@ -186,7 +168,7 @@ const elements = {};
 let cameraNavigation = null;
 let selectionNavigation = null;
 let mediaMaterializer = null;
-let viewportWork = null;
+let viewportMedia = null;
 let autoExploreSettings = null;
 let settingsPresetStore = null;
 let settingsSnapshotStore = null;
@@ -374,20 +356,12 @@ function setup() {
     onSelect: handleFolderBrowserSelect,
   });
 
-  viewportWork = createViewportWorkScheduler({
-    window,
-    isPanning: () => state.isPanning,
-    isSmoothZooming: () => state.isSmoothZooming,
-    isCameraFocusing: () => state.cameraFocusFrame !== null,
-    onPanMedia: updateMediaVisibility,
-    onZoomQuality: updateMediaQuality,
-    onSettled: runViewportWork,
-  });
   mediaMaterializer = createMediaMaterializer({
     document,
     window,
     world: elements.world,
-    getNodeScreenLongEdge: getCardScreenLongEdge,
+    getNodeScreenLongEdge: (node) =>
+      getNodeScreenLongEdge(node, state.camera.scale, window.devicePixelRatio),
     onPositionNode: positionNode,
     onClickNode: (node, modifiers) => {
       if (state.suppressNextMediaClick) {
@@ -407,6 +381,19 @@ function setup() {
     showToast,
     startVideoPlayer: BirdViewVideo.startVideoPlayer,
   });
+  viewportMedia = createViewportMediaController({
+    window,
+    now: () => performance.now(),
+    getSnapshot: () => ({
+      rows: board.rows,
+      camera: state.camera,
+      viewport: getViewportSize(),
+      selectedNode: state.selectedNode,
+    }),
+    materializer: mediaMaterializer,
+    onSettled: runSettledViewportWork,
+    requestRender: updateCamera,
+  });
 
   selectionNavigation = createSelectionNavigation({
     state,
@@ -424,26 +411,29 @@ function setup() {
     updateCamera,
     selectNodeAtViewportCenter: () => selectionNavigation.selectNodeAtViewportCenter(),
     onFocusStart: () => {
+      viewportMedia.beginMotion("focus");
       elements.labels?.classList.add("is-camera-focus");
     },
     onFocusEnd: () => {
       elements.labels?.classList.remove("is-camera-focus");
       updateLabels();
+      viewportMedia.endMotion("focus");
     },
     getVideoControlsHeight,
     getFocusRowEmphasis: () =>
       state.seamlessMode ? TIGHT_FOCUS_ROW_EMPHASIS : undefined,
     getFocusTargetHeight: () => state.focusMediaSize,
+    onSmoothPanStart: () => viewportMedia.beginMotion("pan"),
+    onSmoothPanEnd: () => viewportMedia.endMotion("pan"),
     onSmoothZoomStart: () => {
       state.isSmoothZooming = true;
       elements.labels?.classList.add("is-smooth-zooming");
-      viewportWork.restartZoomQuality();
+      viewportMedia.beginMotion("zoom");
     },
     onSmoothZoomEnd: () => {
       state.isSmoothZooming = false;
-      viewportWork.stopZoomQuality();
       elements.labels?.classList.remove("is-smooth-zooming");
-      flushViewportWork();
+      viewportMedia.endMotion("zoom");
     },
   });
 
@@ -847,7 +837,7 @@ function restoreBoardSnapshot(snapshot, message) {
   const selectedNode = board.nodes.find(({ item }) => item.id === snapshot.selectedItemId);
   if (selectedNode) selectionNavigation.setSelectedNode(selectedNode);
   updateCamera();
-  updateMediaVisibility();
+  viewportMedia.cameraChanged();
   updateLabels();
   showToast(message, false);
 }
@@ -865,7 +855,7 @@ function refreshBoardAfterItems(items) {
   mediaMaterializer.reposition();
   updateBoardMeta();
   autoExploreSettings.update();
-  updateMediaVisibility();
+  viewportMedia.cameraChanged();
   updateLabels();
 }
 
@@ -901,7 +891,7 @@ function relayoutBoard() {
     }
   }
   updateCamera();
-  updateMediaVisibility();
+  viewportMedia.cameraChanged();
   updateLabels();
 }
 
@@ -1777,14 +1767,13 @@ function startViewportPan() {
   tagEditor.close();
   state.isPanning = true;
   elements.viewport.classList.add("is-panning");
-  rescheduleViewportWork();
+  viewportMedia.beginMotion("pan");
 }
 
 function finishViewportPan() {
   state.isPanning = false;
   elements.viewport.classList.remove("is-panning");
-  updateCamera();
-  flushViewportWork();
+  viewportMedia.endMotion("pan");
 }
 
 function handleWheel(event) {
@@ -1794,6 +1783,7 @@ function handleWheel(event) {
   const pointerX = event.clientX - rect.left;
   const pointerY = event.clientY - rect.top;
   const zoomFactor = Math.exp(-event.deltaY * 0.0015);
+  viewportMedia.noteMotion("zoom");
   cameraNavigation.zoomAtPoint(pointerX, pointerY, zoomFactor);
 }
 
@@ -1943,6 +1933,7 @@ function handleKeyDown(event) {
       return;
     }
     if (arrowAction === "viewport-pan") {
+      viewportMedia.noteMotion("pan");
       cameraNavigation.panOneViewport(event.key);
       selectionNavigation.selectNodeAtViewportCenter();
       return;
@@ -1954,6 +1945,7 @@ function handleKeyDown(event) {
     }
     const panStep = cameraNavigation.getKeyboardPanStep();
     const direction = directionFor(key);
+    viewportMedia.noteMotion("pan");
     cameraNavigation.panBy(direction[0] * -panStep, direction[1] * -panStep);
     selectionNavigation.selectNodeAtViewportCenter();
     return;
@@ -1980,6 +1972,7 @@ function handleKeyDown(event) {
       return;
     }
     const factor = event.key === "PageUp" ? KEYBOARD_ZOOM_FACTOR : 1 / KEYBOARD_ZOOM_FACTOR;
+    viewportMedia.noteMotion("zoom");
     cameraNavigation.zoomAtPoint(
       elements.viewport.clientWidth / 2,
       elements.viewport.clientHeight / 2,
@@ -1999,6 +1992,7 @@ function handleKeyDown(event) {
     return;
   }
   const panStep = cameraNavigation.getKeyboardPanStep();
+  viewportMedia.noteMotion("pan");
   cameraNavigation.panBy(direction[0] * -panStep, direction[1] * -panStep);
   selectionNavigation.selectNodeAtViewportCenter();
 }
@@ -3100,9 +3094,10 @@ function focusFirstItem() {
   state.camera.scale = scale;
   state.camera.x = viewportWidth / 2 - (node.x + node.width / 2) * scale;
   state.camera.y = viewportHeight / 2 - (node.y + displayHeight / 2) * scale;
+  viewportMedia.noteMotion("pan");
   updateCamera();
   selectionNavigation.selectNodeAtViewportCenter();
-  updateMediaVisibility();
+  viewportMedia.cameraChanged();
 }
 
 function clearBoard({ recordHistory = false } = {}) {
@@ -3278,7 +3273,6 @@ function getViewportSize() {
 
 function renderCamera() {
   state.cameraFrame = null;
-  state.lastCameraChange = performance.now();
   const scaleChanged = state.renderedScale !== state.camera.scale;
   const baseScaleChanged = state.renderedBaseScale !== state.baseScale;
   if (scaleChanged) {
@@ -3305,130 +3299,13 @@ function renderCamera() {
     if (scaleChanged && state.cameraFocusFrame === null) updateMountedLabelPositions();
     else updateLabelLayerTransform();
   }
-  scheduleViewportWork();
+  viewportMedia.cameraChanged();
 }
 
-function scheduleViewportWork() {
-  viewportWork.schedule();
-}
-
-function rescheduleViewportWork() {
-  viewportWork.reschedule();
-}
-
-function flushViewportWork() {
-  viewportWork.flush();
-}
-
-function runViewportWork() {
-  const moving = isCameraMoving();
-  updateMediaVisibility();
+function runSettledViewportWork() {
   updateLabels();
   selectionNavigation.selectNodeAtViewportCenter();
   maybeLoadNextUnratedRow();
-  // Originals were held back because the camera was still moving. Nothing else
-  // will wake this up once the camera stops — renderCamera only schedules while
-  // it is changing — so come back for them.
-  if (moving) scheduleViewportWork();
-}
-
-// Whether the camera is in motion, by any route. Keying this on the pointer
-// drag flag alone missed both keyboard modes: smooth panning runs off
-// smoothPanFrame and repeated arrow keys just step the camera, so neither ever
-// set isPanning and a keyboard flight across the board looked stationary.
-function isCameraMoving() {
-  return Boolean(
-    state.isPanning ||
-      state.isSmoothZooming ||
-      state.smoothPanFrame !== null ||
-      state.cameraFocusFrame !== null ||
-      performance.now() - state.lastCameraChange < CAMERA_MOTION_IDLE,
-  );
-}
-
-function updateMediaVisibility() {
-  mediaMaterializer.sync(getViewportMediaPlan({ travel: consumeCameraTravel() }));
-}
-
-function updateMediaQuality() {
-  // Quality passes run several times a second while zooming; they decide how
-  // sharp mounted cards are, not how far ahead to reach, so they take no lead.
-  const { loadNodes, getQuality } = getViewportMediaPlan();
-  mediaMaterializer.syncQuality({ loadNodes, getQuality });
-}
-
-// How far the camera moved since media coverage was last considered. That
-// window is the throttle interval, which is also how long the next pass has to
-// get ahead of the camera.
-function consumeCameraTravel() {
-  const previous = state.lastMediaCamera;
-  const travel = previous
-    ? { x: state.camera.x - previous.x, y: state.camera.y - previous.y }
-    : null;
-  state.lastMediaCamera = { x: state.camera.x, y: state.camera.y };
-  return travel;
-}
-
-function getViewportMediaPlan({ travel = null } = {}) {
-  const viewportWidth = elements.viewport.clientWidth;
-  const viewportHeight = elements.viewport.clientHeight;
-  const scale = state.camera.scale;
-  const mountMargin = Math.max(viewportWidth, viewportHeight);
-  const moving = isCameraMoving();
-  const visibleNodes = getNodesNearViewport(mountMargin);
-  const retainedNodes = new Set(
-    getNodesNearViewport(mountMargin * RESOURCE_RELEASE_VIEWPORTS),
-  );
-  // Loading can never reach past what is mounted, so the lead is capped there.
-  const margins = getPreloadMargins(travel, PRELOAD_MARGIN, mountMargin);
-  const standing = getPreloadMargins(null, PRELOAD_MARGIN, mountMargin);
-  const loadNodes = [];
-  // The lead exists so cards are not blank when the camera arrives, which is a
-  // thumbnail's job. An original costs a decode of the master, and asking for a
-  // band's worth of them the moment the camera stops lands them all at once: a
-  // trace showed 13 master decodes starting inside one 250ms window, saturating
-  // the worker pool and dropping 39 frames. Those wait until the card is
-  // actually near the viewport.
-  const sharpNodes = new Set();
-  for (const node of visibleNodes) {
-    const left = state.camera.x + node.x * scale;
-    const top = state.camera.y + node.y * scale;
-    const right = left + node.width * scale;
-    const bottom = top + node.mediaHeight * scale;
-    const within = (band) =>
-      right >= -band.left &&
-      left <= viewportWidth + band.right &&
-      bottom >= -band.top &&
-      top <= viewportHeight + band.bottom;
-
-    if (!within(margins)) continue;
-    loadNodes.push(node);
-    if (within(standing)) sharpNodes.add(node);
-  }
-
-  return {
-    visibleNodes,
-    retainedNodes,
-    loadNodes,
-    selectedNode: state.selectedNode,
-    // Holds back starting an original; never takes one a card already has, so
-    // this stays a position and motion question and quality stays a size one.
-    // Dragging sweeps past far more cards than it settles on. Zooming does not,
-    // and it is where sharpness is actually being judged, so it is not deferred.
-    deferOriginals: (node) => moving || !sharpNodes.has(node),
-    getQuality: (node) => {
-      if (node === state.selectedNode && !node.isVideo) return "original";
-      return wantsOriginalImage(node, scale) ? "original" : "thumbnail";
-    },
-  };
-}
-
-function wantsOriginalImage(node, scale) {
-  return !node.isVideo && node.mediaHeight * scale >= ORIGINAL_IMAGE_MIN_HEIGHT;
-}
-
-function getCardScreenLongEdge(node) {
-  return getNodeScreenLongEdge(node, state.camera.scale, window.devicePixelRatio);
 }
 
 function getNodesNearViewport(screenMargin) {

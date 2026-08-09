@@ -984,12 +984,9 @@ test("a sustained drag keeps reconsidering media coverage", async () => {
   plugin.windowEmit("pointerup");
 });
 
-// Originals were deferred on state.isPanning, which only the pointer drag path
-// sets. Keyboard smooth panning runs off smoothPanFrame and repeated arrow keys
-// just step the camera, so a keyboard flight across the board looked stationary
-// and fetched an original for every card it swept past, each costing a full
-// decode of the master. A trace of a real session had 502 key events and one
-// pointerup, so this was the common case, not the edge case.
+// Keyboard smooth panning must report the same semantic motion as a pointer
+// drag. Otherwise a flight across the board fetches an original for every card
+// it sweeps past, each costing a full decode of the master.
 test("a camera moving without a pointer still defers originals", async () => {
   const plugin = createPluginHarness({
     selectedItems: imageItems(24),
@@ -998,10 +995,16 @@ test("a camera moving without a pointer still defers originals", async () => {
   plugin.start();
   await flush();
 
-  // Keyboard smooth pan, set before the board's first maintenance pass so the
-  // cards it mounts are ones the camera is sweeping past. No pointer is
-  // involved, so isPanning stays false throughout.
-  plugin.state.smoothPanFrame = 1;
+  plugin.state.smoothPanEnabled = true;
+  plugin.keyDown({
+    key: "ArrowRight",
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    repeat: false,
+    target: null,
+    preventDefault() {},
+  });
   plugin.advanceClock(200);
   plugin.flushTimersUnder(1000);
   await flush();
@@ -1024,8 +1027,7 @@ test("a camera moving without a pointer still defers originals", async () => {
   assert.equal(card.dataset.mediaQuality, "thumbnail");
 
   // Stopping brings it back.
-  plugin.state.smoothPanFrame = null;
-  plugin.advanceClock(200);
+  plugin.windowEmit("keyup", { key: "ArrowRight" });
   plugin.flushTimersUnder(1000);
   await flush();
 

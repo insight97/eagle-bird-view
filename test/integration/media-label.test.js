@@ -4,6 +4,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createPluginHarness } = require("../../test-support/plugin-harness.js");
 
+const CAMERA_MOTION_IDLE = 180;
+
 function labelledItem(overrides = {}) {
   const item = {
     id: "item-1",
@@ -41,6 +43,7 @@ async function startWithItem(
   });
   plugin.start();
   await new Promise((resolve) => setImmediate(resolve));
+  plugin.advanceClock(CAMERA_MOTION_IDLE);
   plugin.flushTimers();
   return plugin;
 }

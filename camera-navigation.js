@@ -51,6 +51,8 @@
       getVideoControlsHeight = () => DEFAULT_VIDEO_CONTROLS_HEIGHT,
       onFocusStart = () => {},
       onFocusEnd = () => {},
+      onSmoothPanStart = () => {},
+      onSmoothPanEnd = () => {},
       onSmoothZoomStart = () => {},
       onSmoothZoomEnd = () => {},
     } = options;
@@ -61,7 +63,20 @@
     }
 
     let focusActive = false;
+    let smoothPanActive = false;
     let smoothZoomActive = false;
+
+    function beginSmoothPan() {
+      if (smoothPanActive) return;
+      smoothPanActive = true;
+      onSmoothPanStart();
+    }
+
+    function finishSmoothPan() {
+      if (!smoothPanActive) return;
+      smoothPanActive = false;
+      onSmoothPanEnd();
+    }
 
     function beginSmoothZoom() {
       if (smoothZoomActive) return;
@@ -241,6 +256,7 @@
       state.smoothPanKeys.add(key);
       if (state.smoothPanFrame !== null) return;
 
+      beginSmoothPan();
       state.smoothPanLastTimestamp = now();
       const step = (timestamp) => {
         if (!state.smoothPanEnabled) {
@@ -289,10 +305,12 @@
         } else {
           state.smoothPanFrame = null;
           state.smoothPanLastTimestamp = null;
+          finishSmoothPan();
           selectNodeAtViewportCenter?.();
         }
       };
       state.smoothPanFrame = requestAnimationFrame?.(step) ?? null;
+      if (state.smoothPanFrame === null) finishSmoothPan();
     }
 
     function stopSmoothKeyboardPan() {
@@ -301,6 +319,7 @@
       state.smoothPanFrame = null;
       state.smoothPanLastTimestamp = null;
       state.smoothPanVelocity = { x: 0, y: 0 };
+      finishSmoothPan();
     }
 
     function startSmoothKeyboardZoom(key) {

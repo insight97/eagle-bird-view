@@ -17,8 +17,9 @@
 - `folder-content-intake.js`：管理資料夾內容 session、漸進顯示、摘要 hydration、失效結果與部分失敗 retry；不直接修改 board 或 DOM。
 - `library-content-target.js`：解析 Tag／資料夾 metadata target，協調 Eagle 查詢與 folder-content intake；不直接修改 UI。
 - `media-load-queue.js`／`media-materializer.js`：分別管理媒體載入併發與 DOM 卡片生命週期。可視素材掛載、附近素材保留，遠處素材釋放。
-- `image-downscaler.js`：把 Eagle 的全解析度母檔解碼成有上限的 `ImageBitmap`。優先以 `fetch` + `createImageBitmap` 按目標尺寸解碼，其次從已載入的 `<img>` 取得，兩者皆不可用時回傳 `null` 讓 caller 退回顯示母檔。不編碼、不產生 URL；bitmap 的所有權交給 caller。
-- `viewport-work-scheduler.js`：決定 viewport 維護何時執行、執行哪一部分。平移只跑媒體覆蓋、縮放只跑品質判斷、其餘等相機停下才做完整 pass；不直接碰 DOM 或 board 狀態。
+- `image-downscaler.js`：把 Eagle 的全解析度母檔解碼成有上限的 `ImageBitmap`。優先以 `fetch` + `createImageBitmap` 按目標尺寸解碼，其次從已載入的 `<img>` 取得，兩者皆不可用時回傳 `null` 讓 caller 保留縮圖並提供 retry。不編碼、不產生 URL；bitmap 的所有權交給 caller。
+- `viewport-work-scheduler.js`：`viewport-media-controller.js` 的 internal seam，決定 viewport 維護何時執行、執行哪一部分；不由 `plugin.js` 直接呼叫，也不碰 DOM 或 board 狀態。
+- `viewport-media-controller.js`：管理相機移動 lifecycle、viewport 排程與媒體規劃，並驅動 `media-materializer.js`。平移只跑媒體覆蓋、縮放只跑品質判斷、相機停下才做完整 pass；caller 不需知道 timer protocol 或 media plan schema。
 - `camera-navigation.js`／`selection-navigation.js`：相機平移／縮放／聚焦與鍵盤選取。
 - `selection-model.js`：管理單選、Ctrl/Cmd 切換、Shift 區間選取、active 素材與多選集合。
 - `bulk-metadata.js`：以有限併發儲存批次 metadata，讓部分失敗只回滾失敗素材。
@@ -57,6 +58,7 @@ video-thumbnail.js
 image-downscaler.js
 media-materializer.js
 viewport-work-scheduler.js
+viewport-media-controller.js
 tag-editor.js
 camera-navigation.js
 bulk-metadata.js

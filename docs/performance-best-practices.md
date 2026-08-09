@@ -13,7 +13,7 @@
 
 - 卡片畫的是有上限的 bounded raster，不是母檔。`RasterTask` 從 1560 ms 降到 7 ms/s，解碼完全離開 compositor 關鍵路徑。
 - 預算會隨卡片顯示尺寸升降，raster 以 `<canvas>` + `bitmaprenderer` 零複製呈現，不經編碼。
-- 相機移動期間不啟動新的原圖載入，停下後補上。
+- 平移與聚焦位移期間不啟動新的原圖載入，停下後補上；平滑縮放仍可替已掛載卡片提升清晰度。
 
 **這些行為的不變條件寫在 `AGENTS.md`，改動媒體管線前先看那裡**——有幾條很容易被合理的重構默默破壞。
 
@@ -94,7 +94,7 @@ A/B 對照（隱藏 `.media-card`）：`RasterTask` 1560ms → 2.7ms，大型 de
 - `image-downscaler.js` 以 `fetch()` 取得編碼位元組後交給 `createImageBitmap(blob, { resizeWidth, resizeHeight })`，回傳有上限的 `ImageBitmap`，由卡片轉移進 `<canvas>`（見第八、九輪）。
 
   這裡原本寫著兩件事，後來都被 trace 推翻，保留在此以免有人重蹈：**「JPEG 會在 DCT 階段就縮放，全解析度點陣圖不會產生」**——實測 JPEG 平均 124ms、最長 372ms，母檔仍是完整解碼後再縮；**「`OffscreenCanvas.convertToBlob()` 讓編碼離開主執行緒」**——CPU profile 顯示它佔用主執行緒 1911ms。兩者都是從規格措辭推斷、未經量測就寫下的。
-- 若 `fetch` 讀不到檔案（例如 file:// 被擋），退回讓 `<img>` 載入母檔再從元素縮圖；這條路仍能消除重複解碼，但省不掉第一次全解析度解碼。兩條路都失敗才直接顯示母檔。
+- 若 `fetch` 讀不到檔案（例如 file:// 被擋），退回讓 `<img>` 載入母檔再從元素縮圖；這條路仍能消除重複解碼，但省不掉第一次全解析度解碼。兩條 bounded raster 路徑都失敗時保留縮圖並提供 retry，不讓失敗路徑把母檔交給 compositor。
 - `media-materializer.js` 在載入前就用 Eagle metadata 的 `item.width`／`item.height` 算出目標尺寸，所以不必先解碼才知道要縮多少。縮放超過目前預算時透過 `MediaLoadQueue.invalidate()` 重新算一張，期間畫面維持既有 raster 不閃爍。
 
 效果：40 MP 母檔在一般 zoom 下只需 512 長邊（約 0.74 MB 解碼），15 張卡片合計約 11 MB，可完整放進 decode cache。
@@ -254,7 +254,7 @@ CPU profile 直接指出路徑：`renderFromURL`、`renderFromImage`、`decodeBo
 
 觸發原因是同一個 commit 為了 EXIF 而加的 `imageOrientation: "from-image"`——該 build 不接受它與 resize 併用，整個 `createImageBitmap` reject。現在改成試探性：被拒絕就在本次 session 停用該選項。
 
-真正的缺陷是退路的終點就是這個功能要避免的事。`canPaintMasterDirectly()` 用「母檔比卡片實際顯示大多少」判斷：1600px 對 1536 預算是捨入誤差，6071px 對 512 是災難。超過就保留縮圖並停止再要求原圖，讓這條鏈上任何失敗都只退化成一張略軟的卡片。
+真正的缺陷是退路的終點就是這個功能要避免的事。現在只要來源超過 bounded raster 預算，兩條縮圖路徑都失敗就一律保留縮圖並顯示 retry；只有來源本來就在預算內時才直接顯示母檔。這讓載入鏈上的失敗只退化成一張略軟、可重試的卡片。
 
 修正後（`191309`，每秒）：
 
@@ -353,11 +353,11 @@ hitch 的形狀一致：26 個 >50ms 的主執行緒 `RunTask`，其中 23 個�
 | --- | --- | --- |
 | 相機動畫 | `camera-navigation.js` 以 `requestAnimationFrame` 插值 camera；每幀呼叫整合層的 `updateCamera()`。 | 跨列聚焦同時改變位置與 scale，會觸發較多下游更新。 |
 | 白板 transform | `plugin.js` 的 `renderCamera()` 每幀更新 `.world` 的 `transform`，並更新 grid transform。 | transform 是正確的動畫 seam，但大型 layer 的 raster／composite 成本仍需實測。 |
-| 相機工作節流 | 拖曳期間只留在 camera transform path；掛載、釋放、標籤與自動探索延後到手勢結束或 timer。 | 這個方向符合「動畫期間少做非必要工作」的原則；跨列動畫需確認 `cameraFocusFrame` 期間是否仍讓昂貴工作進入每幀。 |
-| 媒體 windowing | `updateMediaVisibility()` 取得 visible、retained、load 三種集合；`MediaMaterializer` 對非可視卡片 unmount，對遠處卡片 release；目前保留範圍為 2 個 viewport。 | 已有虛擬化，但 overscan 是固定 screen-space margin；低 zoom 時仍可能保留較多卡片。 |
+| 相機工作節流 | `viewport-work-scheduler.js` 依 semantic motion 分流：平移只跑媒體覆蓋、縮放只跑品質、聚焦等待結束、靜止才跑完整維護。 | 指標、鍵盤與滾輪共用相同狀態契約，不會在移動中誤跑標籤、中央選取或自動探索。 |
+| 媒體 windowing | `viewport-media-controller.js` 在 internal implementation 產生 visible、retained、load 三種集合；`MediaMaterializer` 對非可視卡片 unmount，對遠處卡片 release；目前保留範圍為 2 個 viewport。 | 已有虛擬化，但 overscan 是固定 screen-space margin；低 zoom 時仍可能保留較多卡片。 |
 | 卡片與標籤 | 卡片位於 `.world`；標籤在獨立 `.labels-layer`，縮放改變時重新計算已掛載標籤位置。 | 標籤的 `left`／`top`／`width` 寫入是跨列動畫的主要可疑主執行緒工作。 |
 | 圖片 | 先載入 thumbnail；畫面高度達門檻後以最多 4 路併發載入 original；原圖替換前等待 `decode()`。 | queue 與釋放策略已避免無限載入；需在 trace 中區分網路、decode、raster 與 DOM 更新。 |
-| layer hint | `.world.is-moving` 只在縮放 raster 需要時動態設定 `will-change: transform`；純平移不提升整個 world；`.grid-layer` 與 `.labels-layer` 常駐 `will-change: transform`。 | 避免平移結束後等待整個 world 重新 raster；grid／labels 常駐 hint 是否有益仍應用 layer borders 驗證。 |
+| layer hint | `.world` 沒有動態 `will-change`；`.grid-layer` 與 `.labels-layer` 常駐 `will-change: transform`。 | grid／labels 的常駐 hint 是否有益仍應用 layer borders 驗證。 |
 
 相機與媒體範圍的具體實作可參考：[camera-navigation.js](../camera-navigation.js)、[plugin.js](../plugin.js)、[media-materializer.js](../media-materializer.js)、[styles.css](../styles.css)。這些是本專案的觀察，不是外部效能保證。
 
@@ -415,7 +415,7 @@ W3C 的 Will Change 規範也說明，元素與其內容可能被提升為獨立
 ### 本專案判斷
 
 - `.world` 的單一 camera transform 是合理的主動畫 seam；不要把每張 `.media-card` 都加 `will-change: transform`。那會把 100–200 張圖片／卡片轉成大量候選 layer，可能比原本更慢。
-- `.world.is-moving` 只在縮放造成 raster 尺寸變化時出現、settle 後移除；純平移不提升整個 world，避免放開後等待大型 layer 重新 raster。仍必須用 Layer Borders、GPU memory 與 trace 驗證收益。
+- `.world` 不使用動態 `will-change`；先前的 `.world.is-moving` 實驗會釘住 raster scale，已移除。仍必須用 Layer Borders、GPU memory 與 trace 驗證任何後續 layer hint。
 - `.grid-layer` 與 `.labels-layer` 的常駐 `will-change` 應視為可疑的獨立實驗，不要和 `.world` 的效果混為一談。若 layer borders 顯示沒有收益，移除常駐 hint 可能降低記憶體壓力。
 - 變更 `transform` 不代表每幀只剩 composite。跨列動畫若同時更新標籤 `left`／`top`／`width`、class 或圖片狀態，仍可能觸發 style/layout/paint；必須看 trace，不可只看程式碼中的 `transform` 字串。
 
@@ -485,7 +485,7 @@ Chrome DevTools 的官方文件把 `Request Animation Frame`、`Animation Frame 
 
 - 將跨列相機動畫拆成「輕量 camera transform」與「完成後的標籤／媒體同步」兩階段。
 - 讓 overscan 依 zoom、方向與跳躍落點調整，並限制低 zoom 時的 retained card／label 數量；保留 selected node 與落點預熱例外。
-- 保留動態 `.world.is-moving` hint，但用 trace 決定是否需要常駐 grid／labels hint；避免 per-card `will-change`。
+- 維持 `.world` 不加動態 layer hint；用 trace 決定是否需要常駐 grid／labels hint，並避免 per-card `will-change`。
 
 ### P2：有條件實驗
 

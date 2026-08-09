@@ -4,7 +4,6 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   MAX_RASTER_DIMENSION,
-  canPaintMasterDirectly,
   MIN_RASTER_DIMENSION,
   getNodeScreenLongEdge,
   getPreloadMargins,
@@ -214,29 +213,3 @@ test("a missing node or stopped camera reports no screen size", () => {
 // When no bounded raster can be built the card has to choose between painting
 // the master and staying on its thumbnail. Painting unconditionally is what put
 // 40 MP masters into 130px cards at over 1000x oversample.
-test("a master close to what the card displays is worth painting", () => {
-  // 1600px master, 1536 budget: a rounding error.
-  assert.equal(canPaintMasterDirectly(1600, 1000, 1500), true);
-  // Exactly at the limit.
-  assert.equal(canPaintMasterDirectly(1024, 700, 400), true);
-});
-
-test("a master far past what the card displays is not", () => {
-  // The profiled painting against a zoomed-out card.
-  assert.equal(canPaintMasterDirectly(5374, 7589, 400), false);
-  assert.equal(canPaintMasterDirectly(4299, 6071, 400), false);
-  // One pixel past the limit.
-  assert.equal(canPaintMasterDirectly(1025, 700, 400), false);
-});
-
-test("the decision follows the budget, not a fixed size", () => {
-  // The same master is fine once the card is painting large enough to need it.
-  assert.equal(canPaintMasterDirectly(3000, 4000, 400), false);
-  assert.equal(canPaintMasterDirectly(3000, 4000, 3000), true);
-});
-
-test("an unjudgeable master is allowed rather than blocked", () => {
-  assert.equal(canPaintMasterDirectly(undefined, undefined, 400), true);
-  assert.equal(canPaintMasterDirectly(0, 100, 400), true);
-  assert.equal(canPaintMasterDirectly(Number.NaN, 100, 400), true);
-});

@@ -380,6 +380,30 @@ test("smooth keyboard zoom reports its active lifecycle", () => {
   assert.equal(ends, 1);
 });
 
+test("smooth keyboard pan reports its active lifecycle", () => {
+  let starts = 0;
+  let ends = 0;
+  const harness = createHarness(180, {
+    onSmoothPanStart: () => { starts += 1; },
+    onSmoothPanEnd: () => { ends += 1; },
+  });
+
+  harness.state.smoothPanEnabled = true;
+  harness.navigation.startSmoothKeyboardPan("arrowright");
+  assert.equal(starts, 1);
+  assert.equal(ends, 0);
+
+  harness.navigation.handleKeyUp("arrowright");
+  for (let timestamp = 16; timestamp <= 1000; timestamp += 16) {
+    const frame = harness.state.smoothPanFrame;
+    if (frame === null) break;
+    harness.frames.get(frame)(timestamp);
+  }
+
+  assert.equal(starts, 1);
+  assert.equal(ends, 1);
+});
+
 test("smooth keyboard zoom brakes when both directions are held", () => {
   const harness = createHarness();
   harness.state.smoothZoomEnabled = true;

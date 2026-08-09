@@ -16,7 +16,7 @@
 
   // Decides when viewport maintenance runs, and which parts of it.
   //
-  // The camera has three modes and they do not want the same work. Dragging
+  // Camera motion modes do not want the same work. Panning
   // needs media coverage to keep up — suspending it for the whole gesture means
   // the pan arrives somewhere with nothing loaded and only then starts fetching
   // — but it does not need labels, centre selection or auto-exploring, which are
@@ -28,9 +28,7 @@
       window: windowRef = root.window || root,
       now = () => (root.performance || Date).now(),
       smoothZoomQualityInterval = SMOOTH_ZOOM_QUALITY_INTERVAL,
-      isPanning = () => false,
-      isSmoothZooming = () => false,
-      isCameraFocusing = () => false,
+      getCameraMotion = () => "settled",
       onPanMedia = () => {},
       onZoomQuality = () => {},
       onSettled = () => {},
@@ -43,14 +41,27 @@
     let lastZoomQualityWork = -Infinity;
 
     function schedule() {
-      if (isPanning()) {
-        schedulePan();
+      const motion = getCameraMotion();
+      if (motion === "focus") {
+        settledTimer = clearTimer(settledTimer);
+        panTimer = clearTimer(panTimer);
+        zoomTimer = clearTimer(zoomTimer);
         return;
       }
-      if (isSmoothZooming()) {
+      if (motion === "zoom") {
+        settledTimer = clearTimer(settledTimer);
+        panTimer = clearTimer(panTimer);
         scheduleZoomQuality();
         return;
       }
+      if (motion === "pan") {
+        settledTimer = clearTimer(settledTimer);
+        zoomTimer = clearTimer(zoomTimer);
+        schedulePan();
+        return;
+      }
+      panTimer = clearTimer(panTimer);
+      zoomTimer = clearTimer(zoomTimer);
       scheduleSettled();
     }
 
@@ -64,13 +75,22 @@
 
     function runSettled() {
       settledTimer = null;
-      if (isPanning() || isSmoothZooming() || isCameraFocusing()) return;
+      const motion = getCameraMotion();
+      if (motion === "focus") return;
+      if (motion === "pan") {
+        runPan();
+        return;
+      }
+      if (motion === "zoom") {
+        runZoomQuality();
+        return;
+      }
       lastSettledWork = now();
       onSettled();
     }
 
     function schedulePan() {
-      if (!isPanning() || panTimer !== null) return;
+      if (getCameraMotion() !== "pan" || panTimer !== null) return;
       panTimer = windowRef.setTimeout(
         runPan,
         // Panning shares the settled clock: both are coverage passes, so one
@@ -81,14 +101,23 @@
 
     function runPan() {
       panTimer = null;
-      if (!isPanning()) return;
+      const motion = getCameraMotion();
+      if (motion === "focus") return;
+      if (motion === "settled") {
+        runSettled();
+        return;
+      }
+      if (motion === "zoom") {
+        runZoomQuality();
+        return;
+      }
       lastSettledWork = now();
       onPanMedia();
       schedulePan();
     }
 
     function scheduleZoomQuality() {
-      if (!isSmoothZooming() || isPanning() || zoomTimer !== null) return;
+      if (getCameraMotion() !== "zoom" || zoomTimer !== null) return;
       zoomTimer = windowRef.setTimeout(
         runZoomQuality,
         remainingDelay(lastZoomQualityWork, smoothZoomQualityInterval),
@@ -97,7 +126,16 @@
 
     function runZoomQuality() {
       zoomTimer = null;
-      if (!isSmoothZooming() || isPanning()) return;
+      const motion = getCameraMotion();
+      if (motion === "focus") return;
+      if (motion === "settled") {
+        runSettled();
+        return;
+      }
+      if (motion === "pan") {
+        runPan();
+        return;
+      }
       lastZoomQualityWork = now();
       onZoomQuality();
       scheduleZoomQuality();
@@ -116,6 +154,7 @@
     function reschedule() {
       settledTimer = clearTimer(settledTimer);
       panTimer = clearTimer(panTimer);
+      zoomTimer = clearTimer(zoomTimer);
       schedule();
     }
 
@@ -124,6 +163,8 @@
     function flush() {
       settledTimer = clearTimer(settledTimer);
       panTimer = clearTimer(panTimer);
+      zoomTimer = clearTimer(zoomTimer);
+      if (getCameraMotion() !== "settled") return;
       runSettled();
     }
 
@@ -151,5 +192,5 @@
     });
   }
 
-  return Object.freeze({ SMOOTH_ZOOM_QUALITY_INTERVAL, createViewportWorkScheduler });
+  return Object.freeze({ createViewportWorkScheduler });
 });

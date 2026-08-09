@@ -9,6 +9,7 @@ const BirdViewCore = require("../bird-view-core.js");
 const BirdViewMedia = require("../media-load-queue.js");
 const BirdViewMaterializer = require("../media-materializer.js");
 const BirdViewViewportWork = require("../viewport-work-scheduler.js");
+const BirdViewViewportMedia = require("../viewport-media-controller.js");
 const BirdViewExploration = require("../exploration-source.js");
 const BirdViewAutoExploreSettings = require("../auto-explore-settings.js");
 const BirdViewSettingsPresets = require("../settings-presets.js");
@@ -427,6 +428,7 @@ function createPluginHarness({
     BirdViewMedia,
     BirdViewMaterializer,
     BirdViewViewportWork,
+    BirdViewViewportMedia,
     BirdViewAutoExploreSettings,
     BirdViewSettingsPresets,
     BirdViewSettingsSnapshot,
@@ -482,6 +484,19 @@ function createPluginHarness({
       createCameraNavigation(options) {
         navigationState = options.state;
         cameraUpdate = options.updateCamera;
+        let smoothPanActive = false;
+        let smoothZoomActive = false;
+        const finishSmoothPan = () => {
+          if (!smoothPanActive) return;
+          smoothPanActive = false;
+          options.state.smoothPanFrame = null;
+          options.onSmoothPanEnd?.();
+        };
+        const finishSmoothZoom = () => {
+          if (!smoothZoomActive) return;
+          smoothZoomActive = false;
+          options.onSmoothZoomEnd?.();
+        };
         return {
           animateCameraTo() {},
           cancelCameraFocus() {},
@@ -491,21 +506,35 @@ function createPluginHarness({
           },
           getKeyboardPanStep() { return 240; },
           handleKeyUp() {
-            if (smoothZoomProbe) options.onSmoothZoomEnd?.();
+            finishSmoothPan();
+            if (smoothZoomProbe) finishSmoothZoom();
           },
-          handleWindowBlur() {},
+          handleWindowBlur() {
+            finishSmoothPan();
+            finishSmoothZoom();
+          },
           panBy() {},
           panOneViewport() {},
-          startSmoothKeyboardPan() {},
+          startSmoothKeyboardPan() {
+            if (smoothPanActive) return;
+            smoothPanActive = true;
+            options.state.smoothPanFrame = 1;
+            options.onSmoothPanStart?.();
+          },
           startSmoothKeyboardZoom() {
-            options.onSmoothZoomStart?.();
+            if (!smoothZoomActive) {
+              smoothZoomActive = true;
+              options.onSmoothZoomStart?.();
+            }
             if (!smoothZoomProbe) return;
             options.state.camera.scale = 2;
             options.updateCamera?.();
           },
-          stopSmoothKeyboardPan() {},
+          stopSmoothKeyboardPan() {
+            finishSmoothPan();
+          },
           stopSmoothKeyboardZoom() {
-            options.onSmoothZoomEnd?.();
+            finishSmoothZoom();
           },
           zoomAtPoint() {},
         };
