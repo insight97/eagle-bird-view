@@ -47,7 +47,7 @@ test("no more than four loads run concurrently", () => {
   assert.equal(queue.activeCount, 4);
 });
 
-test("the default queue runs only one background original at a time", () => {
+test("the default queue runs up to two background originals at a time", () => {
   const starts = [];
   const queue = new MediaLoadQueue({ maxConcurrent: 4 });
   const nodes = Array.from({ length: 3 }, () =>
@@ -56,8 +56,52 @@ test("the default queue runs only one background original at a time", () => {
 
   for (const node of nodes) queue.request(node, "original");
 
-  assert.deepEqual(starts.map(({ node }) => node), nodes.slice(0, 1));
-  assert.equal(queue.activeCount, 1);
+  assert.deepEqual(starts.map(({ node }) => node), nodes.slice(0, 2));
+  assert.equal(queue.activeCount, 2);
+});
+
+test("a priority original leaves one decode slot for background work", () => {
+  const starts = [];
+  const queue = new MediaLoadQueue({ maxConcurrent: 4 });
+  const priority = register(queue, starts, {
+    hasThumbnail: false,
+    preferThumbnailFirst: false,
+  });
+  const backgrounds = Array.from({ length: 3 }, () =>
+    register(queue, starts, { hasThumbnail: false, preferThumbnailFirst: false }),
+  );
+
+  queue.request(priority, "original", { priority: "high" });
+  for (const node of backgrounds) queue.request(node, "original");
+
+  assert.deepEqual(starts.map(({ node }) => node), [priority, backgrounds[0]]);
+  assert.equal(queue.snapshot(backgrounds[1]).queuedQuality, "original");
+
+  queue.complete(priority, "original", true);
+
+  assert.deepEqual(starts.map(({ node }) => node), [
+    priority,
+    backgrounds[0],
+    backgrounds[1],
+  ]);
+});
+
+test("priority work cannot exceed the two-original decode ceiling", () => {
+  const starts = [];
+  const queue = new MediaLoadQueue({ maxConcurrent: 4 });
+  const backgrounds = Array.from({ length: 2 }, () =>
+    register(queue, starts, { hasThumbnail: false, preferThumbnailFirst: false }),
+  );
+  const priority = register(queue, starts, {
+    hasThumbnail: false,
+    preferThumbnailFirst: false,
+  });
+
+  for (const node of backgrounds) queue.request(node, "original");
+  queue.request(priority, "original", { priority: "high" });
+
+  assert.deepEqual(starts.map(({ node }) => node), backgrounds);
+  assert.equal(queue.snapshot(priority).queuedQuality, "original");
 });
 
 test("background originals use only two of the four load slots", () => {
@@ -97,7 +141,11 @@ test("queued background originals do not reserve the remaining slots from thumbn
 
 test("a priority original can use a slot reserved from background decoding", () => {
   const starts = [];
-  const queue = new MediaLoadQueue({ maxConcurrent: 4, maxBackgroundOriginals: 2 });
+  const queue = new MediaLoadQueue({
+    maxConcurrent: 4,
+    maxConcurrentOriginals: 3,
+    maxBackgroundOriginals: 2,
+  });
   const backgrounds = Array.from({ length: 4 }, () =>
     register(queue, starts, { hasThumbnail: false, preferThumbnailFirst: false }),
   );
@@ -115,7 +163,11 @@ test("a priority original can use a slot reserved from background decoding", () 
 
 test("promoting a queued background original starts it through a reserved slot", () => {
   const starts = [];
-  const queue = new MediaLoadQueue({ maxConcurrent: 4, maxBackgroundOriginals: 2 });
+  const queue = new MediaLoadQueue({
+    maxConcurrent: 4,
+    maxConcurrentOriginals: 3,
+    maxBackgroundOriginals: 2,
+  });
   const backgrounds = Array.from({ length: 3 }, () =>
     register(queue, starts, { hasThumbnail: false, preferThumbnailFirst: false }),
   );
@@ -132,21 +184,28 @@ test("promoting a queued background original starts it through a reserved slot",
 
 test("priority survives the thumbnail-first handoff to the original", () => {
   const starts = [];
-  const queue = new MediaLoadQueue({ maxConcurrent: 4, maxBackgroundOriginals: 2 });
+  const queue = new MediaLoadQueue({ maxConcurrent: 4 });
   const backgrounds = Array.from({ length: 2 }, () =>
     register(queue, starts, { hasThumbnail: false, preferThumbnailFirst: false }),
   );
   const priority = register(queue, starts);
 
-  for (const node of backgrounds) queue.request(node, "original");
   queue.request(priority, "original", { priority: "high" });
-  assert.equal(starts.at(-1).quality, "thumbnail");
+  for (const node of backgrounds) queue.request(node, "original");
+
+  assert.equal(starts[0].quality, "thumbnail");
+  assert.equal(starts[1].node, backgrounds[0]);
+  assert.equal(queue.snapshot(backgrounds[1]).queuedQuality, "original");
 
   queue.complete(priority, "thumbnail", true);
 
   assert.equal(starts.at(-1).node, priority);
   assert.equal(starts.at(-1).quality, "original");
   assert.equal(queue.snapshot(priority).loadingPriority, "high");
+
+  queue.complete(priority, "original", true);
+
+  assert.equal(starts.at(-1).node, backgrounds[1]);
 });
 
 test("a queued priority original starts before background work when a slot opens", () => {

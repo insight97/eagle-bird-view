@@ -8,26 +8,39 @@
   class MediaLoadQueue {
     #active = 0;
     #activeBackgroundOriginals = 0;
+    #activeOriginals = 0;
     #maxConcurrent;
     #maxBackgroundOriginals;
+    #maxConcurrentOriginals;
     #queue = [];
+    #priorityOriginalStates = new Set();
     #states = new WeakMap();
 
-    // Background originals are intentionally capped below the total. A selected
-    // or center card can then start immediately instead of waiting behind a
-    // burst of expensive createImageBitmap decodes; thumbnails can still use
-    // every slot because they do not enter that bounded-raster path.
-    constructor({ maxConcurrent = 4, maxBackgroundOriginals = 1 } = {}) {
+    // Original raster builds have their own lower ceiling because concurrent
+    // createImageBitmap handoffs compete for the renderer. The selected or
+    // center card is requested first by the materializer, so it occupies one
+    // slot while a background card uses the other; once it completes, both
+    // slots can drain nearby background work. Thumbnails can still use every
+    // general load slot because they do not enter that bounded-raster path.
+    constructor({
+      maxConcurrent = 4,
+      maxConcurrentOriginals = 2,
+      maxBackgroundOriginals = 2,
+    } = {}) {
       this.#maxConcurrent = Math.max(1, Number(maxConcurrent) || 4);
-      this.#maxBackgroundOriginals = Math.min(
+      this.#maxConcurrentOriginals = Math.min(
         this.#maxConcurrent,
-        Math.max(1, Number(maxBackgroundOriginals) || 1),
+        Math.max(1, Number(maxConcurrentOriginals) || 2),
+      );
+      this.#maxBackgroundOriginals = Math.min(
+        this.#maxConcurrentOriginals,
+        Math.max(1, Number(maxBackgroundOriginals) || 2),
       );
     }
 
     register(node, options) {
       this.dispose(node);
-      this.#states.set(node, {
+      const state = {
         node,
         start: options.start,
         cancel: options.cancel,
@@ -46,7 +59,8 @@
         queued: false,
         loading: false,
         disposed: false,
-      });
+      };
+      this.#states.set(node, state);
     }
 
     request(node, requestedQuality = "thumbnail", options = {}) {
@@ -79,6 +93,7 @@
         if (desiredQuality === "original") {
           state.pendingPriority = promotePriority(state.pendingPriority, priority);
         }
+        this.#refreshPriorityOriginalDemand(state);
         return false;
       }
       if (state.queued) {
@@ -89,8 +104,9 @@
           state.queuedQuality = "original";
           state.queuedPriority = promotePriority(state.queuedPriority, priority);
           if (state.queuedPriority === "high") this.#moveToFront(state);
-          this.#pump();
         }
+        this.#refreshPriorityOriginalDemand(state);
+        this.#pump();
         return false;
       }
 
@@ -99,6 +115,7 @@
       state.queuedQuality = quality;
       state.queuedPriority = quality === "original" ? priority : "normal";
       state.queued = true;
+      this.#refreshPriorityOriginalDemand(state);
       if (quality === "original" && priority === "high") this.#queue.unshift(state);
       else this.#queue.push(state);
       this.#pump();
@@ -154,7 +171,7 @@
       }
 
       state.loading = false;
-      this.#releaseBackgroundOriginal(state);
+      this.#releaseOriginal(state);
       state.loadingQuality = null;
       state.loadingPriority = null;
       this.#active = Math.max(0, this.#active - 1);
@@ -166,6 +183,7 @@
       const pendingPriority = state.pendingPriority;
       state.pendingQuality = null;
       state.pendingPriority = null;
+      this.#refreshPriorityOriginalDemand(state);
       if (pendingQuality) this.request(node, pendingQuality, { priority: pendingPriority });
       this.#pump();
       return true;
@@ -188,7 +206,7 @@
         canceled = true;
       }
       if (state.loading && state.loadingQuality === quality) {
-        this.#releaseBackgroundOriginal(state);
+        this.#releaseOriginal(state);
         state.loading = false;
         state.loadingQuality = null;
         state.loadingPriority = null;
@@ -196,6 +214,7 @@
         canceled = true;
       }
       if (canceled) {
+        this.#refreshPriorityOriginalDemand(state);
         try {
           state.cancel?.(quality);
         } catch {
@@ -219,13 +238,14 @@
       state.pendingQuality = null;
       state.pendingPriority = null;
       if (state.loading) {
-        this.#releaseBackgroundOriginal(state);
+        this.#releaseOriginal(state);
         this.#active = Math.max(0, this.#active - 1);
       }
       state.loading = false;
       state.loadingQuality = null;
       state.loadingPriority = null;
       this.#states.delete(node);
+      this.#priorityOriginalStates.delete(state);
       for (const quality of activeQualities) {
         try {
           state.cancel?.(quality);
@@ -272,8 +292,9 @@
         state.loadingQuality = quality;
         state.loadingPriority = priority;
         this.#active += 1;
-        if (quality === "original" && priority !== "high") {
-          this.#activeBackgroundOriginals += 1;
+        if (quality === "original") {
+          this.#activeOriginals += 1;
+          if (priority !== "high") this.#activeBackgroundOriginals += 1;
         }
         try {
           state.start(quality);
@@ -294,8 +315,14 @@
         const isBackgroundOriginal =
           state.queuedQuality === "original" && state.queuedPriority !== "high";
         if (
+          state.queuedQuality === "original" &&
+          this.#activeOriginals >= this.#maxConcurrentOriginals
+        ) {
+          continue;
+        }
+        if (
           isBackgroundOriginal &&
-          this.#activeBackgroundOriginals >= this.#maxBackgroundOriginals
+          this.#activeBackgroundOriginals >= this.#backgroundOriginalLimit()
         ) {
           continue;
         }
@@ -309,9 +336,33 @@
       this.#queue.unshift(state);
     }
 
-    #releaseBackgroundOriginal(state) {
-      if (state.loadingQuality !== "original" || state.loadingPriority === "high") return;
-      this.#activeBackgroundOriginals = Math.max(0, this.#activeBackgroundOriginals - 1);
+    #releaseOriginal(state) {
+      if (state.loadingQuality !== "original") return;
+      this.#activeOriginals = Math.max(0, this.#activeOriginals - 1);
+      if (state.loadingPriority !== "high") {
+        this.#activeBackgroundOriginals = Math.max(0, this.#activeBackgroundOriginals - 1);
+      }
+    }
+
+    #backgroundOriginalLimit() {
+      if (!this.#hasPriorityOriginalDemand()) return this.#maxBackgroundOriginals;
+      return Math.min(
+        this.#maxBackgroundOriginals,
+        Math.max(0, this.#maxConcurrentOriginals - 1),
+      );
+    }
+
+    #hasPriorityOriginalDemand() {
+      return this.#priorityOriginalStates.size > 0;
+    }
+
+    #refreshPriorityOriginalDemand(state) {
+      const hasPriorityOriginal =
+        (state.loadingQuality === "original" && state.loadingPriority === "high") ||
+        (state.queuedQuality === "original" && state.queuedPriority === "high") ||
+        (state.pendingQuality === "original" && state.pendingPriority === "high");
+      if (hasPriorityOriginal) this.#priorityOriginalStates.add(state);
+      else this.#priorityOriginalStates.delete(state);
     }
   }
 

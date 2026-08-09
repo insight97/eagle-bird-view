@@ -173,6 +173,29 @@ test("quality sync forwards priority for the selected or center card", () => {
   assert.deepEqual(harness.queue.priorities, ["high"]);
 });
 
+test("quality sync requests the priority original before background originals", () => {
+  const harness = createHarness();
+  const first = createNode("first");
+  const priority = createNode("priority");
+  const last = createNode("last");
+  for (const node of [first, priority, last]) harness.materializer.mount(node);
+  harness.queue.requests.length = 0;
+  harness.queue.priorities.length = 0;
+
+  harness.materializer.syncQuality({
+    loadNodes: [first, priority, last],
+    getQuality: () => "original",
+    prioritizeOriginal: (node) => node === priority,
+  });
+
+  assert.deepEqual(harness.queue.requests.map(({ node }) => node), [
+    priority,
+    first,
+    last,
+  ]);
+  assert.deepEqual(harness.queue.priorities, ["high", "normal", "normal"]);
+});
+
 test("media card click forwards selection modifiers", () => {
   const harness = createHarness();
   const node = createNode();

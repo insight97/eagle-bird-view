@@ -36,7 +36,8 @@
   const { createImageDownscaler } = downscaler;
 
   const MAX_CONCURRENT_IMAGE_LOADS = 4;
-  const MAX_BACKGROUND_ORIGINAL_LOADS = 1;
+  const MAX_CONCURRENT_ORIGINAL_LOADS = 2;
+  const MAX_BACKGROUND_ORIGINAL_LOADS = 2;
   const ORIGINAL_IMAGE_LOAD_TIMEOUT = 8000;
   const MEDIA_DEBUG_STORAGE_KEY = "bird-view-debug";
   const MAX_ELEMENT_FALLBACK_SCALE = 4;
@@ -49,6 +50,7 @@
       window: windowRef = root.window || root,
       mediaLoadQueue = new MediaLoadQueue({
         maxConcurrent: MAX_CONCURRENT_IMAGE_LOADS,
+        maxConcurrentOriginals: MAX_CONCURRENT_ORIGINAL_LOADS,
         maxBackgroundOriginals: MAX_BACKGROUND_ORIGINAL_LOADS,
       }),
       imageDownscaler = createImageDownscaler({ window: windowRef }),
@@ -288,7 +290,7 @@
       }
 
       for (const node of visible) mount(node);
-      for (const node of loadNodes) {
+      for (const node of priorityFirst(loadNodes, prioritizeOriginal)) {
         const deferFallback = shouldDeferElementFallback();
         if (!deferFallback) deferredElementFallbackNodes.delete(node);
         const quality = getQuality(node);
@@ -341,7 +343,7 @@
         if (getQuality(node) !== "original") mediaLoadQueue.cancel(node, "original");
       }
 
-      for (const node of loadNodes) {
+      for (const node of priorityFirst(loadNodes, prioritizeOriginal)) {
         if (!materializedNodes.has(node)) continue;
         const deferFallback = shouldDeferElementFallback();
         if (!deferFallback) deferredElementFallbackNodes.delete(node);
@@ -1004,6 +1006,15 @@
 
   function normalizePredicate(predicate) {
     return typeof predicate === "function" ? predicate : () => Boolean(predicate);
+  }
+
+  function priorityFirst(nodes, isPriority) {
+    const priority = [];
+    const background = [];
+    for (const node of nodes) {
+      (isPriority(node) ? priority : background).push(node);
+    }
+    return priority.concat(background);
   }
 
   function defaultDebugLog(item, event, details = {}) {
