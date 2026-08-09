@@ -73,7 +73,7 @@ Eagle 的白板式媒體瀏覽器概念驗證。它會載入 Eagle 目前選取�
 
 ## 圖片清晰化診斷
 
-若要分析縮放後等待清晰的時間，可在 Eagle 開發者工具 Console 執行 `localStorage.setItem("bird-view-debug", "1")` 後重新開啟外掛。Console 會依序記錄 `original-quality-requested`、`original-load-started` 與 `bounded-raster-built`，其中 `queueWaitMs`、`buildMs`、`totalMs` 可分辨 queue 等待與母檔／raster 處理時間，`priority` 可分辨中央／選取圖片與背景工作；`raster-budget-change-requested` 代表縮放跨過目前 raster 預算，`bounded-raster-resized` 則代表直接從既有 raster 縮小。完成後執行 `localStorage.removeItem("bird-view-debug")` 關閉紀錄。
+若要分析縮放後等待清晰的時間，可在 Eagle 開發者工具 Console 執行 `localStorage.setItem("bird-view-debug", "1")` 後重新開啟外掛。Console 會依序記錄 `original-quality-requested`、`original-load-started` 與 `bounded-raster-built`，其中 `queueWaitMs`、`buildMs`、`totalMs` 可分辨 queue 等待與母檔／raster 處理時間，`priority` 可分辨中央／選取圖片與背景工作；`raster-budget-change-requested` 代表縮放跨過目前 raster 預算，`bounded-raster-resized` 則代表直接從既有 raster 縮小。若出現 `bounded-raster-unavailable`，其 `source`、`stage` 與 `reason` 可分辨檔案讀取、bitmap 解碼或 canvas 建立失敗。完成後執行 `localStorage.removeItem("bird-view-debug")` 關閉紀錄。
 
 ## POC 限制
 

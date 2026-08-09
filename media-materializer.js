@@ -39,6 +39,8 @@
   const MAX_BACKGROUND_ORIGINAL_LOADS = 2;
   const ORIGINAL_IMAGE_LOAD_TIMEOUT = 8000;
   const MEDIA_DEBUG_STORAGE_KEY = "bird-view-debug";
+  const MAX_ELEMENT_FALLBACK_SCALE = 4;
+  const MAX_ELEMENT_FALLBACK_PIXELS = 4_000_000;
 
   function createMediaMaterializer(options = {}) {
     const {
@@ -673,6 +675,25 @@
         });
       }
 
+      function failBoundedRaster(target, token, failure = {}, originalImage = null) {
+        clearOriginalLoadTimeout();
+        if (originalImage) {
+          node.preloadImage = null;
+          originalImage.removeAttribute("src");
+          originalImage.remove();
+        }
+        mediaLoadQueue.complete(node, "original", false);
+        card.dataset.mediaQuality = "original-failed";
+        debugLog(item, "bounded-raster-unavailable", {
+          ...getTimingDetails(token, now),
+          source: failure.source || "file",
+          stage: failure.stage || "decode",
+          reason: failure.reason || "unavailable",
+          budget: target.budget,
+          fileURL: originalImageURL,
+        });
+      }
+
       async function startOriginalLoad(mediaURL) {
         const token = beginOriginalLoad();
         // Eagle's metadata already carries the master's dimensions, so the
@@ -694,7 +715,12 @@
           fileURL: mediaURL,
         });
         if (target) {
-          const bitmap = await imageDownscaler.renderFromURL(mediaURL, target);
+          let failure = null;
+          const bitmap = await imageDownscaler.renderFromURL(mediaURL, target, {
+            onFailure: (details) => {
+              failure = details;
+            },
+          });
           if (!isCurrentOriginalLoad(token)) {
             imageDownscaler.release(bitmap);
             return;
@@ -706,6 +732,16 @@
               return;
             }
             imageDownscaler.release(bitmap);
+            failBoundedRaster(target, token, {
+              source: "file",
+              stage: "canvas",
+              reason: "context-unavailable",
+            });
+            return;
+          }
+          if (!canUseElementFallback(item, target)) {
+            failBoundedRaster(target, token, { source: "file", ...failure });
+            return;
           }
         }
         loadMasterElement(mediaURL, token);
@@ -733,7 +769,12 @@
           if (target) {
             // The watchdog stays armed across this: rendering the raster is
             // still part of the load, and a stall has to free the queue slot.
-            const bitmap = await imageDownscaler.renderFromImage(originalImage, target);
+            let failure = null;
+            const bitmap = await imageDownscaler.renderFromImage(originalImage, target, {
+              onFailure: (details) => {
+                failure = details;
+              },
+            });
             if (!isCurrentOriginalLoad(token)) {
               imageDownscaler.release(bitmap);
               return;
@@ -747,21 +788,17 @@
               return;
             }
             imageDownscaler.release(bitmap);
-            // Once the source exceeds the card's raster budget, every failure
-            // stays on the thumbnail and remains retryable. Falling through to
-            // the master would make the failure path violate the same memory
-            // bound that the normal path enforces.
-            clearOriginalLoadTimeout();
-            node.preloadImage = null;
-            originalImage.removeAttribute("src");
-            originalImage.remove();
-            mediaLoadQueue.complete(node, "original", false);
-            card.dataset.mediaQuality = "original-failed";
-            debugLog(item, "bounded-raster-unavailable", {
-              ...getTimingDetails(token, now),
-              budget: target.budget,
-              fileURL: mediaURL,
-            });
+            failBoundedRaster(
+              target,
+              token,
+              {
+                source: "element",
+                ...(bitmap
+                  ? { stage: "canvas", reason: "context-unavailable" }
+                  : failure),
+              },
+              originalImage,
+            );
             return;
           }
 
@@ -911,6 +948,21 @@
       sync,
       syncQuality,
     });
+  }
+
+  // The element fallback decodes the full master before bounding it. Keep that
+  // compatibility route for unknown or moderately oversized sources, but do not
+  // let a failed file decode turn a 40 MP master into a main-thread decode spike.
+  function canUseElementFallback(item, target) {
+    if (!target) return true;
+    const width = Number(item?.width) || 0;
+    const height = Number(item?.height) || 0;
+    const sourceLongEdge = Math.max(width, height);
+    if (!(sourceLongEdge > 0)) return true;
+    return (
+      width * height <= MAX_ELEMENT_FALLBACK_PIXELS &&
+      sourceLongEdge <= target.budget * MAX_ELEMENT_FALLBACK_SCALE
+    );
   }
 
   function defaultDebugLog(item, event, details = {}) {

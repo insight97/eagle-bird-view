@@ -79,15 +79,21 @@ test("rendering from an already decoded element is the fallback path", async () 
 });
 
 test("a blocked fetch reports no bitmap instead of throwing", async () => {
+  const failures = [];
   const blocked = createEnvironment({
     fetch: async () => {
       throw new Error("not allowed to load local resource");
     },
   });
   assert.equal(
-    await blocked.downscaler.renderFromURL("file:///painting.png", { width: 10, height: 10 }),
+    await blocked.downscaler.renderFromURL(
+      "file:///painting.png",
+      { width: 10, height: 10 },
+      { onFailure: (failure) => failures.push(failure) },
+    ),
     null,
   );
+  assert.deepEqual(failures, [{ stage: "fetch", reason: "request-failed" }]);
 
   const rejected = createEnvironment({ fetch: async () => ({ ok: false }) });
   assert.equal(

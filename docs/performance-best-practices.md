@@ -256,7 +256,7 @@ CPU profile 直接指出路徑：`renderFromURL`、`renderFromImage`、`decodeBo
 
 觸發原因是同一個 commit 為了 EXIF 而加的 `imageOrientation: "from-image"`——該 build 不接受它與 resize 併用，整個 `createImageBitmap` reject。現在改成試探性：被拒絕就在本次 session 停用該選項。
 
-真正的缺陷是退路的終點就是這個功能要避免的事。現在只要來源超過 bounded raster 預算，兩條縮圖路徑都失敗就一律保留縮圖並顯示 retry；只有來源本來就在預算內時才直接顯示母檔。這讓載入鏈上的失敗只退化成一張略軟、可重試的卡片。
+真正的缺陷是退路的終點就是這個功能要避免的事。現在已知母檔超過 4 MP，或長邊超過 raster 預算四倍時，檔案 bounded decode 失敗便保留縮圖並顯示 retry，不再建立完整母檔 `<img>`；尺寸未知或在安全範圍內時仍保留 element fallback。`bounded-raster-unavailable` 會記錄 `source`、`stage` 與 `reason`。這讓大型圖片的失敗只退化成一張略軟、可重試的卡片，同時保留較安全的相容路徑。
 
 修正後（`191309`，每秒）：
 

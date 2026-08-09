@@ -31,13 +31,41 @@
     // browser decode straight to the requested size — for JPEG it scales during
     // the DCT pass — so the full-resolution bitmap never exists. That is the
     // difference between reading a 40 MP master and decoding one.
-    async function renderFromURL(url, size) {
-      if (!canRenderFromURL() || !url || !hasUsableSize(size)) return null;
+    async function renderFromURL(url, size, { onFailure } = {}) {
+      if (!url || !hasUsableSize(size)) {
+        reportFailure(onFailure, { stage: "input", reason: "invalid-request" });
+        return null;
+      }
+      if (!isSupported()) {
+        reportFailure(onFailure, { stage: "capability", reason: "bitmap-api-unavailable" });
+        return null;
+      }
+      if (typeof windowRef?.fetch !== "function") {
+        reportFailure(onFailure, { stage: "capability", reason: "fetch-unavailable" });
+        return null;
+      }
+      let response;
       try {
-        const response = await windowRef.fetch(url);
-        if (response && response.ok === false) return null;
-        return await decodeBounded(await response.blob(), size);
+        response = await windowRef.fetch(url);
       } catch {
+        reportFailure(onFailure, { stage: "fetch", reason: "request-failed" });
+        return null;
+      }
+      if (response && response.ok === false) {
+        reportFailure(onFailure, { stage: "fetch", reason: "response-failed" });
+        return null;
+      }
+      let blob;
+      try {
+        blob = await response.blob();
+      } catch {
+        reportFailure(onFailure, { stage: "fetch", reason: "blob-failed" });
+        return null;
+      }
+      try {
+        return await decodeBounded(blob, size);
+      } catch {
+        reportFailure(onFailure, { stage: "decode", reason: "bitmap-failed" });
         return null;
       }
     }
@@ -45,11 +73,19 @@
     // Fallback for environments where fetch cannot read the media (a blocked
     // file:// request). The master has already been decoded by the <img> that
     // loaded it, so this only avoids the repeat decodes, not the first one.
-    async function renderFromImage(image, size) {
-      if (!isSupported() || !image || !hasUsableSize(size)) return null;
+    async function renderFromImage(image, size, { onFailure } = {}) {
+      if (!image || !hasUsableSize(size)) {
+        reportFailure(onFailure, { stage: "input", reason: "invalid-request" });
+        return null;
+      }
+      if (!isSupported()) {
+        reportFailure(onFailure, { stage: "capability", reason: "bitmap-api-unavailable" });
+        return null;
+      }
       try {
         return await decodeBounded(image, size);
       } catch {
+        reportFailure(onFailure, { stage: "decode", reason: "bitmap-failed" });
         return null;
       }
     }
@@ -86,6 +122,14 @@
 
     function hasUsableSize(size) {
       return Number(size?.width) > 0 && Number(size?.height) > 0;
+    }
+
+    function reportFailure(callback, details) {
+      try {
+        callback?.(details);
+      } catch {
+        // Diagnostics must never replace the thumbnail fallback with an error.
+      }
     }
 
     function release(bitmap) {

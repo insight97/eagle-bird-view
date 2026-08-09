@@ -461,10 +461,12 @@ test("a master already within budget is painted untouched", async () => {
   assert.equal(node.element.dataset.mediaQuality, "original");
 });
 
-test("a file the platform cannot read falls back to bounding the loaded element", async () => {
+test("a moderately oversized file falls back to bounding the loaded element", async () => {
   const harness = createRasterHarness({ screenLongEdge: 400 });
   harness.imageDownscaler.renderFromURL = async () => null;
   const node = createMasterNode();
+  node.item.width = 600;
+  node.item.height = 800;
 
   harness.materializer.mount(node);
   harness.materializer.syncQuality({ loadNodes: [node], getQuality: () => "original" });
@@ -478,7 +480,7 @@ test("a file the platform cannot read falls back to bounding the loaded element"
   await settle();
 
   assert.deepEqual(harness.downscaleCalls, [
-    { source: "element", image: originalImage, budget: 512, width: 363, height: 512 },
+    { source: "element", image: originalImage, budget: 512, width: 384, height: 512 },
   ]);
   const canvas = harness.canvases().at(-1);
   assert.equal(canvas.transferred.id, "raster-1");
@@ -769,28 +771,37 @@ test("releasing a card gives its canvas pixels back", async () => {
 // Painting a master that cannot be bounded is only safe when it is close to
 // what the card displays. Doing it unconditionally put 40 MP masters into 130px
 // cards at over 1000x oversample and took tile-worker decode back to 282ms/s.
-test("a master far past its budget is left on the thumbnail", async () => {
+test("a master far past its budget skips the full element fallback", async () => {
   const harness = createRasterHarness({ screenLongEdge: 400 });
-  harness.imageDownscaler.renderFromURL = async () => null;
-  harness.imageDownscaler.renderFromImage = async () => null;
+  harness.imageDownscaler.renderFromURL = async (_url, _size, options = {}) => {
+    options.onFailure?.({ stage: "fetch", reason: "request-failed" });
+    return null;
+  };
   const node = createMasterNode();
+  node.item.width = 3029;
+  node.item.height = 2503;
 
   harness.materializer.mount(node);
   harness.materializer.syncQuality({ loadNodes: [node], getQuality: () => "original" });
   const thumbnail = harness.images()[0];
   thumbnail.emit("load");
   await settle();
-  const originalImage = harness.images().at(-1);
-  originalImage.emit("load");
-  await settle();
 
-  // 5374x7589 against a 512 budget: painting it is the thrash, not the fix.
+  // The latest trace caught this 7.6 MP source blocking its load callback for
+  // 202ms. Decoding the hidden master is still expensive even if it is later
+  // copied into a bounded canvas.
+  assert.equal(harness.images().length, 1, "only the thumbnail may be decoded as an element");
   assert.deepEqual(harness.canvases(), []);
-  assert.equal(originalImage.isConnected, false, "the master must not be painted");
+  assert.deepEqual(harness.downscaleCalls, []);
   assert.equal(node.previewImage, thumbnail);
   assert.equal(node.element.dataset.mediaQuality, "original-failed");
-  // Marked failed so the card stops asking for an original it cannot use.
   assert.equal(harness.mediaLoadQueue.snapshot(node).originalFailed, true);
+  const failure = harness.debugEvents.find(
+    ({ event }) => event === "bounded-raster-unavailable",
+  );
+  assert.equal(failure?.details.source, "file");
+  assert.equal(failure?.details.stage, "fetch");
+  assert.equal(failure?.details.reason, "request-failed");
 });
 
 test("bounded raster failure stays on the thumbnail even when the master is close", async () => {
