@@ -21,7 +21,7 @@ const BirdViewFolderContent = require("../folder-content-intake.js");
 const BirdViewLibraryContent = require("../library-content-target.js");
 const BirdViewVideoThumbnail = require("../video-thumbnail.js");
 const BirdViewSelection = require("../selection-navigation.js");
-const BirdViewBulkMetadata = require("../bulk-metadata.js");
+const BirdViewMetadata = require("../metadata-committer.js");
 
 const PLUGIN_SOURCE = fs.readFileSync(path.resolve(__dirname, "../plugin.js"), "utf8");
 const SELECTORS = [
@@ -433,7 +433,7 @@ function createPluginHarness({
     BirdViewSettingsPresets,
     BirdViewSettingsSnapshot,
     BirdViewRowLoad,
-    BirdViewBulkMetadata,
+    BirdViewMetadata,
     BirdViewSelectionTags,
     BirdViewFolderBrowser,
     BirdViewFolderContent,

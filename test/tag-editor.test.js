@@ -92,7 +92,7 @@ test("committing changed tags delegates persistence after closing", () =>
     editor.session = session;
 
     await editor.commit(session);
-    assert.deepEqual(calls, [[node, ["UI", "Photo"], ["UI"]]]);
+    assert.deepEqual([...calls[0][0]], [[node, ["UI", "Photo"]]]);
     assert.equal(editor.session, null);
   }));
 
@@ -102,7 +102,7 @@ test("committing multiple tags only applies values the user touched", () =>
     const first = { item: { tags: ["Shared", "First"] } };
     const second = { item: { tags: ["Shared", "Second"] } };
     const editor = new TagEditor({
-      onCommitMultiple: async (...args) => calls.push(args),
+      onCommit: async (...args) => calls.push(args),
     });
     editor.session = {
       node: first,
@@ -120,7 +120,7 @@ test("committing multiple tags only applies values the user touched", () =>
     };
 
     await editor.commit(editor.session);
-    assert.deepEqual([...calls[0][1].get(first)], ["Shared"]);
-    assert.deepEqual([...calls[0][1].get(second)], ["Shared", "Second"]);
+    assert.deepEqual([...calls[0][0].get(first)], ["Shared"]);
+    assert.equal(calls[0][0].has(second), false, "unchanged nodes stay out of the intent map");
     assert.equal(editor.session, null);
   }));

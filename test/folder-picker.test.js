@@ -40,7 +40,7 @@ test("committing multiple folders only applies values the user touched", async (
   const second = { item: { folders: ["shared", "second"] } };
   const calls = [];
   const picker = new FolderPicker({
-    onCommitMultiple: async (...args) => calls.push(args),
+    onCommit: async (...args) => calls.push(args),
   });
   picker.session = {
     node: first,
@@ -59,8 +59,8 @@ test("committing multiple folders only applies values the user touched", async (
 
   try {
     await picker.commit(picker.session);
-    assert.deepEqual([...calls[0][1].get(first)], ["shared"]);
-    assert.deepEqual([...calls[0][1].get(second)], ["shared", "second"]);
+    assert.deepEqual([...calls[0][0].get(first)], ["shared"]);
+    assert.equal(calls[0][0].has(second), false, "unchanged nodes stay out of the intent map");
   } finally {
     global.document = originalDocument;
   }

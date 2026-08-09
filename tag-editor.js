@@ -175,13 +175,11 @@
       ) {
         return;
       }
-      await this.options.onCommit(session.node, nextTags, previousTags);
+      await this.options.onCommit?.(new Map([[session.node, nextTags]]));
     }
 
     async commitMultiple(session) {
       const nextByNode = new Map();
-      const previousByNode = new Map();
-      let changed = false;
       for (const node of session.nodes) {
         const previousTags = [...session.initialByNode.get(node)];
         const nextTags = previousTags.filter(
@@ -190,18 +188,16 @@
         for (const tag of session.selected) {
           if (session.touched.has(tag) && !nextTags.includes(tag)) nextTags.push(tag);
         }
-        previousByNode.set(node, previousTags);
-        nextByNode.set(node, nextTags);
         if (
           previousTags.length !== nextTags.length ||
           previousTags.some((tag, index) => tag !== nextTags[index])
         ) {
-          changed = true;
+          nextByNode.set(node, nextTags);
         }
       }
       this.close();
-      if (!changed) return;
-      await this.options.onCommitMultiple?.(session.nodes, nextByNode, previousByNode);
+      if (!nextByNode.size) return;
+      await this.options.onCommit?.(nextByNode);
     }
 
     refresh() {

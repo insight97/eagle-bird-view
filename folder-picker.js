@@ -176,13 +176,11 @@
       ) {
         return;
       }
-      await this.options.onCommit?.(session.node, nextFolders, previousFolders);
+      await this.options.onCommit?.(new Map([[session.node, nextFolders]]));
     }
 
     async commitMultiple(session) {
       const nextByNode = new Map();
-      const previousByNode = new Map();
-      let changed = false;
       for (const node of session.nodes) {
         const previousFolders = [...session.initialByNode.get(node)];
         const nextFolders = previousFolders.filter(
@@ -193,18 +191,16 @@
             nextFolders.push(folderId);
           }
         }
-        previousByNode.set(node, previousFolders);
-        nextByNode.set(node, nextFolders);
         if (
           previousFolders.length !== nextFolders.length ||
           previousFolders.some((folderId, index) => folderId !== nextFolders[index])
         ) {
-          changed = true;
+          nextByNode.set(node, nextFolders);
         }
       }
       this.close();
-      if (!changed) return;
-      await this.options.onCommitMultiple?.(session.nodes, nextByNode, previousByNode);
+      if (!nextByNode.size) return;
+      await this.options.onCommit?.(nextByNode);
     }
   }
 

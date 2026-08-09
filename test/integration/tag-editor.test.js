@@ -44,7 +44,7 @@ test("tag editor opens, filters tags, selects a result, and commits with Enter",
     );
     await Promise.resolve();
 
-    assert.deepEqual(commits, [[node, ["UI", "Photo"], ["UI"]]]);
+    assert.deepEqual([...commits[0][0]], [[node, ["UI", "Photo"]]]);
     assert.equal(viewport.querySelector("[role='dialog']"), null);
   }));
 
@@ -79,7 +79,7 @@ test("tag editor commits changed tags when closing with Escape", () =>
     );
     await Promise.resolve();
 
-    assert.deepEqual(commits, [[node, ["UI", "Photo"], ["UI"]]]);
+    assert.deepEqual([...commits[0][0]], [[node, ["UI", "Photo"]]]);
     assert.equal(editor.session, null);
     assert.equal(viewport.querySelector("[role='dialog']"), null);
   }));

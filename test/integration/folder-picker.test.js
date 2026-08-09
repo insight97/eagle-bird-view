@@ -50,7 +50,7 @@ test("folder picker keeps existing folders selected and commits additions/remova
     );
     await Promise.resolve();
 
-    assert.deepEqual(commits, [[node, ["archive"], ["refs"]]]);
+    assert.deepEqual([...commits[0][0]], [[node, ["archive"]]]);
     assert.equal(picker.session, null);
   }));
 

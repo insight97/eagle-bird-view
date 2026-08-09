@@ -22,10 +22,14 @@ function imageItem(id) {
   };
 }
 
-async function startPlugin() {
+async function startPlugin(
+  items = [imageItem("one"), imageItem("two"), imageItem("three")],
+  { quiet = false } = {},
+) {
   const plugin = createPluginHarness({
-    selectedItems: [imageItem("one"), imageItem("two"), imageItem("three")],
+    selectedItems: items,
     navigationProbe: true,
+    quiet,
     runAnimationFrames: true,
   });
   plugin.start();
@@ -97,4 +101,23 @@ test("Escape clears the multiple selection", async () => {
 
   assert.deepEqual(selectedIds(plugin), []);
   assert.equal(plugin.elements.get("#selection-details").hidden, true);
+});
+
+test("batch rating keeps successful saves and rolls back only failed items", async () => {
+  const items = [imageItem("one"), imageItem("two"), imageItem("three")];
+  items[1].save = async () => false;
+  const plugin = await startPlugin(items, { quiet: true });
+  const cards = plugin.elements
+    .get("#world")
+    .children.filter((element) => element.classList.contains("media-card"));
+  cards[0].emit("click");
+  cards[2].emit("click", { shiftKey: true });
+
+  plugin.elements.get("#selection-rating").children[2].click();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(items.map(({ star }) => star), [3, 0, 3]);
+  assert.match(plugin.elements.get("#toast").textContent, /2 個素材.*1 個儲存失敗/);
+  assert.ok(plugin.state.selectedNodes.size === 3);
+  assert.ok([...plugin.state.selectedNodes].every((node) => node.isSaving === false));
 });

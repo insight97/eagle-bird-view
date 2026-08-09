@@ -22,7 +22,7 @@
 - `viewport-media-controller.js`：管理相機移動 lifecycle、viewport 排程與媒體規劃，並驅動 `media-materializer.js`。平移只跑媒體覆蓋、縮放只跑品質判斷、相機停下才做完整 pass；caller 不需知道 timer protocol 或 media plan schema。
 - `camera-navigation.js`／`selection-navigation.js`：相機平移／縮放／聚焦與鍵盤選取。
 - `selection-model.js`：管理單選、Ctrl/Cmd 切換、Shift 區間選取、active 素材與多選集合。
-- `bulk-metadata.js`：以有限併發儲存批次 metadata，讓部分失敗只回滾失敗素材。
+- `metadata-committer.js`：管理單筆與批次 metadata transaction，包含 optimistic apply、saving state、有限併發與部分失敗 rollback；Eagle item 與測試 fake 是 production／mock adapters。
 - `selection-tag-overflow.js`：選取素材 Tag 的可用寬度收合與搜尋選擇。
 - `auto-explore-settings.js`／`settings-presets.js`：設定面板、篩選器正規化與 localStorage preset。
 - `settings-snapshot.js`：設定 schema、legacy migration、正規化與 `bird-view-settings` storage；不直接修改 plugin state 或 UI。
@@ -61,7 +61,7 @@ viewport-work-scheduler.js
 viewport-media-controller.js
 tag-editor.js
 camera-navigation.js
-bulk-metadata.js
+metadata-committer.js
 selection-model.js
 selection-navigation.js
 plugin.js (defer)

@@ -19,7 +19,7 @@ _Avoid_: folder browser, folder query, folder loader
 | Initial media mount | `plugin.js:renderItems` | `board-state.js`, `media-materializer.js` | `test/integration/plugin-startup.test.js`, `test/integration/original-image-load.test.js` |
 | Pan, zoom, keyboard focus | `plugin.js:handleWheel` / `handleKeyDown` | `camera-navigation.js`, `selection-navigation.js` | `test/camera-navigation.test.js`, `test/selection-navigation.test.js` |
 | Single and multiple selection | `plugin.js` media-card click handlers | `selection-model.js`, `selection-navigation.js`, `media-materializer.js` | `test/selection-model.test.js`, `test/selection-navigation.test.js`, `test/integration/multi-selection.test.js` |
-| Batch rating, tags, and folders | `plugin.js:updateSelectionStatus` / metadata commits | `bulk-metadata.js`, `tag-editor.js`, `folder-picker.js` | `test/bulk-metadata.test.js`, `test/tag-editor.test.js`, `test/folder-picker.test.js` |
+| Batch rating, tags, and folders | `plugin.js:updateSelectionStatus` / metadata commit intents | `metadata-committer.js`, `tag-editor.js`, `folder-picker.js` | `test/metadata-committer.test.js`, `test/tag-editor.test.js`, `test/folder-picker.test.js` |
 | Exploration rows | `plugin.js:exploreNextRow` / `loadNextUnratedRow` | `exploration-source.js`, `row-load-coordinator.js` | `test/exploration-source.test.js`, `test/core-exploration.test.js` |
 | Settings and presets | `plugin.js:updateBoardSettings` | `settings-snapshot.js`, `settings-presets.js` | `test/settings-snapshot.test.js`, `test/integration/settings-presets.test.js` |
 

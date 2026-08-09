@@ -60,7 +60,7 @@ const { SelectionTagOverflow, getVisibleTagCount } = BirdViewSelectionTags;
 const { createVideoThumbnailService } = BirdViewVideoThumbnail;
 const { createCameraNavigation } = BirdViewCamera;
 const { createSelectionNavigation } = BirdViewSelection;
-const { createBulkMetadataService } = BirdViewBulkMetadata;
+const { createMetadataCommitter } = BirdViewMetadata;
 const SEAMLESS_LAYOUT_GAP = 0;
 const SEAMLESS_ROW_GAP = 0;
 const TIGHT_FOCUS_ROW_EMPHASIS = 1.1;
@@ -73,7 +73,13 @@ const GRID_LAYER_OVERFLOW = 768;
 const METADATA_SUCCESS_TOAST_MS = 1200;
 const BOARD_HISTORY_MAX_ENTRIES = 10;
 const BOARD_HISTORY_MAX_ITEMS = 5000;
-const bulkMetadata = createBulkMetadataService({ maxConcurrent: 4 });
+const metadataCommitter = createMetadataCommitter({
+  maxConcurrent: 4,
+  onChange: refreshCommittedMetadata,
+  onSavingChange: setLabelSaving,
+  invalidateSources: invalidateMetadataSources,
+  onComplete: updateSelectionStatus,
+});
 const VIDEO_THUMBNAIL_UNAVAILABLE_MESSAGES = Object.freeze({
   "item-api-unavailable": "目前取得的 Eagle 素材物件不支援自訂影片縮圖。",
   "runtime-unavailable": "外掛執行環境缺少建立暫存檔案所需的功能。",
@@ -191,14 +197,12 @@ const tagEditor = new TagEditor({
   getAvailableTags: () => state.tagColors.keys(),
   createTagChip,
   onSelectNode: (node) => selectionNavigation.setSelectedNode(node),
-  onCommit: commitNodeTags,
-  onCommitMultiple: commitNodesTags,
+  onCommit: commitTagChanges,
 });
 const folderPicker = new FolderPicker({
   getViewport: () => elements.viewport,
   onSelectNode: (node) => selectionNavigation.setSelectedNode(node),
-  onCommit: commitNodeFolders,
-  onCommitMultiple: commitNodesFolders,
+  onCommit: commitFolderChanges,
   onEmpty: () => showToast("目前沒有可用的 Eagle 資料夾。", false),
 });
 const selectionTagOverflow = new SelectionTagOverflow({
@@ -1073,62 +1077,32 @@ async function setItemRating(node, value, { toggle = false } = {}) {
     ? getNextRating(previousRating, value)
     : clamp(Math.round(Number(value) || 0), 0, 5);
   if (nextRating === previousRating) return false;
-  node.item.star = nextRating;
-  refreshNodeRating(node);
-  return saveItemMetadata(node, {
+  const result = await commitMetadataChanges("star", new Map([[node, nextRating]]), {
     successMessage: nextRating
       ? `已將「${node.item.name || "素材"}」設為 ${nextRating} 顆星。`
       : `已清除「${node.item.name || "素材"}」的評分。`,
-    rollback: () => {
-      node.item.star = previousRating;
-      refreshNodeRating(node);
-    },
   });
+  return result.succeeded.length > 0;
 }
 
 async function setItemRatingForNodes(nodes, value, { toggle = false } = {}) {
   const selectedNodes = [...new Set(nodes || [])].filter(Boolean);
-  if (!selectedNodes.length || selectedNodes.some((node) => node.isSaving)) return false;
+  if (!selectedNodes.length) return false;
   const ratings = selectedNodes.map((node) => getItemRating(node.item));
   const nextRating =
     toggle && ratings.every((rating) => rating === Number(value))
       ? 0
       : clamp(Math.round(Number(value) || 0), 0, 5);
-  const previousByNode = new Map(selectedNodes.map((node) => [node, getItemRating(node.item)]));
-  for (const node of selectedNodes) {
-    node.item.star = nextRating;
-    node.isSaving = true;
-    setLabelSaving(node, true);
-    refreshNodeRating(node);
-  }
-  invalidateMetadataSources();
-  const result = await bulkMetadata.save(selectedNodes, {
-    save: async (node) => {
-      if (typeof node.item.save !== "function") throw new Error("素材不支援儲存");
-      const saved = await node.item.save();
-      if (saved === false) throw new Error("Eagle 拒絕儲存變更");
-      return saved;
+  const result = await commitMetadataChanges(
+    "star",
+    new Map(selectedNodes.map((node) => [node, nextRating])),
+    {
+      successMessage: `已將 ${selectedNodes.length} 個素材設為 ${nextRating} 顆星。`,
+      partialMessage: ({ succeeded, failed }) =>
+        `已更新 ${succeeded.length} 個素材的評分，${failed.length} 個儲存失敗。`,
+      failureMessage: "批次評分失敗，未能儲存素材。",
     },
-    rollback: (node) => {
-      node.item.star = previousByNode.get(node);
-      refreshNodeRating(node);
-    },
-  });
-  for (const node of selectedNodes) {
-    node.isSaving = false;
-    setLabelSaving(node, false);
-  }
-  updateSelectionStatus();
-  if (result.failed.length) {
-    showToast(
-      result.succeeded.length
-        ? `已更新 ${result.succeeded.length} 個素材的評分，${result.failed.length} 個儲存失敗。`
-        : "批次評分失敗，未能儲存素材。",
-      true,
-    );
-  } else {
-    showToast(`已將 ${selectedNodes.length} 個素材設為 ${nextRating} 顆星。`, false, METADATA_SUCCESS_TOAST_MS);
-  }
+  );
   return result.succeeded.length > 0;
 }
 
@@ -1440,75 +1414,56 @@ function invalidateMetadataSources() {
   updateAutoExploreToggle();
 }
 
-async function saveItemMetadata(node, { rollback, successMessage }) {
-  if (node.isSaving) return false;
-  node.isSaving = true;
-  setLabelSaving(node, true);
-  invalidateMetadataSources();
-  try {
-    if (typeof node.item.save !== "function") throw new Error("素材不支援儲存");
-    const result = await node.item.save();
-    if (result === false) throw new Error("Eagle 拒絕儲存變更");
-    showToast(successMessage, false, METADATA_SUCCESS_TOAST_MS);
-    return true;
-  } catch (error) {
-    rollback();
-    console.error("Failed to save Eagle item metadata", error);
-    showToast(`無法儲存素材資料：${error.message || error}`, true);
-    return false;
-  } finally {
-    node.isSaving = false;
-    setLabelSaving(node, false);
+function refreshCommittedMetadata(node, property) {
+  if (property === "star") {
+    refreshNodeRating(node);
+    return;
   }
+  refreshMediaMetadata(node);
+  updateSelectionStatus();
 }
 
-async function saveItemMetadataBatch(nodes, { nextByNode, previousByNode, property, successMessage }) {
-  const requestedNodes = [...new Set(nodes || [])].filter((node) => nextByNode.has(node));
-  if (requestedNodes.some((node) => node.isSaving)) return { succeeded: [], failed: [] };
-  const changedNodes = requestedNodes;
-  if (!changedNodes.length || changedNodes.some((node) => typeof node.item.save !== "function")) {
-    if (changedNodes.some((node) => typeof node.item.save !== "function")) {
-      showToast("部分素材不支援儲存，未執行批次更新。", true);
-    }
-    return { succeeded: [], failed: [] };
+async function commitMetadataChanges(property, changes, messages = {}) {
+  const result = await metadataCommitter.commit({ property, changes });
+  if (result.status === "empty" || result.status === "busy") return result;
+  if (result.status === "unsupported") {
+    showToast(
+      result.unsupported.length > 1
+        ? "部分素材不支援儲存，未執行批次更新。"
+        : "素材不支援儲存。",
+      true,
+    );
+    return result;
   }
 
-  for (const node of changedNodes) {
-    node.item[property] = nextByNode.get(node);
-    node.isSaving = true;
-    setLabelSaving(node, true);
-    refreshMediaMetadata(node);
+  for (const { error } of result.failed) {
+    console.error("Failed to save Eagle item metadata", error);
   }
-  updateSelectionStatus();
-  invalidateMetadataSources();
-  const result = await bulkMetadata.save(changedNodes, {
-    save: async (node) => {
-      const saved = await node.item.save();
-      if (saved === false) throw new Error("Eagle 拒絕儲存變更");
-      return saved;
-    },
-    rollback: (node) => {
-      node.item[property] = previousByNode.get(node);
-      refreshMediaMetadata(node);
-    },
-  });
-  for (const node of changedNodes) {
-    node.isSaving = false;
-    setLabelSaving(node, false);
+  if (result.status === "partial") {
+    const message =
+      typeof messages.partialMessage === "function"
+        ? messages.partialMessage(result)
+        : messages.partialMessage ||
+          `已成功更新 ${result.succeeded.length} 個素材，${result.failed.length} 個儲存失敗。`;
+    showToast(message, true);
+    return result;
   }
-  updateSelectionStatus();
-  if (result.failed.length) {
-    if (result.succeeded.length) {
-      showToast(
-        `${successMessage}已成功 ${result.succeeded.length} 個，${result.failed.length} 個儲存失敗。`,
-        true,
-      );
-    } else {
-      showToast(`批次更新失敗：${result.failed.length} 個素材未能儲存。`, true);
-    }
-  } else {
-    showToast(successMessage, false, METADATA_SUCCESS_TOAST_MS);
+  if (result.status === "failed") {
+    const error = result.failed[0]?.error;
+    const message =
+      messages.failureMessage ||
+      (result.failed.length > 1
+        ? `批次更新失敗：${result.failed.length} 個素材未能儲存。`
+        : `無法儲存素材資料：${error?.message || error || "未知錯誤"}`);
+    showToast(message, true);
+    return result;
   }
+
+  const successMessage =
+    typeof messages.successMessage === "function"
+      ? messages.successMessage(result)
+      : messages.successMessage;
+  if (successMessage) showToast(successMessage, false, METADATA_SUCCESS_TOAST_MS);
   return result;
 }
 
@@ -1527,31 +1482,16 @@ function setLabelSaving(node, isSaving) {
   }
 }
 
-async function commitNodeTags(node, nextTags, previousTags) {
-  node.item.tags = nextTags;
-  refreshMediaMetadata(node);
-  const saved = await saveItemMetadata(node, {
-    successMessage: `已更新「${node.item.name || "素材"}」的標籤。`,
-    rollback: () => {
-      node.item.tags = previousTags;
-      refreshMediaMetadata(node);
-      updateSelectionStatus();
-    },
-  });
-  if (saved) {
-    updateSelectionStatus();
-    void loadTagColors();
-  }
-}
-
-async function commitNodesTags(nodes, nextByNode, previousByNode) {
-  const result = await saveItemMetadataBatch(nodes, {
-    nextByNode,
-    previousByNode,
-    property: "tags",
-    successMessage: `已更新 ${nodes.length} 個素材的標籤。`,
+async function commitTagChanges(changes) {
+  const nodes = [...changes.keys()];
+  const result = await commitMetadataChanges("tags", changes, {
+    successMessage:
+      nodes.length === 1
+        ? `已更新「${nodes[0].item.name || "素材"}」的標籤。`
+        : `已更新 ${nodes.length} 個素材的標籤。`,
   });
   if (result.succeeded.length) void loadTagColors();
+  return result;
 }
 
 async function removeSelectionTarget(node, { type, value, label }) {
@@ -1562,50 +1502,21 @@ async function removeSelectionTarget(node, { type, value, label }) {
   const nextValues = previousValues.filter((entry) => entry !== targetValue);
   if (!targetValue || nextValues.length === previousValues.length) return;
 
-  const refresh = () => {
-    refreshMediaMetadata(node);
-    updateSelectionStatus();
-  };
-
-  node.item[property] = nextValues;
-  refresh();
-  await saveItemMetadata(node, {
+  return commitMetadataChanges(property, new Map([[node, nextValues]]), {
     successMessage: `已從「${node.item.name || "素材"}」移除${type === "tag" ? "Tag" : "資料夾"}「${label}」。`,
-    rollback: () => {
-      node.item[property] = previousValues;
-      refreshMediaMetadata(node);
-      updateSelectionStatus();
-    },
   });
 }
 
-async function commitNodeFolders(node, nextFolders, previousFolders) {
-  if (!node || node.isSaving) return;
-  node.item.folders = nextFolders;
-  refreshMediaMetadata(node);
-  updateSelectionStatus();
-  const saved = await saveItemMetadata(node, {
-    successMessage: `已更新「${node.item.name || "素材"}」的資料夾。`,
-    rollback: () => {
-      node.item.folders = previousFolders;
-      refreshMediaMetadata(node);
-      updateSelectionStatus();
-    },
-  });
-  if (saved) {
-    await loadFolderNames([node.item]);
-    updateSelectionStatus();
-  }
-}
-
-async function commitNodesFolders(nodes, nextByNode, previousByNode) {
-  const result = await saveItemMetadataBatch(nodes, {
-    nextByNode,
-    previousByNode,
-    property: "folders",
-    successMessage: `已更新 ${nodes.length} 個素材的資料夾。`,
+async function commitFolderChanges(changes) {
+  const nodes = [...changes.keys()];
+  const result = await commitMetadataChanges("folders", changes, {
+    successMessage:
+      nodes.length === 1
+        ? `已更新「${nodes[0].item.name || "素材"}」的資料夾。`
+        : `已更新 ${nodes.length} 個素材的資料夾。`,
   });
   if (result.succeeded.length) await loadFolderNames(result.succeeded.map((node) => node.item));
+  return result;
 }
 
 async function loadTagColors() {
