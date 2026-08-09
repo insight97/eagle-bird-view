@@ -33,10 +33,13 @@
   const DEFAULT_SMOOTH_ZOOM_SPEED = 1.5;
   const DEFAULT_KEYBOARD_ACCELERATION = 16;
   const KEYBOARD_DECELERATION = 14;
+  // At the highest configurable speeds, a fixed exponential response kept the
+  // camera technically moving for 350–600ms after key release. Original raster
+  // work is deferred for that entire lifecycle, so adapt only the release
+  // response enough to reach the existing visual settle threshold promptly.
+  const MAX_SMOOTH_MOTION_SETTLE_SECONDS = 0.22;
   const SMOOTH_PAN_VELOCITY_EPSILON = 0.5;
-  // Below 30px/s the exponential tail travels only about two more screen
-  // pixels, but used to keep the camera motion lifecycle active for roughly
-  // another 300ms. Settle there so deferred media quality can resume promptly.
+  // Below 30px/s the exponential tail travels only about two more screen pixels.
   const SMOOTH_PAN_SETTLE_VELOCITY = 30;
   const SMOOTH_ZOOM_VELOCITY_EPSILON = 0.001;
 
@@ -238,6 +241,15 @@
       );
     }
 
+    function getKeyboardDeceleration(maxVelocity, settleVelocity) {
+      const velocity = Math.abs(Number(maxVelocity) || 0);
+      const ratio = Math.max(1, velocity / settleVelocity);
+      return Math.max(
+        KEYBOARD_DECELERATION,
+        Math.log(ratio) / MAX_SMOOTH_MOTION_SETTLE_SECONDS,
+      );
+    }
+
     function panOneViewport(key) {
       const delta = getViewportPanDelta(
         key,
@@ -290,7 +302,9 @@
               y: (-y / length) * speed,
             }
           : { x: 0, y: 0 };
-        const responseRate = length ? getKeyboardAcceleration() : KEYBOARD_DECELERATION;
+        const responseRate = length
+          ? getKeyboardAcceleration()
+          : getKeyboardDeceleration(speed, SMOOTH_PAN_SETTLE_VELOCITY);
         const response = 1 - Math.exp(-responseRate * elapsed);
         const currentVelocity = state.smoothPanVelocity || { x: 0, y: 0 };
         const nextVelocity = {
@@ -364,7 +378,12 @@
           Number(state.smoothZoomSpeed || DEFAULT_SMOOTH_ZOOM_SPEED),
         );
         const targetVelocity = direction * Math.log(speed);
-        const responseRate = direction ? getKeyboardAcceleration() : KEYBOARD_DECELERATION;
+        const responseRate = direction
+          ? getKeyboardAcceleration()
+          : getKeyboardDeceleration(
+              Math.log(speed),
+              SMOOTH_ZOOM_VELOCITY_EPSILON,
+            );
         const response = 1 - Math.exp(-responseRate * elapsed);
         const currentVelocity = Number(state.smoothZoomVelocity) || 0;
         state.smoothZoomVelocity =

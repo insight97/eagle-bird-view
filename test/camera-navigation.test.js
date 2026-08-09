@@ -247,6 +247,37 @@ test("smooth keyboard pan drops its imperceptible low-speed tail promptly", () =
   );
 });
 
+test("smooth keyboard pan adapts its braking at the maximum configured speed", () => {
+  let timestamp = 0;
+  let endedAt = null;
+  const harness = createHarness(180, {
+    onSmoothPanEnd: () => {
+      endedAt = timestamp;
+    },
+  });
+  harness.state.smoothPanEnabled = true;
+  harness.state.smoothPanSpeed = 6000;
+  harness.navigation.startSmoothKeyboardPan("arrowright");
+
+  for (timestamp = 16; timestamp <= 1024; timestamp += 16) {
+    harness.frames.get(harness.state.smoothPanFrame)(timestamp);
+  }
+  const releasedAt = timestamp - 16;
+  harness.navigation.handleKeyUp("ArrowRight");
+
+  for (timestamp = releasedAt + 16; timestamp <= releasedAt + 500; timestamp += 16) {
+    const frame = harness.state.smoothPanFrame;
+    if (frame === null) break;
+    harness.frames.get(frame)(timestamp);
+  }
+
+  assert.notEqual(endedAt, null, "the high-speed pan lifecycle should end");
+  assert.ok(
+    endedAt - releasedAt <= 240,
+    `high-speed pan held back settled work for ${endedAt - releasedAt}ms`,
+  );
+});
+
 test("smooth keyboard pan uses the shared keyboard acceleration", () => {
   const slow = createHarness();
   const fast = createHarness();
@@ -382,6 +413,37 @@ test("smooth keyboard zoom accelerates while held and decelerates after release"
   }
   assert.equal(harness.state.smoothZoomFrame, null);
   assert.equal(harness.state.smoothZoomVelocity, 0);
+});
+
+test("smooth keyboard zoom adapts its braking at the maximum configured speed", () => {
+  let timestamp = 0;
+  let endedAt = null;
+  const harness = createHarness(180, {
+    onSmoothZoomEnd: () => {
+      endedAt = timestamp;
+    },
+  });
+  harness.state.smoothZoomEnabled = true;
+  harness.state.smoothZoomSpeed = 60;
+  harness.navigation.startSmoothKeyboardZoom("PageUp");
+
+  for (timestamp = 16; timestamp <= 1024; timestamp += 16) {
+    harness.frames.get(harness.state.smoothZoomFrame)(timestamp);
+  }
+  const releasedAt = timestamp - 16;
+  harness.navigation.handleKeyUp("PageUp");
+
+  for (timestamp = releasedAt + 16; timestamp <= releasedAt + 800; timestamp += 16) {
+    const frame = harness.state.smoothZoomFrame;
+    if (frame === null) break;
+    harness.frames.get(frame)(timestamp);
+  }
+
+  assert.notEqual(endedAt, null, "the high-speed zoom lifecycle should end");
+  assert.ok(
+    endedAt - releasedAt <= 240,
+    `high-speed zoom held back settled work for ${endedAt - releasedAt}ms`,
+  );
 });
 
 test("smooth keyboard zoom reads the viewport once per gesture", () => {
