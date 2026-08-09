@@ -412,6 +412,7 @@ function setup() {
     elements,
     getRows: () => board.rows,
     getBaseScale,
+    getViewportSize: () => state.viewportSize || getViewportSize(),
     updateCamera,
     selectNodeAtViewportCenter: () => selectionNavigation.selectNodeAtViewportCenter(),
     onFocusStart: () => {

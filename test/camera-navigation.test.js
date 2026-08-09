@@ -384,6 +384,29 @@ test("smooth keyboard zoom accelerates while held and decelerates after release"
   assert.equal(harness.state.smoothZoomVelocity, 0);
 });
 
+test("smooth keyboard zoom reads the viewport once per gesture", () => {
+  let viewportReads = 0;
+  const harness = createHarness(180, {
+    getViewportSize: () => {
+      viewportReads += 1;
+      return { width: 1000, height: 500 };
+    },
+  });
+  harness.state.smoothZoomEnabled = true;
+
+  harness.navigation.startSmoothKeyboardZoom("PageUp");
+  harness.frames.get(harness.state.smoothZoomFrame)(16);
+  harness.frames.get(harness.state.smoothZoomFrame)(32);
+
+  assert.equal(viewportReads, 1);
+  assert.ok(
+    Math.abs((500 - harness.state.camera.x) / harness.state.camera.scale - 500) < 0.001,
+  );
+  assert.ok(
+    Math.abs((250 - harness.state.camera.y) / harness.state.camera.scale - 250) < 0.001,
+  );
+});
+
 test("smooth keyboard zoom uses the configured acceleration response", () => {
   const slow = createHarness();
   const fast = createHarness();

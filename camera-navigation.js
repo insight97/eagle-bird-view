@@ -61,6 +61,10 @@
       onSmoothZoomEnd = () => {},
     } = options;
     const getRows = options.getRows || (() => state.rows);
+    const getViewportSize = options.getViewportSize || (() => ({
+      width: elements.viewport.clientWidth,
+      height: elements.viewport.clientHeight,
+    }));
 
     if (!state || !elements?.viewport || !getBaseScale || !updateCamera) {
       throw new Error("Camera navigation requires state, viewport, scale, and camera callbacks");
@@ -335,6 +339,11 @@
 
       beginSmoothZoom();
       state.smoothZoomLastTimestamp = now();
+      const viewport = getViewportSize();
+      const zoomCenter = {
+        x: viewport.width / 2,
+        y: viewport.height / 2,
+      };
       const step = (timestamp) => {
         if (!state.smoothZoomEnabled || !state.smoothZoomKeys.size) {
           if (!state.smoothZoomEnabled) {
@@ -365,11 +374,7 @@
           state.smoothZoomVelocity = 0;
         } else {
           const factor = Math.exp(state.smoothZoomVelocity * elapsed);
-          zoomAtPoint(
-            elements.viewport.clientWidth / 2,
-            elements.viewport.clientHeight / 2,
-            factor,
-          );
+          zoomAtPoint(zoomCenter.x, zoomCenter.y, factor);
         }
 
         if (state.smoothZoomKeys.size || state.smoothZoomVelocity !== 0) {
