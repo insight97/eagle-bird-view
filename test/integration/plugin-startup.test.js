@@ -173,7 +173,7 @@ test("smooth pan and zoom speeds accept the expanded upper limits", async () => 
   assert.equal(plugin.elements.get("#smooth-zoom-speed-value").textContent, "60.00×/秒");
 });
 
-test("smooth zoom can request original quality before motion settles", async () => {
+test("smooth zoom defers a blocking element fallback until motion settles", async () => {
   const plugin = createPluginHarness({
     selectedItems: imageItems(1),
     runAnimationFrames: true,
@@ -207,6 +207,11 @@ test("smooth zoom can request original quality before motion settles", async () 
   thumbnailImage.emit("load");
   await flush();
 
+  assert.equal(plugin.createdElementsOfTag("img").length, 1);
+
+  plugin.windowEmit("keyup", { key: "PageUp" });
+  await flush();
+
   assert.equal(plugin.createdElementsOfTag("img").length, 2);
 });
 
@@ -225,6 +230,12 @@ test("the selected image preloads original quality below the display threshold",
   const thumbnailImage = plugin.createdElementsOfTag("img")[0];
   assert.ok(thumbnailImage);
   thumbnailImage.emit("load");
+  await flush();
+
+  assert.equal(plugin.createdElementsOfTag("img").length, 1);
+
+  plugin.advanceClock(180);
+  plugin.flushTimersUnder(1000);
   await flush();
 
   assert.equal(plugin.createdElementsOfTag("img").length, 2);

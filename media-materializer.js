@@ -80,6 +80,8 @@
     const retryOriginalByNode = new WeakMap();
     const resizeRasterByNode = new WeakMap();
     const thumbnailImageByNode = new WeakMap();
+    const deferredElementFallbackNodes = new WeakSet();
+    let shouldDeferElementFallback = () => false;
     // The bounded raster a card is currently painting — the <canvas> holding it
     // and the budget it was built for, so a later zoom can tell whether it still
     // has enough pixels.
@@ -262,9 +264,11 @@
       selectedNode = null,
       getQuality = () => "thumbnail",
       deferOriginals = () => false,
+      deferElementFallback = () => false,
       prioritizeOriginal = () => false,
       preserveOriginals = false,
     } = {}) {
+      shouldDeferElementFallback = normalizePredicate(deferElementFallback);
       const visible = new Set(visibleNodes);
       const retained = new Set(retainedNodes);
 
@@ -285,8 +289,17 @@
 
       for (const node of visible) mount(node);
       for (const node of loadNodes) {
+        const deferFallback = shouldDeferElementFallback();
+        if (!deferFallback) deferredElementFallbackNodes.delete(node);
         const quality = getQuality(node);
         const requested = requestedQuality(node, quality, deferOriginals);
+        if (
+          requested === "original" &&
+          deferFallback &&
+          deferredElementFallbackNodes.has(node)
+        ) {
+          continue;
+        }
         const priority = prioritizeOriginal(node) ? "high" : "normal";
         requestMediaByNode.get(node)?.(
           requested,
@@ -320,18 +333,23 @@
       getQuality = () => "thumbnail",
       prewarmRaster = () => false,
       prioritizeOriginal = () => false,
+      deferElementFallback = () => false,
     } = {}) {
+      shouldDeferElementFallback = normalizePredicate(deferElementFallback);
       for (const node of materializedNodes) {
         if (getQuality(node) !== "original") mediaLoadQueue.cancel(node, "original");
       }
 
       for (const node of loadNodes) {
         if (!materializedNodes.has(node)) continue;
+        const deferFallback = shouldDeferElementFallback();
+        if (!deferFallback) deferredElementFallbackNodes.delete(node);
         const quality = getQuality(node);
         if (quality !== "original") {
           requestMediaByNode.get(node)?.(quality);
           continue;
         }
+        if (deferFallback && deferredElementFallbackNodes.has(node)) continue;
         const screenLongEdge = getNodeScreenLongEdge(node);
         const actualBudget = getRasterDimensionBudget(screenLongEdge);
         const shouldPrewarm = prewarmRaster(node);
@@ -653,6 +671,7 @@
 
       function showRaster(canvas, budget, source, token) {
         clearOriginalLoadTimeout();
+        deferredElementFallbackNodes.delete(node);
         frame.append(canvas);
         showMedia(canvas);
         rasterByNode.set(node, { element: canvas, budget, prewarmed: token.prewarmed });
@@ -705,6 +724,7 @@
           item.height,
           token.budget || screenLongEdge,
         );
+        let failure = null;
         debugLog(item, "original-load-started", {
           atMs: token.startedAt,
           queueWaitMs: elapsedMs(token.requestedAt, token.startedAt),
@@ -715,7 +735,6 @@
           fileURL: mediaURL,
         });
         if (target) {
-          let failure = null;
           const bitmap = await imageDownscaler.renderFromURL(mediaURL, target, {
             onFailure: (details) => {
               failure = details;
@@ -744,7 +763,23 @@
             return;
           }
         }
+        if (deferOriginalElementFallback(token, { source: "file", ...failure })) return;
         loadMasterElement(mediaURL, token);
+      }
+
+      function deferOriginalElementFallback(token, failure = {}) {
+        if (!shouldDeferElementFallback()) return false;
+        clearOriginalLoadTimeout();
+        deferredElementFallbackNodes.add(node);
+        debugLog(item, "original-element-fallback-deferred", {
+          ...getTimingDetails(token, now),
+          source: failure.source || "file",
+          stage: failure.stage || "element",
+          reason: failure.reason || "camera-moving",
+          fileURL: originalImageURL,
+        });
+        mediaLoadQueue.cancel(node, "original");
+        return true;
       }
 
       // Only reached when the file itself could not be read, or the master is
@@ -963,6 +998,10 @@
       width * height <= MAX_ELEMENT_FALLBACK_PIXELS &&
       sourceLongEdge <= target.budget * MAX_ELEMENT_FALLBACK_SCALE
     );
+  }
+
+  function normalizePredicate(predicate) {
+    return typeof predicate === "function" ? predicate : () => Boolean(predicate);
   }
 
   function defaultDebugLog(item, event, details = {}) {

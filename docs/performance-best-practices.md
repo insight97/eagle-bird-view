@@ -324,6 +324,12 @@ hitch 與 >100ms 解碼重疊    35%
 
 hitch 的形狀一致：26 個 >50ms 的主執行緒 `RunTask`，其中 23 個長 140–160ms，而**唯一的子事件是 0.5ms 的 `RunMicrotasks`**。約 139ms 沒有任何 trace 事件、CPU 也沒在跑——主執行緒被某個 Chrome 未產生事件的同步操作擋住。從這份 trace 無法確定是什麼。
 
+### 第十二輪：完整圖片 element fallback 仍會卡住縮放（`Profile-20260809T235416.json`）
+
+大型母檔的安全門檻降低了單次最壞值，但沒有涵蓋「母檔已在預算內」或 metadata 無法可靠判斷尺寸的 element fallback。新 trace 在平滑縮放途中仍出現 6 次 `media-materializer.js` 的 load callback 長任務，耗時 41–123ms、合計 488ms；28／152 個 dropped frames 落在這些 callback 附近。
+
+修正只延後相容退路，不延後整條品質路徑：縮放中仍先嘗試 bounded file decode，也保留並升級既有 raster；只有 file decode 無法使用、即將建立完整 `<img>` 時，才取消該次 load、釋放 queue slot 並記住卡片。相機停下後的完整 pass 會自動重試，且這次延後不會被標成載入失敗或要求使用者手動 retry。
+
 ### 判讀方法上的教訓
 
 - **`RunTask` 的長度不等於 CPU 忙碌。** 一個 140ms 的任務可能整段都在等待。要判斷主執行緒是「算」還是「等」，看 CPU profile 的 `(idle)` 比例，不要看事件時長總和。我先前用 `RunTask` 總和推論「主執行緒 84% 忙碌」，而同一段時間 CPU 取樣顯示 80% 閒置。

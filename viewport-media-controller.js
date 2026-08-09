@@ -181,6 +181,7 @@
         getQuality: plan.getQuality,
         prewarmRaster: (node) => node === prewarmNode,
         prioritizeOriginal: plan.prioritizeOriginal,
+        deferElementFallback: plan.deferElementFallback,
       };
     }
 
@@ -235,6 +236,10 @@
         selectedNode: snapshot.selectedNode,
         preserveOriginals: moving,
         deferOriginals: (node) => moving || !sharpNodes.has(node),
+        // This stays live after the plan is built. A bounded file decode may
+        // finish after motion ends, and in that case its compatibility fallback
+        // is safe to continue without waiting for another pass.
+        deferElementFallback: () => getCameraMotion() !== "settled",
         prioritizeOriginal: (node) => node === priorityNode,
         getQuality: (node) => {
           if (node === snapshot.selectedNode && !node.isVideo) return "original";

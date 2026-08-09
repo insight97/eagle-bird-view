@@ -804,6 +804,48 @@ test("a master far past its budget skips the full element fallback", async () =>
   assert.equal(failure?.details.reason, "request-failed");
 });
 
+test("camera motion defers an element fallback until the settled pass", async () => {
+  const harness = createRasterHarness({ screenLongEdge: 400 });
+  harness.imageDownscaler.renderFromURL = async (_url, _size, options = {}) => {
+    options.onFailure?.({ stage: "fetch", reason: "request-failed" });
+    return null;
+  };
+  const node = createMasterNode();
+  node.item.width = 600;
+  node.item.height = 800;
+
+  harness.materializer.mount(node);
+  harness.materializer.syncQuality({
+    loadNodes: [node],
+    getQuality: () => "original",
+    deferElementFallback: () => true,
+  });
+  const thumbnail = harness.images()[0];
+  thumbnail.emit("load");
+  await settle();
+
+  assert.equal(harness.images().length, 1, "motion must not create a full master image");
+  assert.equal(harness.mediaLoadQueue.activeCount, 0, "deferral releases the queue slot");
+  assert.equal(harness.mediaLoadQueue.snapshot(node).originalFailed, false);
+  assert.equal(node.previewImage, thumbnail);
+  assert.equal(node.element.dataset.mediaQuality, "thumbnail");
+  assert.ok(
+    harness.debugEvents.some(({ event }) => event === "original-element-fallback-deferred"),
+  );
+
+  harness.materializer.sync({
+    visibleNodes: [node],
+    retainedNodes: [node],
+    loadNodes: [node],
+    getQuality: () => "original",
+    deferElementFallback: () => false,
+  });
+  await settle();
+
+  assert.equal(harness.images().length, 2, "settling retries the compatible fallback");
+  assert.equal(harness.mediaLoadQueue.snapshot(node).loadingQuality, "original");
+});
+
 test("bounded raster failure stays on the thumbnail even when the master is close", async () => {
   const harness = createRasterHarness({ screenLongEdge: 400 });
   harness.imageDownscaler.renderFromURL = async () => null;
