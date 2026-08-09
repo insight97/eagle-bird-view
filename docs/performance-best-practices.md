@@ -203,12 +203,42 @@ canvas.getContext("bitmaprenderer").transferFromImageBitmap(bitmap)
 
 另一半的 `step @camera-navigation.js:312`（1805ms）是平滑平移／縮放的動畫迴圈，屬於既有程式碼，與圖片管線無關。
 
+### 第九輪：canvas 的回歸與確認（`191309`）
+
+canvas 上線後第一份 trace（`190017`）顯示原始問題回來了：tile-worker 解碼 282 ms/s、104 次直接繪製超過 4 MP 的母檔、過取樣上千倍。
+
+CPU profile 直接指出路徑：`renderFromURL`、`renderFromImage`、`decodeBounded`、`createImageBitmap`、`release`、`loadMasterElement` 全都在，但 **`createRasterCanvas` 與 `showRaster` 一次都沒出現**。每次 raster 都被嘗試然後放棄，掉進「畫母檔」的退路。
+
+觸發原因是同一個 commit 為了 EXIF 而加的 `imageOrientation: "from-image"`——該 build 不接受它與 resize 併用，整個 `createImageBitmap` reject。現在改成試探性：被拒絕就在本次 session 停用該選項。
+
+真正的缺陷是退路的終點就是這個功能要避免的事。`canPaintMasterDirectly()` 用「母檔比卡片實際顯示大多少」判斷：1600px 對 1536 預算是捨入誤差，6071px 對 512 是災難。超過就保留縮圖並停止再要求原圖，讓這條鏈上任何失敗都只退化成一張略軟的卡片。
+
+修正後（`191309`，每秒）：
+
+```text
+                WebP blob   壞掉的 canvas   修好的 canvas
+dropped frames      8.3          14.6           4.5
+main task >50ms     1.9           2.6           0.8
+tile-worker decode  4 ms/s      282 ms/s        2 ms/s
+RasterTask          8 ms/s      118 ms/s        7 ms/s
+CompositeLayers     7 ms/s      176 ms/s        6 ms/s
+RunMicrotasks      66 ms/s        4 ms/s        3 ms/s
+```
+
+`convertToBlob` 已從 CPU profile 消失，GC self time 從 552 ms 降到 249 ms。
+
+比對 `PaintImage` 時要注意：`width`／`height` 是 world 座標而非裝置像素，直接拿來算過取樣會嚴重高估。要先乘上當時的 camera scale 與 devicePixelRatio 才能和預算比較。
+
+目前剩下的主要成本：`createImageBitmap` 解碼母檔約 296 ms/s（在 worker 上，不在關鍵路徑），以及 `step @camera-navigation.js` 約 1367 ms 的相機動畫迴圈（既有程式碼，與圖片管線無關）。
+
 ### 可推廣的判準
 
 - 先問「來源像素量與實際顯示像素量差幾倍」，再問 layer 怎麼提升。差距達兩、三個數量級時，任何 CSS hint 都救不了。
 - `Decode Image` 的 `imageType` 沒有尺寸資訊，但 `PaintImage` 的 `srcWidth`／`srcHeight` 對上 `width`／`height` 就能直接算出過取樣倍率；`Decode LazyPixelRef` 的重複 id 則能證明 cache 抖動。
 - 任何「依畫面尺寸調整資源品質」的機制，**降級路徑和升級路徑一樣重要**，而且要分別確認兩者的觸發條件涵蓋所有狀態。這次升級與降級各漏了一種情況：預算不會下降，以及掉出門檻的卡片完全不再被檢視。只測放大不會發現任何一個。
 - 主執行緒 `CompositeLayers` 異常長、但內部沒有對應的主執行緒子事件時，先對照 raster thread 的 decode 時間軸；commit 會同步等待當幀需要的圖片解碼，長 commit 往往只是解碼太慢的投影。
+- **退路的終點不能是你正在避免的那件事。** bounded raster 的失敗退路是「直接畫母檔」，而那正是整個功能要消除的行為——所以一個選項不被支援，就讓效能退回原點。退路應該往「便宜但略差」收斂（保留縮圖），不是往「正確但昂貴」收斂。
+- **新增 API 選項時，要假設平台可能拒絕它，而測試 stub 永遠不會告訴你。** `imageOrientation` 在自製 stub 下必定成功，測試全綠；真實 build 拒絕它，整條 raster 路徑就斷了。對可選參數要嘛做能力偵測，要嘛失敗後降級重試。
 - **不要相信「這個 API 在背景執行」的直覺，用 CPU profile 確認。** `OffscreenCanvas.convertToBlob()` 的規格寫 in parallel，我據此在 commit 訊息裡寫了「encode 離開主執行緒」，實際上它佔了主執行緒 1911ms。trace 的事件層級看不出來（那段時間只會顯示為 `RunMicrotasks`），要靠 ProfileChunk 裡的 V8 CPU profile 才看得到函式名稱。長微任務內若 GC 佔比不高，就該直接去看 CPU profile。
 - **先確認使用者實際怎麼操作，再決定優化掛在哪個狀態上。** 「平移」在程式裡被等同於 `isPanning`，而那只涵蓋指標拖曳；實際使用者幾乎全用鍵盤。任何「手勢期間如何如何」的優化，都要先問「這個旗標涵蓋所有讓相機移動的路徑嗎」。trace 裡的 `InputLatency::*` 與 `EventDispatch` 分布可以直接回答。
 - 條件要描述**狀態**（相機在動嗎）而不是**成因**（指標按下了嗎）。以成因命名的旗標會隨著新增輸入方式默默失效，而且不會有任何測試變紅。
