@@ -142,6 +142,21 @@ test("quality sync requests a better source without remounting the card", () => 
   assert.deepEqual(harness.queue.disposed, []);
 });
 
+test("quality sync does not start a new original while the camera is moving", () => {
+  const harness = createHarness();
+  const node = createNode();
+
+  harness.materializer.mount(node);
+  harness.queue.requests.length = 0;
+  harness.materializer.syncQuality({
+    loadNodes: [node],
+    getQuality: () => "original",
+    deferOriginals: () => true,
+  });
+
+  assert.deepEqual(harness.queue.requests, []);
+});
+
 test("quality sync forwards priority for the selected or center card", () => {
   const harness = createHarness();
   const node = createNode();

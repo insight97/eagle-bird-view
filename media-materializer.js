@@ -36,7 +36,7 @@
   const { createImageDownscaler } = downscaler;
 
   const MAX_CONCURRENT_IMAGE_LOADS = 4;
-  const MAX_BACKGROUND_ORIGINAL_LOADS = 2;
+  const MAX_BACKGROUND_ORIGINAL_LOADS = 1;
   const ORIGINAL_IMAGE_LOAD_TIMEOUT = 8000;
   const MEDIA_DEBUG_STORAGE_KEY = "bird-view-debug";
   const MAX_ELEMENT_FALLBACK_SCALE = 4;
@@ -331,6 +331,7 @@
     function syncQuality({
       loadNodes = [],
       getQuality = () => "thumbnail",
+      deferOriginals = () => false,
       prewarmRaster = () => false,
       prioritizeOriginal = () => false,
       deferElementFallback = () => false,
@@ -349,6 +350,7 @@
           requestMediaByNode.get(node)?.(quality);
           continue;
         }
+        if (deferOriginals(node)) continue;
         if (deferFallback && deferredElementFallbackNodes.has(node)) continue;
         const screenLongEdge = getNodeScreenLongEdge(node);
         const actualBudget = getRasterDimensionBudget(screenLongEdge);

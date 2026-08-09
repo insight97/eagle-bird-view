@@ -179,6 +179,7 @@
       return {
         loadNodes: plan.loadNodes,
         getQuality: plan.getQuality,
+        deferOriginals: plan.deferOriginals,
         prewarmRaster: (node) => node === prewarmNode,
         prioritizeOriginal: plan.prioritizeOriginal,
         deferElementFallback: plan.deferElementFallback,

@@ -17,11 +17,11 @@
     // or center card can then start immediately instead of waiting behind a
     // burst of expensive createImageBitmap decodes; thumbnails can still use
     // every slot because they do not enter that bounded-raster path.
-    constructor({ maxConcurrent = 4, maxBackgroundOriginals = 2 } = {}) {
+    constructor({ maxConcurrent = 4, maxBackgroundOriginals = 1 } = {}) {
       this.#maxConcurrent = Math.max(1, Number(maxConcurrent) || 4);
       this.#maxBackgroundOriginals = Math.min(
         this.#maxConcurrent,
-        Math.max(1, Number(maxBackgroundOriginals) || 2),
+        Math.max(1, Number(maxBackgroundOriginals) || 1),
       );
     }
 

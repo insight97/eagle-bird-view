@@ -140,7 +140,7 @@ test("continuous pan refreshes media coverage within 120ms", () => {
   );
 });
 
-test("continuous zoom performs quality-only passes and restarts sharpness immediately", () => {
+test("continuous zoom evaluates quality but defers new originals until it settles", () => {
   const node = createNode("zoomed");
   const harness = createHarness({ nodes: [node] });
 
@@ -153,17 +153,19 @@ test("continuous zoom performs quality-only passes and restarts sharpness immedi
   assert.deepEqual(harness.calls[0].plan.loadNodes, [node]);
   assert.equal(harness.calls[0].plan.getQuality(node), "original");
   const zoomPlan = harness.calls[0].plan;
+  assert.equal(zoomPlan.deferOriginals(node), true);
   assert.equal(
     zoomPlan.deferElementFallback(),
     true,
-    "a zoom quality pass may try bounded decode but not a blocking element fallback",
+    "camera motion also keeps the blocking element fallback deferred",
   );
 
   harness.calls.length = 0;
   harness.controller.endMotion("zoom");
   assert.deepEqual(harness.calls.map(({ type }) => type), ["coverage", "settled"]);
-  assert.equal(zoomPlan.deferElementFallback(), false, "an in-flight file decode sees the end");
+  assert.equal(zoomPlan.deferElementFallback(), false, "a live plan sees the end of motion");
   assert.equal(harness.calls[0].plan.deferElementFallback(), false);
+  assert.equal(harness.calls[0].plan.deferOriginals(node), false);
 
   harness.calls.length = 0;
   harness.controller.beginMotion("zoom");

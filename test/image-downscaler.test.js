@@ -59,28 +59,35 @@ test("rendering from a URL decodes straight to the bounded size", async () => {
   assert.deepEqual(bitmap.options, {
     resizeWidth: 363,
     resizeHeight: 512,
-    resizeQuality: "high",
+    resizeQuality: "medium",
     imageOrientation: "from-image",
   });
   assert.equal(bitmap.closed, false, "the caller owns the bitmap");
 });
 
-test("PNG URL decodes use medium resize quality", async () => {
+test("PNG and WebP URL decodes use medium resize quality", async () => {
+  let mimeType = "image/png";
   const environment = createEnvironment({
     fetch: async (url) => ({
       ok: true,
       async blob() {
-        return { url, type: "image/png" };
+        return { url, type: mimeType };
       },
     }),
   });
 
-  const bitmap = await environment.downscaler.renderFromURL("file:///painting.png", {
+  const png = await environment.downscaler.renderFromURL("file:///painting.png", {
+    width: 363,
+    height: 512,
+  });
+  mimeType = "image/webp";
+  const webp = await environment.downscaler.renderFromURL("file:///painting.webp", {
     width: 363,
     height: 512,
   });
 
-  assert.equal(bitmap.options.resizeQuality, "medium");
+  assert.equal(png.options.resizeQuality, "medium");
+  assert.equal(webp.options.resizeQuality, "medium");
 });
 
 test("rendering from an already decoded element is the fallback path", async () => {

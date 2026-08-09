@@ -47,6 +47,19 @@ test("no more than four loads run concurrently", () => {
   assert.equal(queue.activeCount, 4);
 });
 
+test("the default queue runs only one background original at a time", () => {
+  const starts = [];
+  const queue = new MediaLoadQueue({ maxConcurrent: 4 });
+  const nodes = Array.from({ length: 3 }, () =>
+    register(queue, starts, { hasThumbnail: false, preferThumbnailFirst: false }),
+  );
+
+  for (const node of nodes) queue.request(node, "original");
+
+  assert.deepEqual(starts.map(({ node }) => node), nodes.slice(0, 1));
+  assert.equal(queue.activeCount, 1);
+});
+
 test("background originals use only two of the four load slots", () => {
   const starts = [];
   const queue = new MediaLoadQueue({ maxConcurrent: 4, maxBackgroundOriginals: 2 });
