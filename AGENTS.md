@@ -73,11 +73,8 @@ plugin.js (defer)
 - 同一個 loading channel 不應重複工作；取消或失效時必須清除 loading 狀態。
 - 原圖載入失敗或逾時時保留縮圖並提供 retry，不可讓一次失敗阻塞後續載入。
 - 媒體遠離 viewport 時要釋放；`MediaLoadQueue` 的原圖載入併發上限目前是 4。
-- 卡片不得直接繪製遠大於它實際顯示尺寸的母檔。Eagle 的 `fileURL` 是全解析度母檔（可達 40 MP），直接交給 compositor 會超出 image decode cache 並在每次 raster 重新解碼。一律先經 `image-downscaler.js` 產生有上限的 raster；`canPaintMasterDirectly()` 是唯一允許例外的判斷。**這條鏈上任何失敗都必須退回縮圖，不能退回母檔**——退路的終點不能是這個機制要避免的事。
-- **品質與延後是兩件事，不可共用同一個判斷。** `getQuality()` 是尺寸問題，決定卡片「該不該擁有」原圖，`sync()` 會據此呼叫 `dropOriginalRaster()` 收回 raster。`deferOriginals` 是位置與動態問題，只延後「開始載入」，永遠不收回已建好的 raster。用 `getQuality` 表達延後會讓卡片反覆丟棄並重建 raster。
-- raster 預算必須能升也能降。只升不降會讓縮小後的白板用 4096 的 raster 畫 180px 卡片，重演原本的問題。降級只在相機停下（`sync()`）執行，升級要即時；掉到原圖門檻以下的卡片要透過 `dropOriginalRaster()` 交還。
-- raster 畫在 `<canvas>` 上，它的記憶體是釘住的：釋放時必須把 `width`／`height` 歸零，只移除元素不會釋放 backing store。另外 canvas 不吃 CSS `image-orientation`，EXIF 旋轉必須在 `createImageBitmap({ imageOrientation })` 時烘進 bitmap。
-- 「相機正在移動」一律用 `isCameraMoving()` 判斷，不要用 `state.isPanning`——後者只涵蓋指標拖曳，鍵盤平移與滾輪縮放都不會設定它。新增任何移動相機的方式時，確認它被這個判斷涵蓋。
+- 卡片不得直接繪製遠大於它實際顯示尺寸的母檔（Eagle 的 `fileURL` 可達 40 MP）。媒體載入鏈上任何失敗都要退回縮圖，不能退回母檔。細節與理由在 `media-materializer.js`／`image-downscaler.js` 的註解。
+- 判斷「相機正在移動」要涵蓋所有會移動相機的途徑，不只指標拖曳。新增輸入方式時一併確認——這是跨檔案的約定，只看 `camera-navigation.js` 不會發現。
 - Eagle API 能力可能不存在（例如 AI Search、資料夾查詢或 context menu）；沿用既有 fallback 與 graceful no-op 行為。
 - 設定資料使用既有 localStorage keys：`bird-view-settings`、`bird-view-presets`。變更格式前先考慮舊資料正規化／相容性。
 - 白板上一頁只保留最多 10 個階段、總計最多 5,000 個素材參照；不可保存媒體 DOM、影片元素、Canvas 或原始檔內容。切換 Eagle library 時清除歷史。
