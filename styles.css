@@ -1491,7 +1491,8 @@ button {
   background: #26292e;
 }
 
-.media-frame img {
+.media-frame img,
+.media-frame canvas {
   position: absolute;
   inset: 0;
   display: block;

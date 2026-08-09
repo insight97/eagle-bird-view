@@ -59,13 +59,14 @@ test("a stalled original image load times out, offers retry, and recovers", asyn
   assert.equal(card.tagName, "ARTICLE");
 
   thumbnailImage.emit("load");
-
-  const originalImage = plugin.createdElementsOfTag("img")[1];
-  assert.ok(originalImage, "original <img> should start loading right after the thumbnail");
   assert.equal(card.dataset.mediaQuality, "loading-original");
-  // The card tries to render a bounded raster from the file first, so the
-  // element only falls back to the master once that has been ruled out.
+
+  // The card renders its raster straight from the file, so an element only
+  // appears once that path has been ruled out — here, because the harness has
+  // no fetch to read the master with.
   await new Promise((resolve) => setImmediate(resolve));
+  const originalImage = plugin.createdElementsOfTag("img")[1];
+  assert.ok(originalImage, "the master should be loaded into an element instead");
   assert.equal(originalImage.src, "file:///fake/original.jpg");
 
   // The original never fires "load" or "error" (a stalled file:// request).
@@ -79,6 +80,7 @@ test("a stalled original image load times out, offers retry, and recovers", asyn
 
   retryButton.click();
   assert.equal(card.dataset.mediaQuality, "loading-original");
+  await new Promise((resolve) => setImmediate(resolve));
 
   const retriedImage = plugin.createdElementsOfTag("img").at(-1);
   assert.notEqual(retriedImage, originalImage);
@@ -100,6 +102,7 @@ test("camera motion keeps painting the original at full quality", async () => {
   const card = thumbnailImage.parentNode.parentNode;
 
   thumbnailImage.emit("load");
+  await new Promise((resolve) => setImmediate(resolve));
   const originalImage = plugin.createdElementsOfTag("img")[1];
   originalImage.emit("load");
   await new Promise((resolve) => setImmediate(resolve));

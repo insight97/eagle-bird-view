@@ -45,10 +45,7 @@
       document: documentRef = root.document,
       window: windowRef = root.window || root,
       mediaLoadQueue = new MediaLoadQueue({ maxConcurrent: MAX_CONCURRENT_IMAGE_LOADS }),
-      imageDownscaler = createImageDownscaler({
-        window: windowRef,
-        document: documentRef,
-      }),
+      imageDownscaler = createImageDownscaler({ window: windowRef }),
       // Longest edge, in device pixels, that the card currently paints at.
       getNodeScreenLongEdge = () => 0,
       onPositionNode = () => {},
@@ -75,44 +72,17 @@
     const requestMediaByNode = new WeakMap();
     const retryOriginalByNode = new WeakMap();
     const thumbnailImageByNode = new WeakMap();
-    // The bounded raster a card is currently painting, so a later zoom-in can
-    // tell whether it still has enough pixels.
+    // The bounded raster a card is currently painting — the <canvas> holding it
+    // and the budget it was built for, so a later zoom can tell whether it still
+    // has enough pixels.
     const rasterByNode = new WeakMap();
-    // Marks an <img> as already carrying its bounded raster, so the load event
-    // that the swap re-fires is not mistaken for a fresh master.
-    const rasterByImage = new WeakMap();
 
-    // Eagle hands out full-resolution masters with no intermediate size, so a
-    // 40 MP painting would otherwise be decoded and downsampled on the raster
-    // path every time the compositor needs the card. Render it once at a bounded
-    // size and paint that instead. Returns null when the master is already small
-    // enough, or when the platform cannot downscale.
-    async function buildBoundedRaster(node, sourceImage, item) {
-      const target = getRasterTargetSize(
-        sourceImage.naturalWidth || item?.width,
-        sourceImage.naturalHeight || item?.height,
-        getNodeScreenLongEdge(node),
-      );
-      if (!target) return null;
-      const url = await imageDownscaler.renderFromImage(sourceImage, target);
-      if (!url) {
-        // Falling back to the master still shows the right picture, but it puts
-        // the decode cost back on the raster path, so make it visible.
-        debugLog(item, "bounded-raster-unavailable", {
-          budget: target.budget,
-          fileURL: item?.fileURL,
-        });
-        return null;
-      }
-      debugLog(item, "bounded-raster-built", {
-        source: "element",
-        budget: target.budget,
-        width: target.width,
-        height: target.height,
-        sourceWidth: sourceImage.naturalWidth,
-        sourceHeight: sourceImage.naturalHeight,
-      });
-      return { url, budget: target.budget };
+    // A canvas keeps its pixels for as long as it is around, so handing one back
+    // means zeroing it. Removing the element alone leaves the backing store.
+    function releaseRasterCanvas(element) {
+      if (!element || element.tagName !== "CANVAS") return;
+      element.width = 0;
+      element.height = 0;
     }
 
     // Re-renders the card's raster when its budget no longer matches what the
@@ -150,11 +120,9 @@
       if (!mediaLoadQueue.invalidate(node, "original")) return;
 
       thumbnail.style.visibility = "visible";
-      original.removeAttribute("src");
       original.remove();
-      rasterByImage.delete(original);
+      releaseRasterCanvas(original);
       rasterByNode.delete(node);
-      imageDownscaler.revoke(raster.url);
       node.previewImage = thumbnail;
       node.mediaElement = thumbnail;
       if (node.element) node.element.dataset.mediaQuality = "thumbnail";
@@ -198,7 +166,7 @@
       node.preloadImage?.removeAttribute("src");
       node.previewImage?.removeAttribute("src");
       thumbnailImageByNode.get(node)?.removeAttribute("src");
-      imageDownscaler.revoke(rasterByNode.get(node)?.url);
+      releaseRasterCanvas(rasterByNode.get(node)?.element);
       rasterByNode.delete(node);
       node.element?.remove();
       mountedNodes.delete(node);
@@ -396,14 +364,20 @@
         card.dataset.mediaQuality = "original-failed";
         debugLog(item, "original-load-failed", { reason, fileURL: originalImageURL });
       };
-      const failOriginalLoad = (reason = "error", originalImage) => {
-        if (
-          node.mediaGeneration !== mediaGeneration ||
-          node.preloadImage !== originalImage ||
-          mediaLoadQueue.snapshot(node)?.loadingQuality !== "original"
-        ) {
-          return;
-        }
+      // An original load no longer belongs to one <img>: the preferred path
+      // reads the file and paints a canvas without any element at all. A token
+      // per attempt is what tells a late result that it has been superseded.
+      let originalLoadToken = null;
+      const beginOriginalLoad = () => {
+        originalLoadToken = {};
+        return originalLoadToken;
+      };
+      const isCurrentOriginalLoad = (token) =>
+        node.mediaGeneration === mediaGeneration &&
+        originalLoadToken === token &&
+        mediaLoadQueue.snapshot(node)?.loadingQuality === "original";
+      const failOriginalLoad = (reason = "error", token) => {
+        if (!isCurrentOriginalLoad(token)) return;
         markOriginalLoadFailed(reason);
       };
       const watchOriginalLoad = () => {
@@ -429,11 +403,7 @@
             loadingQuality: latest.loadingQuality,
             fileURL: originalImageURL,
           });
-          if (latest.loadingQuality === "original" && node.preloadImage) {
-            failOriginalLoad("timeout", node.preloadImage);
-          } else {
-            markOriginalLoadFailed("timeout");
-          }
+          markOriginalLoadFailed("timeout");
         }, ORIGINAL_IMAGE_LOAD_TIMEOUT);
       };
       const requestMedia = (quality = "thumbnail") => {
@@ -457,15 +427,12 @@
         cancel: (quality) => {
           if (quality !== "original") return;
           clearOriginalLoadTimeout();
-          if (!node.preloadImage) return;
+          originalLoadToken = null;
           const originalImage = node.preloadImage;
-          node.preloadImage = null;
-          originalImage.removeAttribute("src");
-          originalImage.remove();
-          const abandonedRaster = rasterByImage.get(originalImage);
-          rasterByImage.delete(originalImage);
-          if (abandonedRaster && abandonedRaster.url !== rasterByNode.get(node)?.url) {
-            imageDownscaler.revoke(abandonedRaster.url);
+          if (originalImage) {
+            node.preloadImage = null;
+            originalImage.removeAttribute("src");
+            originalImage.remove();
           }
           card.dataset.mediaQuality = mediaLoadQueue.snapshot(node)?.readyQuality || "idle";
           debugLog(item, "original-load-canceled");
@@ -479,121 +446,161 @@
           card.dataset.mediaQuality =
             quality === "original" ? "loading-original" : "loading-thumbnail";
           if (quality === "original") {
-            debugLog(item, "original-load-started", { fileURL: mediaURL });
-            const originalImage = documentRef.createElement("img");
-            originalImage.alt = image.alt;
-            originalImage.decoding = "async";
-            originalImage.draggable = false;
-            originalImage.style.visibility = "hidden";
-            originalImage.setAttribute("aria-hidden", "true");
-            node.preloadImage = originalImage;
-            frame.append(originalImage);
-            const isCurrentOriginalLoad = () =>
-              node.mediaGeneration === mediaGeneration &&
-              node.preloadImage === originalImage &&
-              mediaLoadQueue.snapshot(node)?.loadingQuality === "original";
-            originalImage.addEventListener("load", async () => {
-              if (!isCurrentOriginalLoad()) return;
-
-              // Reaching here without a recorded raster means the element loaded
-              // the master itself, because the file could not be read directly.
-              // Bound it from the decoded element instead and let the swap
-              // re-fire load. The watchdog stays armed across that swap: it is
-              // still part of the load, and a stall there has to free the slot.
-              if (!rasterByImage.has(originalImage)) {
-                const raster = await buildBoundedRaster(node, originalImage, item);
-                if (!isCurrentOriginalLoad()) {
-                  imageDownscaler.revoke(raster?.url);
-                  return;
-                }
-                rasterByImage.set(originalImage, raster);
-                if (raster) {
-                  originalImage.src = raster.url;
-                  return;
-                }
-              }
-
-              clearOriginalLoadTimeout();
-              await waitForImageDecode(originalImage, undefined, windowRef);
-              if (!isCurrentOriginalLoad()) return;
-              // A re-raster at a sharper budget replaces an earlier original, so
-              // the element it displaced has to go.
-              const displacedImage = node.previewImage;
-              const staleOriginal =
-                displacedImage && displacedImage !== originalImage && displacedImage !== image
-                  ? displacedImage
-                  : null;
-              originalImage.style.visibility = "visible";
-              originalImage.removeAttribute("aria-hidden");
-              if (displacedImage && displacedImage !== originalImage) {
-                displacedImage.style.visibility = "hidden";
-              }
-              node.previewImage = originalImage;
-              node.preloadImage = null;
-              node.mediaElement = originalImage;
-              const raster = rasterByImage.get(originalImage) || null;
-              const previousRaster = rasterByNode.get(node) || null;
-              if (raster) rasterByNode.set(node, raster);
-              else rasterByNode.delete(node);
-              if (staleOriginal) {
-                staleOriginal.removeAttribute("src");
-                staleOriginal.remove();
-                rasterByImage.delete(staleOriginal);
-              }
-              if (previousRaster && previousRaster.url !== raster?.url) {
-                imageDownscaler.revoke(previousRaster.url);
-              }
-              card.dataset.mediaQuality = "original";
-              applyMediaRotation(node);
-              mediaLoadQueue.complete(node, "original", true);
-              debugLog(item, "original-load-succeeded", { fileURL: mediaURL });
-            });
-            originalImage.addEventListener("error", () => {
-              failOriginalLoad("error", originalImage);
-            });
-
-            // Eagle's metadata already carries the master's dimensions, so the
-            // bounded size is known before a single pixel is read. Rendering the
-            // raster straight from the file keeps the full-resolution bitmap from
-            // ever existing; only if that is unavailable does the element load
-            // the master and pay for decoding it.
-            const target = getRasterTargetSize(
-              item.width,
-              item.height,
-              getNodeScreenLongEdge(node),
-            );
-            if (target) {
-              imageDownscaler
-                .renderFromURL(mediaURL, target)
-                .then((url) => {
-                  if (!isCurrentOriginalLoad()) {
-                    imageDownscaler.revoke(url);
-                    return;
-                  }
-                  if (url) {
-                    rasterByImage.set(originalImage, { url, budget: target.budget });
-                    debugLog(item, "bounded-raster-built", {
-                      source: "file",
-                      budget: target.budget,
-                      width: target.width,
-                      height: target.height,
-                    });
-                    originalImage.src = url;
-                    return;
-                  }
-                  originalImage.src = mediaURL;
-                })
-                .catch(() => {
-                  if (isCurrentOriginalLoad()) originalImage.src = mediaURL;
-                });
-              return;
-            }
-            originalImage.src = mediaURL;
+            void startOriginalLoad(mediaURL);
             return;
           }
           image.src = mediaURL;
         },
       });
+
+      // Puts `element` on screen and retires whatever it replaces. The thumbnail
+      // is kept — the card falls back to it if the original is handed back — but
+      // a superseded raster or master is torn down.
+      function showMedia(element) {
+        const displaced = node.previewImage;
+        if (displaced && displaced !== element) {
+          displaced.style.visibility = "hidden";
+          if (displaced !== image) {
+            displaced.removeAttribute?.("src");
+            displaced.remove();
+            releaseRasterCanvas(displaced);
+          }
+        }
+        element.style.visibility = "visible";
+        element.removeAttribute("aria-hidden");
+        node.previewImage = element;
+        node.mediaElement = element;
+      }
+
+      // The bitmap goes into the canvas rather than through an encode and a
+      // second decode. `bitmaprenderer` transfers it without copying, which is
+      // why this path exists at all; the 2d context is only a fallback.
+      function createRasterCanvas(bitmap) {
+        const canvas = documentRef.createElement("canvas");
+        canvas.className = "media-raster";
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+        canvas.setAttribute("role", "img");
+        canvas.setAttribute("aria-label", image.alt);
+        canvas.style.visibility = "hidden";
+        const transfer = canvas.getContext?.("bitmaprenderer");
+        if (transfer?.transferFromImageBitmap) {
+          transfer.transferFromImageBitmap(bitmap);
+          return canvas;
+        }
+        const context = canvas.getContext?.("2d");
+        if (!context?.drawImage) return null;
+        context.drawImage(bitmap, 0, 0);
+        imageDownscaler.release(bitmap);
+        return canvas;
+      }
+
+      function showRaster(canvas, budget, source) {
+        clearOriginalLoadTimeout();
+        frame.append(canvas);
+        showMedia(canvas);
+        rasterByNode.set(node, { element: canvas, budget });
+        card.dataset.mediaQuality = "original";
+        applyMediaRotation(node);
+        mediaLoadQueue.complete(node, "original", true);
+        debugLog(item, "bounded-raster-built", {
+          source,
+          budget,
+          width: canvas.width,
+          height: canvas.height,
+        });
+      }
+
+      async function startOriginalLoad(mediaURL) {
+        debugLog(item, "original-load-started", { fileURL: mediaURL });
+        const token = beginOriginalLoad();
+        // Eagle's metadata already carries the master's dimensions, so the
+        // bounded size is known before a single pixel is read. Decoding straight
+        // from the file keeps the full-resolution bitmap from ever existing.
+        const target = getRasterTargetSize(
+          item.width,
+          item.height,
+          getNodeScreenLongEdge(node),
+        );
+        if (target) {
+          const bitmap = await imageDownscaler.renderFromURL(mediaURL, target);
+          if (!isCurrentOriginalLoad(token)) {
+            imageDownscaler.release(bitmap);
+            return;
+          }
+          if (bitmap) {
+            const canvas = createRasterCanvas(bitmap);
+            if (canvas) {
+              showRaster(canvas, target.budget, "file");
+              return;
+            }
+            imageDownscaler.release(bitmap);
+          }
+        }
+        loadMasterElement(mediaURL, token);
+      }
+
+      // Only reached when the file itself could not be read, or the master is
+      // already small enough to paint untouched. The element pays for decoding
+      // the master at full size, which is exactly what the file path avoids.
+      function loadMasterElement(mediaURL, token) {
+        const originalImage = documentRef.createElement("img");
+        originalImage.alt = image.alt;
+        originalImage.decoding = "async";
+        originalImage.draggable = false;
+        originalImage.style.visibility = "hidden";
+        originalImage.setAttribute("aria-hidden", "true");
+        node.preloadImage = originalImage;
+        frame.append(originalImage);
+        originalImage.addEventListener("load", async () => {
+          if (!isCurrentOriginalLoad(token)) return;
+          const target = getRasterTargetSize(
+            originalImage.naturalWidth || item.width,
+            originalImage.naturalHeight || item.height,
+            getNodeScreenLongEdge(node),
+          );
+          if (target) {
+            // The watchdog stays armed across this: rendering the raster is
+            // still part of the load, and a stall has to free the queue slot.
+            const bitmap = await imageDownscaler.renderFromImage(originalImage, target);
+            if (!isCurrentOriginalLoad(token)) {
+              imageDownscaler.release(bitmap);
+              return;
+            }
+            const canvas = bitmap ? createRasterCanvas(bitmap) : null;
+            if (canvas) {
+              node.preloadImage = null;
+              originalImage.removeAttribute("src");
+              originalImage.remove();
+              showRaster(canvas, target.budget, "element");
+              return;
+            }
+            imageDownscaler.release(bitmap);
+            // Painting the master still shows the right picture, but it puts the
+            // decode cost back on the raster path, so make it visible.
+            debugLog(item, "bounded-raster-unavailable", {
+              budget: target.budget,
+              fileURL: mediaURL,
+            });
+          }
+
+          clearOriginalLoadTimeout();
+          await waitForImageDecode(originalImage, undefined, windowRef);
+          if (!isCurrentOriginalLoad(token)) return;
+          node.preloadImage = null;
+          showMedia(originalImage);
+          rasterByNode.delete(node);
+          card.dataset.mediaQuality = "original";
+          applyMediaRotation(node);
+          mediaLoadQueue.complete(node, "original", true);
+          debugLog(item, "original-load-succeeded", { fileURL: mediaURL });
+        });
+        originalImage.addEventListener("error", () => {
+          failOriginalLoad("error", token);
+        });
+        originalImage.src = mediaURL;
+      }
+
       image.addEventListener("load", () => {
         if (
           node.mediaGeneration !== mediaGeneration ||
@@ -601,10 +608,14 @@
         ) {
           return;
         }
-        image.style.visibility = "visible";
-        card.dataset.mediaQuality =
-          mediaLoadQueue.snapshot(node)?.originalFailed ? "original-failed" : "thumbnail";
-        applyMediaRotation(node);
+        // A raster may already be showing if the original won the race; the
+        // thumbnail is still worth keeping loaded for when it is handed back.
+        if (!node.previewImage || node.previewImage === image) {
+          image.style.visibility = "visible";
+          card.dataset.mediaQuality =
+            mediaLoadQueue.snapshot(node)?.originalFailed ? "original-failed" : "thumbnail";
+          applyMediaRotation(node);
+        }
         mediaLoadQueue.complete(node, "thumbnail", true);
       });
       image.addEventListener("error", () => {

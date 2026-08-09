@@ -299,6 +299,29 @@ function createElementStub(tag = "div") {
     },
     scrollIntoView() {},
     focus() {},
+    // Canvas support, so cards can paint bounded rasters. `transferred` records
+    // the bitmap handed over, which is what tests assert on.
+    width: 0,
+    height: 0,
+    transferred: null,
+    getContext(kind) {
+      if (element.tagName !== "CANVAS") return null;
+      if (kind === "bitmaprenderer") {
+        return {
+          transferFromImageBitmap(bitmap) {
+            element.transferred = bitmap;
+          },
+        };
+      }
+      if (kind === "2d") {
+        return {
+          drawImage(bitmap) {
+            element.transferred = bitmap;
+          },
+        };
+      }
+      return null;
+    },
   };
   return element;
 }

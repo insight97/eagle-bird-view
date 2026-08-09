@@ -163,12 +163,53 @@ pointerup                    1
 
 因為時間窗比 settled 間隔長，落在飛行途中的那一次 pass 會延後並重新排程，而不是誤判相機已停。`runViewportWork()` 因此必須在延後時自行重排——相機停止後 `renderCamera` 不再觸發任何排程，沒有別的東西會喚醒它。
 
+### 第八輪 trace：延後生效了，但編碼在主執行緒（`Profile-20260809T184537.json`）
+
+`isCameraMoving()` 修正後：
+
+```text
+母檔解碼（jpg+png）  235 次 / 20.0 s  →  68 次 / 6.9 s
+Decode Image 總計    24365 ms / 476×  →  11302 ms / 134×
+GC background        5095 ms / 923×   →  2456 ms / 398×
+```
+
+建的 raster 少了 71%。但主執行緒仍有 43 個 >50ms 的 task，展開後大宗是 `RunMicrotasks`，而其中 GC 只佔 205ms／1534ms——其餘無法從 trace 事件歸因。
+
+V8 CPU profile 給出答案：
+
+```text
+1911 ms  convertToBlob
+1805 ms  step @camera-navigation.js:312
+ 552 ms  (garbage collector)
+```
+
+**`OffscreenCanvas.convertToBlob()` 並沒有離開主執行緒。** 規格寫「in parallel」，但在主執行緒建立的 OffscreenCanvas 上，Chrome 實際在主執行緒做讀回與編碼。68 張 raster × 約 28ms，正是那些 67ms 微任務區塊。
+
+### 採用的修正：canvas + `bitmaprenderer`
+
+不再編碼成 WebP 再塞進 `<img>`，改成把 `ImageBitmap` 直接轉移進 `<canvas>`：
+
+```js
+canvas.getContext("bitmaprenderer").transferFromImageBitmap(bitmap)
+```
+
+零複製。一次消除編碼（1911ms）、blob URL 生命週期、WebP 的第二次解碼（58 次／4219ms），以及有損重編碼本身。
+
+代價與注意事項：
+
+- canvas 的記憶體是**釘住的**，不像 `<img>` 由 decode cache 管理。預算階梯與縮小邏輯把尺寸綁住了，但 retained（未 release）的卡片會一直持有 backing store，所以 `release()` 必須把 `width`／`height` 歸零，只移除元素是不夠的。
+- `<img>` 靠 CSS `image-orientation: from-image` 處理 EXIF 旋轉；canvas 畫什麼就是什麼，所以旋轉必須在 `createImageBitmap({ imageOrientation: "from-image" })` 時烘進 bitmap，否則直式照片會躺著。
+- `transferFromImageBitmap` 會消耗 bitmap，之後不必也不能再 `close()`。
+
+另一半的 `step @camera-navigation.js:312`（1805ms）是平滑平移／縮放的動畫迴圈，屬於既有程式碼，與圖片管線無關。
+
 ### 可推廣的判準
 
 - 先問「來源像素量與實際顯示像素量差幾倍」，再問 layer 怎麼提升。差距達兩、三個數量級時，任何 CSS hint 都救不了。
 - `Decode Image` 的 `imageType` 沒有尺寸資訊，但 `PaintImage` 的 `srcWidth`／`srcHeight` 對上 `width`／`height` 就能直接算出過取樣倍率；`Decode LazyPixelRef` 的重複 id 則能證明 cache 抖動。
 - 任何「依畫面尺寸調整資源品質」的機制，**降級路徑和升級路徑一樣重要**，而且要分別確認兩者的觸發條件涵蓋所有狀態。這次升級與降級各漏了一種情況：預算不會下降，以及掉出門檻的卡片完全不再被檢視。只測放大不會發現任何一個。
 - 主執行緒 `CompositeLayers` 異常長、但內部沒有對應的主執行緒子事件時，先對照 raster thread 的 decode 時間軸；commit 會同步等待當幀需要的圖片解碼，長 commit 往往只是解碼太慢的投影。
+- **不要相信「這個 API 在背景執行」的直覺，用 CPU profile 確認。** `OffscreenCanvas.convertToBlob()` 的規格寫 in parallel，我據此在 commit 訊息裡寫了「encode 離開主執行緒」，實際上它佔了主執行緒 1911ms。trace 的事件層級看不出來（那段時間只會顯示為 `RunMicrotasks`），要靠 ProfileChunk 裡的 V8 CPU profile 才看得到函式名稱。長微任務內若 GC 佔比不高，就該直接去看 CPU profile。
 - **先確認使用者實際怎麼操作，再決定優化掛在哪個狀態上。** 「平移」在程式裡被等同於 `isPanning`，而那只涵蓋指標拖曳；實際使用者幾乎全用鍵盤。任何「手勢期間如何如何」的優化，都要先問「這個旗標涵蓋所有讓相機移動的路徑嗎」。trace 裡的 `InputLatency::*` 與 `EventDispatch` 分布可以直接回答。
 - 條件要描述**狀態**（相機在動嗎）而不是**成因**（指標按下了嗎）。以成因命名的旗標會隨著新增輸入方式默默失效，而且不會有任何測試變紅。
 - 主執行緒的長 task 若展開後只有 GC，不要去找「哪段 JS 慢」。看 `V8.ExternalMemoryPressure` 與記憶體計數器：heap 平穩就不是洩漏，而是短期配置量太大，該減少的是**產生配置的次數**，不是配置本身的大小。

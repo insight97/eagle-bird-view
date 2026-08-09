@@ -166,23 +166,30 @@ function createRasterHarness({ screenLongEdge = 400 } = {}) {
     },
   };
   const downscaleCalls = [];
-  const revoked = [];
+  const released = [];
   let rasterCount = 0;
+  const makeBitmap = (size) => {
+    rasterCount += 1;
+    return {
+      id: `raster-${rasterCount}`,
+      width: size.width,
+      height: size.height,
+      closed: false,
+    };
+  };
   const imageDownscaler = {
     isSupported: () => true,
     canRenderFromURL: () => true,
     async renderFromURL(url, size) {
       downscaleCalls.push({ source: "file", url, ...size });
-      rasterCount += 1;
-      return `blob:raster-${rasterCount}`;
+      return makeBitmap(size);
     },
     async renderFromImage(image, size) {
       downscaleCalls.push({ source: "element", image, ...size });
-      rasterCount += 1;
-      return `blob:raster-${rasterCount}`;
+      return makeBitmap(size);
     },
-    revoke(url) {
-      if (url) revoked.push(url);
+    release(bitmap) {
+      if (bitmap) released.push(bitmap.id);
     },
   };
   let longEdge = screenLongEdge;
@@ -223,9 +230,12 @@ function createRasterHarness({ screenLongEdge = 400 } = {}) {
     imageDownscaler,
     materializer,
     mediaLoadQueue,
-    revoked,
+    released,
     world,
     images: () => createdElements.filter(({ tagName }) => tagName === "IMG"),
+    canvases: () => createdElements.filter(({ tagName }) => tagName === "CANVAS"),
+    liveCanvases: () =>
+      createdElements.filter(({ tagName, width }) => tagName === "CANVAS" && width > 0),
     setScreenLongEdge(value) {
       longEdge = value;
     },
@@ -259,50 +269,48 @@ function createMasterNode() {
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
-// The raster is rendered from the file before any element loads it, so settling
-// takes a few microtask turns: thumbnail completion, then the render, then the
-// swap. Emitting load on whatever image is pending drives the card forward.
-async function settle(harness, turns = 4) {
+// The raster is decoded from the file and transferred into a canvas, so nothing
+// waits on an element load: settling is just a few microtask turns.
+async function settle(turns = 4) {
   for (let turn = 0; turn < turns; turn += 1) await flush();
-  return harness.images().at(-1);
 }
 
 async function loadOriginal(harness, node) {
   harness.materializer.mount(node);
   harness.materializer.syncQuality({ loadNodes: [node], getQuality: () => "original" });
   harness.images()[0].emit("load");
-  const originalImage = await settle(harness);
-  originalImage.emit("load");
-  await settle(harness);
-  return originalImage;
+  await settle();
+  return harness.canvases().at(-1);
 }
 
-test("a card renders its raster from the file, never decoding the master", async () => {
+test("a card paints its raster into a canvas, never decoding the master", async () => {
   const harness = createRasterHarness({ screenLongEdge: 400 });
   const node = createMasterNode();
 
-  const originalImage = await loadOriginal(harness, node);
+  const canvas = await loadOriginal(harness, node);
 
   assert.deepEqual(harness.downscaleCalls, [
     { source: "file", url: "file:///painting.png", budget: 512, width: 363, height: 512 },
   ]);
-  // The element only ever holds the bounded raster, so the 40 MP master is
-  // never decoded into a bitmap.
-  assert.equal(originalImage.src, "blob:raster-1");
+  // The bitmap is transferred straight in: no encode, no second decode, and the
+  // 40 MP master is never built.
+  assert.equal(canvas.transferred.id, "raster-1");
+  assert.equal(canvas.width, 363);
+  assert.equal(canvas.height, 512);
+  assert.equal(harness.images().length, 1, "only the thumbnail should be an <img>");
+  assert.equal(node.previewImage, canvas);
+  assert.equal(node.mediaElement, canvas);
+  assert.equal(canvas.style.visibility, "visible");
   assert.equal(node.element.dataset.mediaQuality, "original");
-  assert.equal(node.previewImage, originalImage);
-  assert.equal(originalImage.style.visibility, "visible");
   assert.equal(harness.mediaLoadQueue.snapshot(node).readyQuality, "original");
 });
 
-test("the original stays on screen during camera motion", async () => {
+test("the raster stays on screen during camera motion", async () => {
   const harness = createRasterHarness({ screenLongEdge: 400 });
   const node = createMasterNode();
-  const originalImage = await loadOriginal(harness, node);
+  const canvas = await loadOriginal(harness, node);
   const thumbnail = harness.images()[0];
 
-  // Bounded rasters are cheap enough to keep painting while the camera moves,
-  // so nothing downgrades to the 320px thumbnail any more.
   harness.materializer.sync({
     visibleNodes: [node],
     retainedNodes: [node],
@@ -311,12 +319,12 @@ test("the original stays on screen during camera motion", async () => {
     getQuality: () => "original",
   });
 
-  assert.equal(originalImage.style.visibility, "visible");
+  assert.equal(canvas.style.visibility, "visible");
   assert.equal(thumbnail.style.visibility, "hidden");
-  assert.equal(node.mediaElement, originalImage);
+  assert.equal(node.mediaElement, canvas);
 });
 
-test("a master already within budget is painted without a bounded raster", async () => {
+test("a master already within budget is painted untouched", async () => {
   const harness = createRasterHarness({ screenLongEdge: 400 });
   const node = createMasterNode();
   node.item.width = 320;
@@ -325,12 +333,15 @@ test("a master already within budget is painted without a bounded raster", async
   harness.materializer.mount(node);
   harness.materializer.syncQuality({ loadNodes: [node], getQuality: () => "original" });
   harness.images()[0].emit("load");
-  const originalImage = await settle(harness);
+  await settle();
+  const originalImage = harness.images().at(-1);
+  assert.equal(originalImage.src, "file:///painting.png");
   originalImage.emit("load");
-  await settle(harness);
+  await settle();
 
   assert.deepEqual(harness.downscaleCalls, []);
-  assert.equal(originalImage.src, "file:///painting.png");
+  assert.deepEqual(harness.canvases(), []);
+  assert.equal(node.previewImage, originalImage);
   assert.equal(node.element.dataset.mediaQuality, "original");
 });
 
@@ -342,61 +353,53 @@ test("a file the platform cannot read falls back to bounding the loaded element"
   harness.materializer.mount(node);
   harness.materializer.syncQuality({ loadNodes: [node], getQuality: () => "original" });
   harness.images()[0].emit("load");
-  const originalImage = await settle(harness);
+  await settle();
 
   // With no file access the element has to load the master itself.
+  const originalImage = harness.images().at(-1);
   assert.equal(originalImage.src, "file:///painting.png");
   originalImage.emit("load");
-  await settle(harness);
+  await settle();
 
   assert.deepEqual(harness.downscaleCalls, [
     { source: "element", image: originalImage, budget: 512, width: 363, height: 512 },
   ]);
-  assert.equal(originalImage.src, "blob:raster-1");
-
-  originalImage.emit("load");
-  await settle(harness);
+  const canvas = harness.canvases().at(-1);
+  assert.equal(canvas.transferred.id, "raster-1");
+  assert.equal(node.previewImage, canvas);
+  assert.equal(originalImage.isConnected, false, "the master element is torn down");
   assert.equal(node.element.dataset.mediaQuality, "original");
-  assert.equal(originalImage.style.visibility, "visible");
 });
 
 test("zooming past the rastered size re-renders the master sharper", async () => {
   const harness = createRasterHarness({ screenLongEdge: 400 });
   const node = createMasterNode();
-  const firstOriginal = await loadOriginal(harness, node);
+  const first = await loadOriginal(harness, node);
 
   harness.setScreenLongEdge(1500);
   harness.materializer.syncQuality({ loadNodes: [node], getQuality: () => "original" });
-
-  const reloaded = await settle(harness);
-  assert.notEqual(reloaded, firstOriginal);
-  // The card keeps showing the raster it already has while the reload runs.
-  assert.equal(node.previewImage, firstOriginal);
   assert.equal(node.element.dataset.mediaQuality, "loading-original");
+  assert.equal(node.previewImage, first, "the card keeps what it has meanwhile");
 
-  reloaded.emit("load");
-  await settle(harness);
+  await settle();
 
   assert.deepEqual(
-    harness.downscaleCalls.map(({ width, height }) => ({ width, height })),
-    [
-      { width: 363, height: 512 },
-      { width: 1088, height: 1536 },
-    ],
+    harness.downscaleCalls.map(({ budget }) => budget),
+    [512, 1536],
   );
-  assert.equal(reloaded.src, "blob:raster-2");
-  assert.equal(node.previewImage, reloaded);
-  assert.equal(node.element.dataset.mediaQuality, "original");
-  assert.deepEqual(harness.revoked, ["blob:raster-1"], "the superseded raster is released");
-  assert.equal(firstOriginal.isConnected, false, "the superseded original leaves the DOM");
+  const sharper = harness.canvases().at(-1);
+  assert.notEqual(sharper, first);
+  assert.equal(sharper.width, 1088);
+  assert.equal(sharper.height, 1536);
+  assert.equal(node.previewImage, sharper);
+  assert.equal(first.isConnected, false, "the superseded canvas leaves the DOM");
+  assert.equal(first.width, 0, "and gives its pixels back");
 });
 
-// A budget that only ever grows leaves a zoomed-out board painting 4096px
-// rasters into 180px cards — the same decode cache thrash bounding removes.
 test("zooming back out hands the oversized raster back", async () => {
   const harness = createRasterHarness({ screenLongEdge: 1500 });
   const node = createMasterNode();
-  const zoomedOriginal = await loadOriginal(harness, node);
+  const zoomed = await loadOriginal(harness, node);
   assert.equal(harness.downscaleCalls[0].budget, 1536);
 
   harness.setScreenLongEdge(400);
@@ -407,29 +410,21 @@ test("zooming back out hands the oversized raster back", async () => {
     selectedNode: null,
     getQuality: () => "original",
   });
-
-  const shrunk = await settle(harness);
-  assert.notEqual(shrunk, zoomedOriginal);
-  shrunk.emit("load");
-  await settle(harness);
+  await settle();
 
   assert.equal(harness.downscaleCalls.at(-1).budget, 512);
-  assert.equal(node.previewImage, shrunk);
-  assert.deepEqual(harness.revoked, ["blob:raster-1"]);
+  assert.notEqual(node.previewImage, zoomed);
+  assert.equal(zoomed.width, 0, "the oversized canvas gives its pixels back");
 });
 
-// Observed in a trace: cards that had grown to a 4096px raster kept painting it
-// into 180px boxes long after zooming out, because they no longer asked for an
-// original and so were never revisited. Their decodes then blocked commit.
+// A budget that only grows leaves a zoomed-out board painting 4096px rasters
+// into 180px cards, which is the thrash that bounding was meant to remove.
 test("dropping below the original threshold gives the raster back", async () => {
   const harness = createRasterHarness({ screenLongEdge: 1500 });
   const node = createMasterNode();
-  const zoomedOriginal = await loadOriginal(harness, node);
+  const canvas = await loadOriginal(harness, node);
   const thumbnail = harness.images()[0];
-  assert.equal(harness.downscaleCalls[0].budget, 1536);
-  assert.equal(node.previewImage, zoomedOriginal);
 
-  // Zoomed out far enough that the thumbnail is enough again.
   harness.materializer.sync({
     visibleNodes: [node],
     retainedNodes: [node],
@@ -441,9 +436,9 @@ test("dropping below the original threshold gives the raster back", async () => 
   assert.equal(node.previewImage, thumbnail);
   assert.equal(node.mediaElement, thumbnail);
   assert.equal(thumbnail.style.visibility, "visible");
-  assert.equal(zoomedOriginal.isConnected, false);
+  assert.equal(canvas.isConnected, false);
+  assert.equal(canvas.width, 0);
   assert.equal(node.element.dataset.mediaQuality, "thumbnail");
-  assert.deepEqual(harness.revoked, ["blob:raster-1"]);
   assert.equal(harness.mediaLoadQueue.snapshot(node).readyQuality, "thumbnail");
 });
 
@@ -461,17 +456,15 @@ test("zooming back in after a drop reloads the original", async () => {
 
   harness.setScreenLongEdge(400);
   harness.materializer.syncQuality({ loadNodes: [node], getQuality: () => "original" });
-  const reloaded = await settle(harness);
-  reloaded.emit("load");
-  await settle(harness);
+  await settle();
 
   assert.equal(harness.downscaleCalls.at(-1).budget, 512);
-  assert.equal(node.previewImage, reloaded);
+  assert.equal(node.previewImage, harness.canvases().at(-1));
   assert.equal(node.element.dataset.mediaQuality, "original");
 });
 
 // Sweeping across a board crosses hundreds of cards for a moment each, and every
-// original costs a full decode of the master to build its raster.
+// original costs a decode of the master to build its raster.
 test("a moving camera leaves new cards on the thumbnail", async () => {
   const harness = createRasterHarness({ screenLongEdge: 400 });
   const node = createMasterNode();
@@ -486,10 +479,10 @@ test("a moving camera leaves new cards on the thumbnail", async () => {
     deferOriginals: true,
   });
   harness.images()[0].emit("load");
-  await settle(harness);
+  await settle();
 
   assert.deepEqual(harness.downscaleCalls, [], "no master should be decoded mid-gesture");
-  assert.equal(harness.images().length, 1, "no original element should be created");
+  assert.deepEqual(harness.canvases(), []);
   assert.equal(node.element.dataset.mediaQuality, "thumbnail");
 });
 
@@ -498,7 +491,7 @@ test("a moving camera leaves new cards on the thumbnail", async () => {
 test("a moving camera keeps rasters that cards already have", async () => {
   const harness = createRasterHarness({ screenLongEdge: 400 });
   const node = createMasterNode();
-  const originalImage = await loadOriginal(harness, node);
+  const canvas = await loadOriginal(harness, node);
 
   harness.materializer.sync({
     visibleNodes: [node],
@@ -508,12 +501,12 @@ test("a moving camera keeps rasters that cards already have", async () => {
     getQuality: () => "original",
     deferOriginals: true,
   });
-  await settle(harness);
+  await settle();
 
-  assert.equal(node.previewImage, originalImage);
-  assert.equal(originalImage.style.visibility, "visible");
+  assert.equal(node.previewImage, canvas);
+  assert.equal(canvas.style.visibility, "visible");
+  assert.equal(canvas.width, 363, "the canvas keeps its pixels");
   assert.equal(node.element.dataset.mediaQuality, "original");
-  assert.deepEqual(harness.revoked, []);
 });
 
 test("the original is picked up once the camera stops", async () => {
@@ -530,15 +523,14 @@ test("the original is picked up once the camera stops", async () => {
   harness.materializer.mount(node);
   harness.materializer.sync({ ...plan, deferOriginals: true });
   harness.images()[0].emit("load");
-  await settle(harness);
+  await settle();
   assert.deepEqual(harness.downscaleCalls, []);
 
   harness.materializer.sync({ ...plan, deferOriginals: false });
-  const original = await settle(harness);
-  original.emit("load");
-  await settle(harness);
+  await settle();
 
   assert.equal(harness.downscaleCalls.length, 1);
+  assert.equal(node.previewImage, harness.canvases().at(-1));
   assert.equal(node.element.dataset.mediaQuality, "original");
 });
 
@@ -552,31 +544,30 @@ test("a zoom gesture only grows the budget, never shrinking mid-gesture", async 
   // would re-render on every step of the gesture.
   harness.setScreenLongEdge(400);
   harness.materializer.syncQuality({ loadNodes: [node], getQuality: () => "original" });
-  await settle(harness);
+  await settle();
 
   assert.equal(harness.downscaleCalls.length, renderCount);
-  assert.deepEqual(harness.revoked, []);
 });
 
 test("zooming within the rastered budget does not re-render anything", async () => {
   const harness = createRasterHarness({ screenLongEdge: 400 });
   const node = createMasterNode();
   await loadOriginal(harness, node);
-  const imageCount = harness.images().length;
+  const canvasCount = harness.canvases().length;
 
   harness.setScreenLongEdge(512);
   harness.materializer.syncQuality({ loadNodes: [node], getQuality: () => "original" });
-  await settle(harness);
+  await settle();
 
-  assert.equal(harness.images().length, imageCount);
+  assert.equal(harness.canvases().length, canvasCount);
   assert.equal(harness.downscaleCalls.length, 1);
-  assert.deepEqual(harness.revoked, []);
 });
 
-test("releasing a card releases its bounded raster", async () => {
+test("releasing a card gives its canvas pixels back", async () => {
   const harness = createRasterHarness({ screenLongEdge: 400 });
   const node = createMasterNode();
-  await loadOriginal(harness, node);
+  const canvas = await loadOriginal(harness, node);
+  assert.equal(canvas.width, 363);
 
   harness.materializer.sync({
     visibleNodes: [],
@@ -585,7 +576,8 @@ test("releasing a card releases its bounded raster", async () => {
     getQuality: () => "thumbnail",
   });
 
-  assert.deepEqual(harness.revoked, ["blob:raster-1"]);
+  assert.equal(canvas.width, 0);
+  assert.equal(canvas.height, 0);
 });
 
 test("a platform without any downscaling still paints the master", async () => {
@@ -597,13 +589,15 @@ test("a platform without any downscaling still paints the master", async () => {
   harness.materializer.mount(node);
   harness.materializer.syncQuality({ loadNodes: [node], getQuality: () => "original" });
   harness.images()[0].emit("load");
-  const originalImage = await settle(harness);
+  await settle();
+  const originalImage = harness.images().at(-1);
   originalImage.emit("load");
-  await settle(harness);
+  await settle();
 
+  assert.deepEqual(harness.canvases(), []);
   assert.equal(originalImage.src, "file:///painting.png");
-  assert.equal(node.element.dataset.mediaQuality, "original");
   assert.equal(originalImage.style.visibility, "visible");
+  assert.equal(node.element.dataset.mediaQuality, "original");
 });
 
 test("a stalled raster still times out so the load slot is freed", async () => {
@@ -614,7 +608,7 @@ test("a stalled raster still times out so the load slot is freed", async () => {
   harness.materializer.mount(node);
   harness.materializer.syncQuality({ loadNodes: [node], getQuality: () => "original" });
   harness.images()[0].emit("load");
-  await settle(harness);
+  await settle();
 
   assert.equal(node.element.dataset.mediaQuality, "loading-original");
   assert.equal(harness.mediaLoadQueue.activeCount, 1);
@@ -626,14 +620,20 @@ test("a stalled raster still times out so the load slot is freed", async () => {
   assert.equal(harness.mediaLoadQueue.snapshot(node).originalFailed, true);
 });
 
-test("a raster that lands after the card was released is thrown away", async () => {
+test("a bitmap that lands after the card was released is closed", async () => {
   const harness = createRasterHarness({ screenLongEdge: 400 });
   const node = createMasterNode();
+  let finishRender = null;
+  harness.imageDownscaler.renderFromURL = () =>
+    new Promise((resolve) => {
+      finishRender = resolve;
+    });
 
   harness.materializer.mount(node);
   harness.materializer.syncQuality({ loadNodes: [node], getQuality: () => "original" });
   harness.images()[0].emit("load");
-  await flush();
+  await settle();
+  assert.equal(typeof finishRender, "function", "the render should be in flight");
 
   harness.materializer.sync({
     visibleNodes: [],
@@ -641,8 +641,12 @@ test("a raster that lands after the card was released is thrown away", async () 
     selectedNode: null,
     getQuality: () => "thumbnail",
   });
-  await settle(harness);
+  // The decode finishes after the card is gone: nothing owns the bitmap now, so
+  // it has to be closed rather than left for the GC.
+  finishRender({ id: "late-raster", width: 363, height: 512 });
+  await settle();
 
-  assert.deepEqual(harness.revoked, ["blob:raster-1"]);
+  assert.deepEqual(harness.released, ["late-raster"]);
   assert.equal(node.element, null);
+  assert.deepEqual(harness.canvases(), [], "and never reached a canvas");
 });
