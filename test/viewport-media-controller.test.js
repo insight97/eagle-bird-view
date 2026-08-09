@@ -122,6 +122,24 @@ test("continuous pan owns directional coverage and defers originals until it end
   assert.equal(harness.renderRequests, 1);
 });
 
+test("continuous pan refreshes media coverage within 120ms", () => {
+  const harness = createHarness();
+
+  harness.controller.cameraChanged();
+  harness.fire();
+  harness.calls.length = 0;
+
+  harness.controller.beginMotion("pan");
+  harness.state.camera = { x: -200, y: 0, scale: 1 };
+  harness.controller.cameraChanged();
+
+  assert.equal(harness.pendingDelays.length, 1);
+  assert.ok(
+    harness.pendingDelays[0] <= 120,
+    `newly visible cards waited ${harness.pendingDelays[0]}ms for coverage`,
+  );
+});
+
 test("continuous zoom performs quality-only passes and restarts sharpness immediately", () => {
   const node = createNode("zoomed");
   const harness = createHarness({ nodes: [node] });

@@ -228,7 +228,7 @@ test("getWrappedGridTranslation keeps an oversized grid layer covering the viewp
 
 test("viewport maintenance slows down during active panning", () => {
   assert.equal(getViewportWorkInterval(false), 100);
-  assert.equal(getViewportWorkInterval(true), 250);
+  assert.equal(getViewportWorkInterval(true), 120);
 });
 
 test("findNearestNodeToPoint prefers the item beneath the viewport center", () => {

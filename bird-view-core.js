@@ -285,7 +285,7 @@
   }
 
   function getViewportWorkInterval(isPanning) {
-    return isPanning ? 250 : 100;
+    return isPanning ? 120 : 100;
   }
 
   function findNearestNodeToPoint(nodes, point) {
