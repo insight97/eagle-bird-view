@@ -34,6 +34,10 @@
   const DEFAULT_KEYBOARD_ACCELERATION = 16;
   const KEYBOARD_DECELERATION = 14;
   const SMOOTH_PAN_VELOCITY_EPSILON = 0.5;
+  // Below 30px/s the exponential tail travels only about two more screen
+  // pixels, but used to keep the camera motion lifecycle active for roughly
+  // another 300ms. Settle there so deferred media quality can resume promptly.
+  const SMOOTH_PAN_SETTLE_VELOCITY = 30;
   const SMOOTH_ZOOM_VELOCITY_EPSILON = 0.001;
 
   function createCameraNavigation(options = {}) {
@@ -291,7 +295,10 @@
         };
         state.smoothPanVelocity = nextVelocity;
 
-        if (Math.hypot(nextVelocity.x, nextVelocity.y) > SMOOTH_PAN_VELOCITY_EPSILON) {
+        const settleVelocity = state.smoothPanKeys.size
+          ? SMOOTH_PAN_VELOCITY_EPSILON
+          : SMOOTH_PAN_SETTLE_VELOCITY;
+        if (Math.hypot(nextVelocity.x, nextVelocity.y) > settleVelocity) {
           panBy(nextVelocity.x * elapsed, nextVelocity.y * elapsed);
         } else {
           state.smoothPanVelocity = { x: 0, y: 0 };

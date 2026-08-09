@@ -215,6 +215,38 @@ test("smooth keyboard pan accelerates and decelerates around key release", () =>
   assert.equal(harness.centeredSelections(), 1);
 });
 
+test("smooth keyboard pan drops its imperceptible low-speed tail promptly", () => {
+  let timestamp = 0;
+  let endedAt = null;
+  const harness = createHarness(180, {
+    onSmoothPanEnd: () => {
+      endedAt = timestamp;
+    },
+  });
+  harness.state.smoothPanEnabled = true;
+  harness.navigation.startSmoothKeyboardPan("arrowright");
+
+  for (timestamp = 16; timestamp <= 208; timestamp += 16) {
+    harness.frames.get(harness.state.smoothPanFrame)(timestamp);
+  }
+  const releasedAt = timestamp - 16;
+  const xAtRelease = harness.state.camera.x;
+  harness.navigation.handleKeyUp("ArrowRight");
+
+  for (timestamp = releasedAt + 16; timestamp <= releasedAt + 500; timestamp += 16) {
+    const frame = harness.state.smoothPanFrame;
+    if (frame === null) break;
+    harness.frames.get(frame)(timestamp);
+  }
+
+  assert.ok(harness.state.camera.x < xAtRelease, "the release should still decelerate");
+  assert.notEqual(endedAt, null, "the motion lifecycle should end");
+  assert.ok(
+    endedAt - releasedAt <= 240,
+    `the low-speed tail held back settled work for ${endedAt - releasedAt}ms`,
+  );
+});
+
 test("smooth keyboard pan uses the shared keyboard acceleration", () => {
   const slow = createHarness();
   const fast = createHarness();
@@ -229,6 +261,18 @@ test("smooth keyboard pan uses the shared keyboard acceleration", () => {
   fast.frames.get(fast.state.smoothPanFrame)(16);
 
   assert.ok(fast.state.camera.x < slow.state.camera.x);
+});
+
+test("smooth keyboard pan still starts at the minimum speed and acceleration", () => {
+  const harness = createHarness();
+  harness.state.smoothPanEnabled = true;
+  harness.state.smoothPanSpeed = 120;
+  harness.state.keyboardAcceleration = 1;
+
+  harness.navigation.startSmoothKeyboardPan("arrowright");
+  harness.frames.get(harness.state.smoothPanFrame)(16);
+
+  assert.ok(harness.state.camera.x < 0);
 });
 
 test("Shift+arrow pans two thirds of a viewport and derives the key pan step", () => {
