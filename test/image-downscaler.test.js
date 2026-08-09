@@ -151,3 +151,48 @@ test("releasing closes the bitmap and tolerates one already transferred", () => 
   environment.downscaler.release(null);
   environment.downscaler.release(undefined);
 });
+
+// A build that rejects imageOrientation alongside a resize used to take the whole
+// raster down with it, and the card fell back to painting the full-resolution
+// master — far worse than an unrotated photo.
+test("a platform refusing imageOrientation still gets a bounded bitmap", async () => {
+  const attempts = [];
+  const environment = createEnvironment({
+    createImageBitmap: async (source, options) => {
+      attempts.push(options);
+      if ("imageOrientation" in options) throw new TypeError("unsupported option");
+      return { source, options, width: options.resizeWidth, height: options.resizeHeight };
+    },
+  });
+
+  const bitmap = await environment.downscaler.renderFromURL("file:///x.jpg", {
+    width: 363,
+    height: 512,
+  });
+
+  assert.ok(bitmap, "the raster must survive the platform refusing the option");
+  assert.equal(attempts.length, 2, "it should retry without the option");
+  assert.equal("imageOrientation" in attempts[1], false);
+
+  // Once refused, later decodes go straight to the supported shape.
+  await environment.downscaler.renderFromURL("file:///y.jpg", { width: 10, height: 10 });
+  assert.equal(attempts.length, 3);
+});
+
+test("a real decode failure is still reported once orientation is known good", async () => {
+  let calls = 0;
+  const environment = createEnvironment({
+    createImageBitmap: async (source, options) => {
+      calls += 1;
+      if (calls === 1) return { source, options, width: 1, height: 1 };
+      throw new Error("corrupt file");
+    },
+  });
+
+  assert.ok(await environment.downscaler.renderFromURL("file:///ok.jpg", { width: 1, height: 1 }));
+  assert.equal(
+    await environment.downscaler.renderFromURL("file:///bad.jpg", { width: 1, height: 1 }),
+    null,
+  );
+  assert.equal(calls, 2, "no pointless retry once the option is known to work");
+});

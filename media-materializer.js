@@ -28,6 +28,7 @@
   const {
     VIDEO_CONTROLS_HEIGHT,
     VIDEO_EXTENSIONS,
+    canPaintMasterDirectly,
     getRasterDimensionBudget,
     getRasterTargetSize,
   } = core;
@@ -576,12 +577,33 @@
               return;
             }
             imageDownscaler.release(bitmap);
-            // Painting the master still shows the right picture, but it puts the
-            // decode cost back on the raster path, so make it visible.
-            debugLog(item, "bounded-raster-unavailable", {
-              budget: target.budget,
-              fileURL: mediaURL,
-            });
+            // Falling through to the master is only safe when it is close to
+            // what the card displays. A trace of doing it unconditionally showed
+            // 40 MP masters painted into 130px cards at over 1000x oversample,
+            // with tile-worker decode back up at 282ms/s — the exact thrash this
+            // feature exists to prevent. Past that, the thumbnail is the better
+            // answer, so keep it and stop asking.
+            if (
+              !canPaintMasterDirectly(
+                originalImage.naturalWidth || item.width,
+                originalImage.naturalHeight || item.height,
+                getNodeScreenLongEdge(node),
+              )
+            ) {
+              clearOriginalLoadTimeout();
+              node.preloadImage = null;
+              originalImage.removeAttribute("src");
+              originalImage.remove();
+              card.dataset.mediaQuality =
+                mediaLoadQueue.snapshot(node)?.readyQuality || "thumbnail";
+              mediaLoadQueue.complete(node, "original", false);
+              debugLog(item, "bounded-raster-unavailable", {
+                budget: target.budget,
+                fileURL: mediaURL,
+              });
+              return;
+            }
+            debugLog(item, "master-painted-unbounded", { budget: target.budget });
           }
 
           clearOriginalLoadTimeout();

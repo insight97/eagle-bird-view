@@ -40,6 +40,9 @@
   // Preload roughly two passes ahead of the camera, so a load that starts now
   // has until the node reaches the viewport to finish.
   const PRELOAD_LEAD_FACTOR = 2;
+  // How far past its budget a master may be and still be worth painting as-is
+  // when no bounded raster could be built.
+  const MASTER_PAINT_SLACK = 2;
   const EXPLORATION_RANK_WEIGHTS = Object.freeze([40, 25, 17, 11, 7]);
   const AI_EXPLORATION_RATIOS = Object.freeze([0, 25, 50, 75, 100]);
   const EXPLORATION_DIVERSITY_STRENGTHS = Object.freeze([0, 25, 50, 75, 100]);
@@ -167,6 +170,27 @@
       width: Math.max(1, Math.round(width * ratio)),
       height: Math.max(1, Math.round(height * ratio)),
     };
+  }
+
+  // Whether painting the master itself is acceptable when no bounded raster
+  // could be produced. The harm is proportional to how far the master overshoots
+  // what the card can actually display, not to whether it overshoots at all: a
+  // 1600px master in a 1536px budget is a rounding error, while a 6071px one in
+  // a 512px budget is the decode cache thrash this whole feature exists to
+  // prevent. Unknown dimensions cannot be judged, so they are allowed.
+  function canPaintMasterDirectly(sourceWidth, sourceHeight, screenLongEdge, options = {}) {
+    const width = Number(sourceWidth);
+    const height = Number(sourceHeight);
+    if (
+      !Number.isFinite(width) ||
+      !Number.isFinite(height) ||
+      width <= 0 ||
+      height <= 0
+    ) {
+      return true;
+    }
+    const budget = getRasterDimensionBudget(screenLongEdge, options);
+    return Math.max(width, height) <= budget * MASTER_PAINT_SLACK;
   }
 
   // Media has to start loading before it is on screen, or a fast pan outruns it.
@@ -1180,6 +1204,7 @@
     getRowFocusScale,
     getLabelRect,
     getLabelDetailLevel,
+    canPaintMasterDirectly,
     getPanLayerTranslation,
     getPreloadMargins,
     getRasterDimensionBudget,

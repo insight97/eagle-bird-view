@@ -580,11 +580,41 @@ test("releasing a card gives its canvas pixels back", async () => {
   assert.equal(canvas.height, 0);
 });
 
-test("a platform without any downscaling still paints the master", async () => {
+// Painting a master that cannot be bounded is only safe when it is close to
+// what the card displays. Doing it unconditionally put 40 MP masters into 130px
+// cards at over 1000x oversample and took tile-worker decode back to 282ms/s.
+test("a master far past its budget is left on the thumbnail", async () => {
   const harness = createRasterHarness({ screenLongEdge: 400 });
   harness.imageDownscaler.renderFromURL = async () => null;
   harness.imageDownscaler.renderFromImage = async () => null;
   const node = createMasterNode();
+
+  harness.materializer.mount(node);
+  harness.materializer.syncQuality({ loadNodes: [node], getQuality: () => "original" });
+  const thumbnail = harness.images()[0];
+  thumbnail.emit("load");
+  await settle();
+  const originalImage = harness.images().at(-1);
+  originalImage.emit("load");
+  await settle();
+
+  // 5374x7589 against a 512 budget: painting it is the thrash, not the fix.
+  assert.deepEqual(harness.canvases(), []);
+  assert.equal(originalImage.isConnected, false, "the master must not be painted");
+  assert.equal(node.previewImage, thumbnail);
+  assert.equal(node.element.dataset.mediaQuality, "thumbnail");
+  // Marked failed so the card stops asking for an original it cannot use.
+  assert.equal(harness.mediaLoadQueue.snapshot(node).originalFailed, true);
+});
+
+test("a master close to its budget is painted when it cannot be bounded", async () => {
+  const harness = createRasterHarness({ screenLongEdge: 400 });
+  harness.imageDownscaler.renderFromURL = async () => null;
+  harness.imageDownscaler.renderFromImage = async () => null;
+  const node = createMasterNode();
+  // Just over the 512 budget, so painting it costs almost nothing.
+  node.item.width = 600;
+  node.item.height = 800;
 
   harness.materializer.mount(node);
   harness.materializer.syncQuality({ loadNodes: [node], getQuality: () => "original" });

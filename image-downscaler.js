@@ -15,6 +15,9 @@
   // decode, and no re-quantisation.
   function createImageDownscaler(options = {}) {
     const { window: windowRef = root.window || root } = options;
+    // null until the first decode tells us whether this build accepts
+    // imageOrientation alongside a resize.
+    let orientationSupported = null;
 
     function isSupported() {
       return typeof windowRef?.createImageBitmap === "function";
@@ -51,17 +54,34 @@
       }
     }
 
-    function decodeBounded(source, { width, height }) {
-      return windowRef.createImageBitmap(source, {
+    // `.media-frame img` sets image-orientation: from-image, so an <img> honours
+    // EXIF rotation. A canvas paints whatever the bitmap holds, so the rotation
+    // has to be baked in here or portrait photos come out on their side.
+    //
+    // Not every build accepts that option alongside a resize, and a rejection
+    // here used to take the whole raster down with it, which is far worse than
+    // an unrotated photo: the card fell back to painting the full-resolution
+    // master. So it is requested, and dropped if the platform refuses it.
+    async function decodeBounded(source, { width, height }) {
+      const options = {
         resizeWidth: Math.round(width),
         resizeHeight: Math.round(height),
         resizeQuality: "high",
-        // `.media-frame img` sets image-orientation: from-image, so an <img>
-        // honours EXIF rotation. A canvas paints whatever the bitmap holds, so
-        // the rotation has to be baked in here or portrait photos come out on
-        // their side. This is a no-op for an already decoded element source.
-        imageOrientation: "from-image",
-      });
+      };
+      if (orientationSupported !== false) {
+        try {
+          const bitmap = await windowRef.createImageBitmap(source, {
+            ...options,
+            imageOrientation: "from-image",
+          });
+          orientationSupported = true;
+          return bitmap;
+        } catch (error) {
+          if (orientationSupported) throw error;
+          orientationSupported = false;
+        }
+      }
+      return windowRef.createImageBitmap(source, options);
     }
 
     function hasUsableSize(size) {
