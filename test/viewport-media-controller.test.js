@@ -157,6 +157,8 @@ test("zooming in prewarms only the selected card", () => {
   const zoomInPlan = harness.calls.at(-1).plan;
   assert.equal(zoomInPlan.prewarmRaster(selected), true);
   assert.equal(zoomInPlan.prewarmRaster(neighbor), false);
+  assert.equal(zoomInPlan.prioritizeOriginal(selected), true);
+  assert.equal(zoomInPlan.prioritizeOriginal(neighbor), false);
 
   harness.calls.length = 0;
   harness.state.camera = { x: 0, y: 0, scale: 0.9 };
@@ -180,6 +182,8 @@ test("zooming in prewarms the card nearest the viewport center when none is sele
   const plan = harness.calls.at(-1).plan;
   assert.equal(plan.prewarmRaster(center), true);
   assert.equal(plan.prewarmRaster(edge), false);
+  assert.equal(plan.prioritizeOriginal(center), true);
+  assert.equal(plan.prioritizeOriginal(edge), false);
 });
 
 test("focus suppresses viewport work until the motion ends", () => {

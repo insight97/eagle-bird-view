@@ -36,6 +36,7 @@
   const { createImageDownscaler } = downscaler;
 
   const MAX_CONCURRENT_IMAGE_LOADS = 4;
+  const MAX_BACKGROUND_ORIGINAL_LOADS = 2;
   const ORIGINAL_IMAGE_LOAD_TIMEOUT = 8000;
   const MEDIA_DEBUG_STORAGE_KEY = "bird-view-debug";
 
@@ -44,7 +45,10 @@
       world,
       document: documentRef = root.document,
       window: windowRef = root.window || root,
-      mediaLoadQueue = new MediaLoadQueue({ maxConcurrent: MAX_CONCURRENT_IMAGE_LOADS }),
+      mediaLoadQueue = new MediaLoadQueue({
+        maxConcurrent: MAX_CONCURRENT_IMAGE_LOADS,
+        maxBackgroundOriginals: MAX_BACKGROUND_ORIGINAL_LOADS,
+      }),
       imageDownscaler = createImageDownscaler({ window: windowRef }),
       now = () => (windowRef.performance || root.performance || Date).now(),
       // Longest edge, in device pixels, that the card currently paints at.
@@ -96,7 +100,12 @@
     // queue slot and caused the zoom-out burst captured by the timing log.
     function refreshRasterBudget(
       node,
-      { allowShrink = false, targetBudget = null, prewarmed = false } = {},
+      {
+        allowShrink = false,
+        targetBudget = null,
+        prewarmed = false,
+        priority = "normal",
+      } = {},
     ) {
       const raster = rasterByNode.get(node);
       if (!raster) return;
@@ -125,7 +134,7 @@
         return;
       }
       if (!mediaLoadQueue.invalidate(node, "original")) return;
-      requestMediaByNode.get(node)?.("original", { budget: needed, prewarmed });
+      requestMediaByNode.get(node)?.("original", { budget: needed, prewarmed, priority });
     }
 
     // Zooming out far enough that the card no longer wants an original at all
@@ -226,7 +235,7 @@
       if (!snapshot) return;
       if (!node.isVideo) {
         if (snapshot.readyQuality === "original" || snapshot.originalFailed) return;
-        requestMediaByNode.get(node)?.("original");
+        requestMediaByNode.get(node)?.("original", { priority: "high" });
         return;
       }
       if (snapshot.readyQuality || snapshot.loading || snapshot.queued || snapshot.pendingQuality) {
@@ -251,6 +260,7 @@
       selectedNode = null,
       getQuality = () => "thumbnail",
       deferOriginals = () => false,
+      prioritizeOriginal = () => false,
       preserveOriginals = false,
     } = {}) {
       const visible = new Set(visibleNodes);
@@ -274,8 +284,18 @@
       for (const node of visible) mount(node);
       for (const node of loadNodes) {
         const quality = getQuality(node);
-        requestMediaByNode.get(node)?.(requestedQuality(node, quality, deferOriginals));
-        if (quality === "original") refreshRasterBudget(node, { allowShrink: !preserveOriginals });
+        const requested = requestedQuality(node, quality, deferOriginals);
+        const priority = prioritizeOriginal(node) ? "high" : "normal";
+        requestMediaByNode.get(node)?.(
+          requested,
+          requested === "original" ? { priority } : null,
+        );
+        if (quality === "original") {
+          refreshRasterBudget(node, {
+            allowShrink: !preserveOriginals,
+            priority,
+          });
+        }
       }
     }
 
@@ -297,6 +317,7 @@
       loadNodes = [],
       getQuality = () => "thumbnail",
       prewarmRaster = () => false,
+      prioritizeOriginal = () => false,
     } = {}) {
       for (const node of materializedNodes) {
         if (getQuality(node) !== "original") mediaLoadQueue.cancel(node, "original");
@@ -315,13 +336,16 @@
         const targetBudget = shouldPrewarm
           ? getNextRasterBudget(actualBudget)
           : actualBudget;
+        const priority = prioritizeOriginal(node) ? "high" : "normal";
         requestMediaByNode.get(node)?.("original", {
           budget: targetBudget,
           prewarmed: shouldPrewarm && targetBudget > actualBudget,
+          priority,
         });
         refreshRasterBudget(node, {
           targetBudget,
           prewarmed: shouldPrewarm && targetBudget > actualBudget,
+          priority,
         });
       }
     }
@@ -418,6 +442,7 @@
       let originalRequestedAt = null;
       let requestedOriginalBudget = null;
       let requestedOriginalPrewarmed = false;
+      let requestedOriginalPriority = "normal";
       const beginOriginalLoad = () => {
         const startedAt = readNow(now);
         originalLoadToken = {
@@ -425,6 +450,7 @@
           startedAt,
           budget: requestedOriginalBudget,
           prewarmed: requestedOriginalPrewarmed,
+          priority: requestedOriginalPriority,
         };
         return originalLoadToken;
       };
@@ -469,17 +495,22 @@
               ? Number(rasterRequest.budget)
               : getRasterDimensionBudget(getNodeScreenLongEdge(node));
           requestedOriginalPrewarmed = Boolean(rasterRequest?.prewarmed);
+          requestedOriginalPriority =
+            rasterRequest?.priority === "high" ? "high" : "normal";
         }
         if (quality === "original" && originalImageURL) traceOriginalQualityRequest();
-        const requested = mediaLoadQueue.request(node, quality);
+        const requested = mediaLoadQueue.request(node, quality, {
+          priority: quality === "original" ? requestedOriginalPriority : "normal",
+        });
         if (quality === "original" && originalImageURL) watchOriginalLoad();
         return requested;
       };
       const retry = () => {
         requestedOriginalBudget = getRasterDimensionBudget(getNodeScreenLongEdge(node));
         requestedOriginalPrewarmed = false;
+        requestedOriginalPriority = "high";
         traceOriginalQualityRequest({ force: true });
-        const requested = mediaLoadQueue.retry(node, "original");
+        const requested = mediaLoadQueue.retry(node, "original", { priority: "high" });
         watchOriginalLoad();
         return requested;
       };
@@ -500,6 +531,7 @@
           requestedBudget:
             target?.budget || Math.max(Number(item.width) || 0, Number(item.height) || 0),
           queueState: describeQueueState(snapshot),
+          priority: requestedOriginalPriority,
         });
       }
 
@@ -628,6 +660,7 @@
         debugLog(item, "bounded-raster-built", {
           ...getTimingDetails(token, now),
           source,
+          priority: token.priority,
           budget,
           width: canvas.width,
           height: canvas.height,
@@ -636,6 +669,7 @@
         refreshRasterBudget(node, {
           targetBudget: requestedOriginalBudget,
           prewarmed: requestedOriginalPrewarmed,
+          priority: requestedOriginalPriority,
         });
       }
 
@@ -656,6 +690,7 @@
           screenLongEdge,
           requestedBudget:
             target?.budget || Math.max(Number(item.width) || 0, Number(item.height) || 0),
+          priority: token.priority,
           fileURL: mediaURL,
         });
         if (target) {

@@ -7,12 +7,22 @@
 })(typeof globalThis === "object" ? globalThis : this, () => {
   class MediaLoadQueue {
     #active = 0;
+    #activeBackgroundOriginals = 0;
     #maxConcurrent;
+    #maxBackgroundOriginals;
     #queue = [];
     #states = new WeakMap();
 
-    constructor({ maxConcurrent = 4 } = {}) {
-      this.#maxConcurrent = maxConcurrent;
+    // Background originals are intentionally capped below the total. A selected
+    // or center card can then start immediately instead of waiting behind a
+    // burst of expensive createImageBitmap decodes; thumbnails can still use
+    // every slot because they do not enter that bounded-raster path.
+    constructor({ maxConcurrent = 4, maxBackgroundOriginals = 2 } = {}) {
+      this.#maxConcurrent = Math.max(1, Number(maxConcurrent) || 4);
+      this.#maxBackgroundOriginals = Math.min(
+        this.#maxConcurrent,
+        Math.max(1, Number(maxBackgroundOriginals) || 2),
+      );
     }
 
     register(node, options) {
@@ -26,8 +36,11 @@
         preferThumbnailFirst: Boolean(options.preferThumbnailFirst),
         readyQuality: null,
         queuedQuality: null,
+        queuedPriority: null,
         pendingQuality: null,
+        pendingPriority: null,
         loadingQuality: null,
+        loadingPriority: null,
         originalFailed: false,
         thumbnailFailed: false,
         queued: false,
@@ -36,9 +49,10 @@
       });
     }
 
-    request(node, requestedQuality = "thumbnail") {
+    request(node, requestedQuality = "thumbnail", options = {}) {
       const state = this.#states.get(node);
       if (!state || state.disposed) return false;
+      const priority = normalizePriority(options.priority);
       const wantsOriginal =
         requestedQuality === "original" && state.hasOriginal && !state.originalFailed;
       let quality = wantsOriginal ? "original" : "thumbnail";
@@ -62,29 +76,41 @@
 
       if (state.loading) {
         state.pendingQuality = promoteQuality(state.pendingQuality, desiredQuality);
+        if (desiredQuality === "original") {
+          state.pendingPriority = promotePriority(state.pendingPriority, priority);
+        }
         return false;
       }
       if (state.queued) {
-        if (followupQuality) state.pendingQuality = "original";
-        else if (quality === "original") state.queuedQuality = "original";
+        if (followupQuality) {
+          state.pendingQuality = "original";
+          state.pendingPriority = promotePriority(state.pendingPriority, priority);
+        } else if (quality === "original") {
+          state.queuedQuality = "original";
+          state.queuedPriority = promotePriority(state.queuedPriority, priority);
+          if (state.queuedPriority === "high") this.#moveToFront(state);
+          this.#pump();
+        }
         return false;
       }
 
       state.pendingQuality = followupQuality;
+      state.pendingPriority = followupQuality ? priority : null;
       state.queuedQuality = quality;
+      state.queuedPriority = quality === "original" ? priority : "normal";
       state.queued = true;
-      if (quality === "original") this.#queue.unshift(state);
+      if (quality === "original" && priority === "high") this.#queue.unshift(state);
       else this.#queue.push(state);
       this.#pump();
       return true;
     }
 
-    retry(node, requestedQuality = "original") {
+    retry(node, requestedQuality = "original", options = {}) {
       const state = this.#states.get(node);
       if (!state || state.disposed) return false;
       if (requestedQuality === "original") state.originalFailed = false;
       if (requestedQuality === "thumbnail") state.thumbnailFailed = false;
-      return this.request(node, requestedQuality);
+      return this.request(node, requestedQuality, options);
     }
 
     // Drops a ready quality so it can be requested again. Used when the card is
@@ -128,15 +154,19 @@
       }
 
       state.loading = false;
+      this.#releaseBackgroundOriginal(state);
       state.loadingQuality = null;
+      state.loadingPriority = null;
       this.#active = Math.max(0, this.#active - 1);
       if (succeeded) state.readyQuality = quality;
       else if (quality === "original") state.originalFailed = true;
       else state.thumbnailFailed = true;
 
       const pendingQuality = state.pendingQuality;
+      const pendingPriority = state.pendingPriority;
       state.pendingQuality = null;
-      if (pendingQuality) this.request(node, pendingQuality);
+      state.pendingPriority = null;
+      if (pendingQuality) this.request(node, pendingQuality, { priority: pendingPriority });
       this.#pump();
       return true;
     }
@@ -148,16 +178,20 @@
 
       if (state.pendingQuality === quality) {
         state.pendingQuality = null;
+        state.pendingPriority = null;
         canceled = true;
       }
       if (state.queued && state.queuedQuality === quality) {
         state.queued = false;
         state.queuedQuality = null;
+        state.queuedPriority = null;
         canceled = true;
       }
       if (state.loading && state.loadingQuality === quality) {
+        this.#releaseBackgroundOriginal(state);
         state.loading = false;
         state.loadingQuality = null;
+        state.loadingPriority = null;
         this.#active = Math.max(0, this.#active - 1);
         canceled = true;
       }
@@ -180,10 +214,17 @@
       );
       state.disposed = true;
       state.queued = false;
+      state.queuedQuality = null;
+      state.queuedPriority = null;
       state.pendingQuality = null;
-      if (state.loading) this.#active = Math.max(0, this.#active - 1);
+      state.pendingPriority = null;
+      if (state.loading) {
+        this.#releaseBackgroundOriginal(state);
+        this.#active = Math.max(0, this.#active - 1);
+      }
       state.loading = false;
       state.loadingQuality = null;
+      state.loadingPriority = null;
       this.#states.delete(node);
       for (const quality of activeQualities) {
         try {
@@ -205,8 +246,11 @@
       return {
         readyQuality: state.readyQuality,
         queuedQuality: state.queuedQuality,
+        queuedPriority: state.queuedPriority,
         pendingQuality: state.pendingQuality,
+        pendingPriority: state.pendingPriority,
         loadingQuality: state.loadingQuality,
+        loadingPriority: state.loadingPriority,
         originalFailed: state.originalFailed,
         thumbnailFailed: state.thumbnailFailed,
         queued: state.queued,
@@ -216,14 +260,21 @@
 
     #pump() {
       while (this.#active < this.#maxConcurrent && this.#queue.length) {
-        const state = this.#queue.shift();
-        if (state.disposed || !state.queued) continue;
+        const index = this.#nextRunnableIndex();
+        if (index === -1) return;
+        const [state] = this.#queue.splice(index, 1);
         const quality = state.queuedQuality;
+        const priority = state.queuedPriority || "normal";
         state.queued = false;
         state.queuedQuality = null;
+        state.queuedPriority = null;
         state.loading = true;
         state.loadingQuality = quality;
+        state.loadingPriority = priority;
         this.#active += 1;
+        if (quality === "original" && priority !== "high") {
+          this.#activeBackgroundOriginals += 1;
+        }
         try {
           state.start(quality);
         } catch {
@@ -231,10 +282,49 @@
         }
       }
     }
+
+    #nextRunnableIndex() {
+      for (let index = 0; index < this.#queue.length; index += 1) {
+        const state = this.#queue[index];
+        if (state.disposed || !state.queued) {
+          this.#queue.splice(index, 1);
+          index -= 1;
+          continue;
+        }
+        const isBackgroundOriginal =
+          state.queuedQuality === "original" && state.queuedPriority !== "high";
+        if (
+          isBackgroundOriginal &&
+          this.#activeBackgroundOriginals >= this.#maxBackgroundOriginals
+        ) {
+          continue;
+        }
+        return index;
+      }
+      return -1;
+    }
+
+    #moveToFront(state) {
+      this.#queue = this.#queue.filter((candidate) => candidate !== state);
+      this.#queue.unshift(state);
+    }
+
+    #releaseBackgroundOriginal(state) {
+      if (state.loadingQuality !== "original" || state.loadingPriority === "high") return;
+      this.#activeBackgroundOriginals = Math.max(0, this.#activeBackgroundOriginals - 1);
+    }
   }
 
   function promoteQuality(current, requested) {
     return current === "original" || requested === "original" ? "original" : requested;
+  }
+
+  function normalizePriority(priority) {
+    return priority === "high" ? "high" : "normal";
+  }
+
+  function promotePriority(current, requested) {
+    return current === "high" || requested === "high" ? "high" : "normal";
   }
 
   function waitForImageDecode(image, timeoutMs = 1500, timers = globalThis) {

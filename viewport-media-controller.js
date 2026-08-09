@@ -180,6 +180,7 @@
         loadNodes: plan.loadNodes,
         getQuality: plan.getQuality,
         prewarmRaster: (node) => node === prewarmNode,
+        prioritizeOriginal: plan.prioritizeOriginal,
       };
     }
 
@@ -226,6 +227,7 @@
       }
 
       const moving = snapshot.motion !== "settled";
+      const priorityNode = getPriorityRasterNode({ loadNodes }, snapshot);
       return {
         visibleNodes,
         retainedNodes,
@@ -233,6 +235,7 @@
         selectedNode: snapshot.selectedNode,
         preserveOriginals: moving,
         deferOriginals: (node) => moving || !sharpNodes.has(node),
+        prioritizeOriginal: (node) => node === priorityNode,
         getQuality: (node) => {
           if (node === snapshot.selectedNode && !node.isVideo) return "original";
           if (node.isVideo) return "thumbnail";

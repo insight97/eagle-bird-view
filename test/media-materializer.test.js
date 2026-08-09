@@ -9,9 +9,11 @@ const { MediaLoadQueue } = require("../media-load-queue.js");
 function createQueueProbe() {
   const states = new Map();
   const requests = [];
+  const priorities = [];
   const disposed = [];
   return {
     disposed,
+    priorities,
     requests,
     register(node) {
       states.set(node, {
@@ -21,10 +23,11 @@ function createQueueProbe() {
         readyQuality: null,
       });
     },
-    request(node, quality) {
+    request(node, quality, options = {}) {
       const state = states.get(node);
       if (!state) return false;
       requests.push({ node, quality });
+      priorities.push(options.priority || "normal");
       state.loading = true;
       state.loadingQuality = quality;
       return true;
@@ -137,6 +140,22 @@ test("quality sync requests a better source without remounting the card", () => 
   assert.equal(harness.world.children.length, 1);
   assert.deepEqual(harness.queue.requests, [{ node, quality: "original" }]);
   assert.deepEqual(harness.queue.disposed, []);
+});
+
+test("quality sync forwards priority for the selected or center card", () => {
+  const harness = createHarness();
+  const node = createNode();
+
+  harness.materializer.mount(node);
+  harness.queue.requests.length = 0;
+  harness.queue.priorities.length = 0;
+  harness.materializer.syncQuality({
+    loadNodes: [node],
+    getQuality: () => "original",
+    prioritizeOriginal: (candidate) => candidate === node,
+  });
+
+  assert.deepEqual(harness.queue.priorities, ["high"]);
 });
 
 test("media card click forwards selection modifiers", () => {
@@ -344,6 +363,7 @@ test("raster debug events distinguish quality demand, queue wait, and build time
           screenLongEdge: 400,
           requestedBudget: 512,
           queueState: "idle",
+          priority: "normal",
         },
       },
       {
@@ -353,6 +373,7 @@ test("raster debug events distinguish quality demand, queue wait, and build time
           queueWaitMs: 80,
           screenLongEdge: 400,
           requestedBudget: 512,
+          priority: "normal",
           fileURL: "file:///painting.png",
         },
       },
@@ -364,6 +385,7 @@ test("raster debug events distinguish quality demand, queue wait, and build time
           buildMs: 175,
           totalMs: 255,
           source: "file",
+          priority: "normal",
           budget: 512,
           width: 363,
           height: 512,
