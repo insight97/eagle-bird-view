@@ -15,7 +15,12 @@
   if (typeof module === "object" && module.exports) module.exports = controller;
   root.BirdViewViewportMedia = controller;
 })(typeof globalThis === "object" ? globalThis : this, (core, viewportWork, root) => {
-  const { findNodesNearViewport, getPreloadMargins } = core;
+  const {
+    findNearestNodeToPoint,
+    findNodesNearViewport,
+    getPreloadMargins,
+    getViewportWorldCenter,
+  } = core;
   const { createViewportWorkScheduler } = viewportWork;
 
   const CAMERA_MOTION_IDLE = 180;
@@ -50,6 +55,7 @@
     let pendingMotion = null;
     let restartDiscreteZoom = false;
     let lastCoverageCamera = null;
+    let previousZoomQualityScale = null;
 
     const scheduler = createViewportWorkScheduler({
       window: windowRef,
@@ -69,13 +75,19 @@
       lastCameraChange = now();
       lastCameraMotion = motion;
       pendingMotion = null;
-      if (motion === "zoom") scheduler.restartZoomQuality();
+      if (motion === "zoom") {
+        previousZoomQualityScale = getSnapshot()?.camera?.scale ?? null;
+        scheduler.restartZoomQuality();
+      }
       else scheduler.reschedule();
     }
 
     function noteMotion(motion) {
       assertMotion(motion);
       restartDiscreteZoom = motion === "zoom" && getCameraMotion() !== "zoom";
+      if (restartDiscreteZoom) {
+        previousZoomQualityScale = getSnapshot()?.camera?.scale ?? null;
+      }
       pendingMotion = motion;
       lastCameraChange = now();
       lastCameraMotion = motion;
@@ -104,7 +116,10 @@
       if (!count) return;
       if (count === 1) activeMotions.delete(motion);
       else activeMotions.set(motion, count - 1);
-      if (motion === "zoom") scheduler.stopZoomQuality();
+      if (motion === "zoom") {
+        scheduler.stopZoomQuality();
+        previousZoomQualityScale = null;
+      }
       if (getActiveMotion()) {
         scheduler.reschedule();
         return;
@@ -154,8 +169,32 @@
     // Zoom revisits quality for cards already covered. It neither advances the
     // directional preload window nor changes mount ownership.
     function planQuality() {
-      const plan = buildPlan(normalizeSnapshot(getSnapshot(), getCameraMotion()), null);
-      return { loadNodes: plan.loadNodes, getQuality: plan.getQuality };
+      const snapshot = normalizeSnapshot(getSnapshot(), getCameraMotion());
+      const zoomingIn =
+        previousZoomQualityScale !== null &&
+        snapshot.camera.scale > previousZoomQualityScale;
+      previousZoomQualityScale = snapshot.camera.scale;
+      const plan = buildPlan(snapshot, null);
+      const prewarmNode = zoomingIn ? getPriorityRasterNode(plan, snapshot) : null;
+      return {
+        loadNodes: plan.loadNodes,
+        getQuality: plan.getQuality,
+        prewarmRaster: (node) => node === prewarmNode,
+      };
+    }
+
+    function getPriorityRasterNode(plan, snapshot) {
+      if (
+        snapshot.selectedNode &&
+        !snapshot.selectedNode.isVideo &&
+        plan.loadNodes.includes(snapshot.selectedNode)
+      ) {
+        return snapshot.selectedNode;
+      }
+      return findNearestNodeToPoint(
+        plan.loadNodes.filter((node) => !node.isVideo),
+        getViewportWorldCenter(snapshot.camera, snapshot.viewport),
+      );
     }
 
     function buildPlan(snapshot, travel) {

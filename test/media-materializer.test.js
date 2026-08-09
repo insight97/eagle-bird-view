@@ -490,6 +490,51 @@ test("zooming past the rastered size re-renders the master sharper", async () =>
   assert.equal(first.width, 0, "and gives its pixels back");
 });
 
+test("zoom-in lookahead builds one raster tier ahead for the priority card", async () => {
+  const harness = createRasterHarness({ screenLongEdge: 400 });
+  const node = createMasterNode();
+
+  harness.materializer.mount(node);
+  harness.materializer.syncQuality({
+    loadNodes: [node],
+    getQuality: () => "original",
+    prewarmRaster: (candidate) => candidate === node,
+  });
+  harness.images()[0].emit("load");
+  await settle();
+
+  assert.equal(harness.downscaleCalls[0].budget, 768);
+  assert.equal(node.previewImage.width, 544);
+  assert.equal(node.previewImage.height, 768);
+});
+
+test("a one-tier lookahead raster survives the first settled pass", async () => {
+  const harness = createRasterHarness({ screenLongEdge: 400 });
+  const node = createMasterNode();
+
+  harness.materializer.mount(node);
+  harness.materializer.syncQuality({
+    loadNodes: [node],
+    getQuality: () => "original",
+    prewarmRaster: () => true,
+  });
+  harness.images()[0].emit("load");
+  await settle();
+  const prewarmed = node.previewImage;
+
+  harness.materializer.sync({
+    visibleNodes: [node],
+    retainedNodes: [node],
+    loadNodes: [node],
+    selectedNode: node,
+    getQuality: () => "original",
+  });
+
+  assert.equal(harness.downscaleCalls.length, 1);
+  assert.equal(node.previewImage, prewarmed);
+  assert.equal(prewarmed.height, 768);
+});
+
 test("zooming back out hands the oversized raster back", async () => {
   const harness = createRasterHarness({ screenLongEdge: 1500 });
   const node = createMasterNode();
@@ -506,8 +551,10 @@ test("zooming back out hands the oversized raster back", async () => {
   });
   await settle();
 
-  assert.equal(harness.downscaleCalls.at(-1).budget, 512);
-  assert.notEqual(node.previewImage, zoomed);
+  assert.equal(harness.downscaleCalls.length, 1, "shrinking must not decode the master again");
+  assert.equal(node.previewImage.transferred, zoomed);
+  assert.equal(node.previewImage.width, 363);
+  assert.equal(node.previewImage.height, 512);
   assert.equal(zoomed.width, 0, "the oversized canvas gives its pixels back");
 });
 

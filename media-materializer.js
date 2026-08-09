@@ -72,6 +72,7 @@
     const materializedNodes = new Set();
     const requestMediaByNode = new WeakMap();
     const retryOriginalByNode = new WeakMap();
+    const resizeRasterByNode = new WeakMap();
     const thumbnailImageByNode = new WeakMap();
     // The bounded raster a card is currently painting — the <canvas> holding it
     // and the budget it was built for, so a later zoom can tell whether it still
@@ -90,20 +91,28 @@
     // card paints. The existing raster stays on screen throughout.
     //
     // Growing has to be eager: the card is visibly soft until it happens.
-    // Shrinking has to wait for the camera to settle, because a zoom gesture
-    // asks for quality several times a second and would otherwise re-render on
-    // every step. It cannot be skipped, though — a budget that only ever grows
-    // leaves a zoomed-out board painting 4096px rasters into 180px cards, which
-    // is the same decode cache thrash that bounding was meant to remove.
-    function refreshRasterBudget(node, { allowShrink = false } = {}) {
+    // Shrinking waits for the camera to settle, then copies the existing canvas
+    // into a smaller one. Reading the master again for fewer pixels wastes a
+    // queue slot and caused the zoom-out burst captured by the timing log.
+    function refreshRasterBudget(
+      node,
+      { allowShrink = false, targetBudget = null, prewarmed = false } = {},
+    ) {
       const raster = rasterByNode.get(node);
       if (!raster) return;
       const screenLongEdge = getNodeScreenLongEdge(node);
-      const needed = getRasterDimensionBudget(screenLongEdge);
+      const actualBudget = getRasterDimensionBudget(screenLongEdge);
+      const needed = Number(targetBudget) > 0 ? Number(targetBudget) : actualBudget;
       if (needed === raster.budget) return;
       if (needed < raster.budget && !allowShrink) return;
       if (mediaLoadQueue.snapshot(node)?.readyQuality !== "original") return;
-      if (!mediaLoadQueue.invalidate(node, "original")) return;
+      if (
+        needed < raster.budget &&
+        raster.prewarmed &&
+        getNextRasterBudget(actualBudget) === raster.budget
+      ) {
+        return;
+      }
       debugLog(node.item, "raster-budget-change-requested", {
         atMs: readNow(now),
         screenLongEdge,
@@ -111,7 +120,12 @@
         requestedBudget: needed,
         direction: needed > raster.budget ? "grow" : "shrink",
       });
-      requestMediaByNode.get(node)?.("original");
+      if (needed < raster.budget) {
+        resizeRasterByNode.get(node)?.(needed);
+        return;
+      }
+      if (!mediaLoadQueue.invalidate(node, "original")) return;
+      requestMediaByNode.get(node)?.("original", { budget: needed, prewarmed });
     }
 
     // Zooming out far enough that the card no longer wants an original at all
@@ -182,6 +196,7 @@
       materializedNodes.delete(node);
       requestMediaByNode.delete(node);
       retryOriginalByNode.delete(node);
+      resizeRasterByNode.delete(node);
 
       node.element = null;
       node.previewImage = null;
@@ -278,7 +293,11 @@
       return "thumbnail";
     }
 
-    function syncQuality({ loadNodes = [], getQuality = () => "thumbnail" } = {}) {
+    function syncQuality({
+      loadNodes = [],
+      getQuality = () => "thumbnail",
+      prewarmRaster = () => false,
+    } = {}) {
       for (const node of materializedNodes) {
         if (getQuality(node) !== "original") mediaLoadQueue.cancel(node, "original");
       }
@@ -286,8 +305,24 @@
       for (const node of loadNodes) {
         if (!materializedNodes.has(node)) continue;
         const quality = getQuality(node);
-        requestMediaByNode.get(node)?.(quality);
-        if (quality === "original") refreshRasterBudget(node);
+        if (quality !== "original") {
+          requestMediaByNode.get(node)?.(quality);
+          continue;
+        }
+        const screenLongEdge = getNodeScreenLongEdge(node);
+        const actualBudget = getRasterDimensionBudget(screenLongEdge);
+        const shouldPrewarm = prewarmRaster(node);
+        const targetBudget = shouldPrewarm
+          ? getNextRasterBudget(actualBudget)
+          : actualBudget;
+        requestMediaByNode.get(node)?.("original", {
+          budget: targetBudget,
+          prewarmed: shouldPrewarm && targetBudget > actualBudget,
+        });
+        refreshRasterBudget(node, {
+          targetBudget,
+          prewarmed: shouldPrewarm && targetBudget > actualBudget,
+        });
       }
     }
 
@@ -381,11 +416,15 @@
       // per attempt is what tells a late result that it has been superseded.
       let originalLoadToken = null;
       let originalRequestedAt = null;
+      let requestedOriginalBudget = null;
+      let requestedOriginalPrewarmed = false;
       const beginOriginalLoad = () => {
         const startedAt = readNow(now);
         originalLoadToken = {
           requestedAt: originalRequestedAt ?? startedAt,
           startedAt,
+          budget: requestedOriginalBudget,
+          prewarmed: requestedOriginalPrewarmed,
         };
         return originalLoadToken;
       };
@@ -423,13 +462,22 @@
           markOriginalLoadFailed("timeout");
         }, ORIGINAL_IMAGE_LOAD_TIMEOUT);
       };
-      const requestMedia = (quality = "thumbnail") => {
+      const requestMedia = (quality = "thumbnail", rasterRequest = null) => {
+        if (quality === "original") {
+          requestedOriginalBudget =
+            Number(rasterRequest?.budget) > 0
+              ? Number(rasterRequest.budget)
+              : getRasterDimensionBudget(getNodeScreenLongEdge(node));
+          requestedOriginalPrewarmed = Boolean(rasterRequest?.prewarmed);
+        }
         if (quality === "original" && originalImageURL) traceOriginalQualityRequest();
         const requested = mediaLoadQueue.request(node, quality);
         if (quality === "original" && originalImageURL) watchOriginalLoad();
         return requested;
       };
       const retry = () => {
+        requestedOriginalBudget = getRasterDimensionBudget(getNodeScreenLongEdge(node));
+        requestedOriginalPrewarmed = false;
         traceOriginalQualityRequest({ force: true });
         const requested = mediaLoadQueue.retry(node, "original");
         watchOriginalLoad();
@@ -441,7 +489,11 @@
         if (!force && !shouldTraceOriginalRequest(snapshot)) return;
         originalRequestedAt = readNow(now);
         const screenLongEdge = getNodeScreenLongEdge(node);
-        const target = getRasterTargetSize(item.width, item.height, screenLongEdge);
+        const target = getRasterTargetSize(
+          item.width,
+          item.height,
+          requestedOriginalBudget || screenLongEdge,
+        );
         debugLog(item, "original-quality-requested", {
           atMs: originalRequestedAt,
           screenLongEdge,
@@ -531,11 +583,45 @@
         return canvas;
       }
 
+      function resizeRaster(targetBudget) {
+        const raster = rasterByNode.get(node);
+        const source = raster?.element;
+        if (!source || source.tagName !== "CANVAS") return false;
+        const sourceLongEdge = Math.max(source.width, source.height);
+        if (!(sourceLongEdge > 0) || !(targetBudget > 0) || targetBudget >= sourceLongEdge) {
+          return false;
+        }
+        const ratio = targetBudget / sourceLongEdge;
+        const canvas = documentRef.createElement("canvas");
+        canvas.className = "media-raster";
+        canvas.width = Math.max(1, Math.round(source.width * ratio));
+        canvas.height = Math.max(1, Math.round(source.height * ratio));
+        canvas.setAttribute("role", "img");
+        canvas.setAttribute("aria-label", image.alt);
+        canvas.style.visibility = "hidden";
+        const context = canvas.getContext?.("2d");
+        if (!context?.drawImage) return false;
+        context.drawImage(source, 0, 0, canvas.width, canvas.height);
+        frame.append(canvas);
+        showMedia(canvas);
+        rasterByNode.set(node, { element: canvas, budget: targetBudget, prewarmed: false });
+        card.dataset.mediaQuality = "original";
+        applyMediaRotation(node);
+        debugLog(item, "bounded-raster-resized", {
+          sourceBudget: raster.budget,
+          budget: targetBudget,
+          width: canvas.width,
+          height: canvas.height,
+        });
+        return true;
+      }
+      resizeRasterByNode.set(node, resizeRaster);
+
       function showRaster(canvas, budget, source, token) {
         clearOriginalLoadTimeout();
         frame.append(canvas);
         showMedia(canvas);
-        rasterByNode.set(node, { element: canvas, budget });
+        rasterByNode.set(node, { element: canvas, budget, prewarmed: token.prewarmed });
         card.dataset.mediaQuality = "original";
         applyMediaRotation(node);
         mediaLoadQueue.complete(node, "original", true);
@@ -547,6 +633,10 @@
           height: canvas.height,
         });
         originalRequestedAt = null;
+        refreshRasterBudget(node, {
+          targetBudget: requestedOriginalBudget,
+          prewarmed: requestedOriginalPrewarmed,
+        });
       }
 
       async function startOriginalLoad(mediaURL) {
@@ -558,7 +648,7 @@
         const target = getRasterTargetSize(
           item.width,
           item.height,
-          screenLongEdge,
+          token.budget || screenLongEdge,
         );
         debugLog(item, "original-load-started", {
           atMs: token.startedAt,
@@ -801,6 +891,11 @@
       id: item?.id,
       ...details,
     });
+  }
+
+  function getNextRasterBudget(screenLongEdge) {
+    const current = getRasterDimensionBudget(screenLongEdge);
+    return getRasterDimensionBudget(current + 1);
   }
 
   function shouldTraceOriginalRequest(snapshot) {

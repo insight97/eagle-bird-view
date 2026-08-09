@@ -6,7 +6,7 @@ Eagle 的白板式媒體瀏覽器概念驗證。它會載入 Eagle 目前選取�
 
 開啟白板時會以 100% 置中第一個媒體。白板只掛載可視範圍附近的素材，圖片先以縮圖顯示，卡片在畫面上高度達到 320px 後便以最多四張的併發數載入原圖；距離畫面較遠的圖片與影片會自動釋放。
 
-指標拖曳時會暫時隱藏網格與素材標籤，平滑縮放與聚焦動畫期間則隱藏標籤。所有相機移動途徑都會維持圖片既有畫質，不會在移動中縮回縮圖；平滑縮放仍會替已掛載卡片補上需要的清晰度。超過顯示預算的原圖不會以完整解析度直接繪製，而是先縮成符合目前顯示尺寸的點陣圖；放大超過該尺寸時自動重新產生更清晰的版本，期間畫面保持不閃爍。若點陣圖無法產生，會保留縮圖並提供重試，避免改畫高解析度母檔。這能避免高解析度母檔在移動時造成的重複解碼與合成負載。
+指標拖曳時會暫時隱藏網格與素材標籤，平滑縮放與聚焦動畫期間則隱藏標籤。所有相機移動途徑都會維持圖片既有畫質，不會在移動中縮回縮圖；平滑縮放仍會替已掛載卡片補上需要的清晰度，放大時會優先替選取或畫面中央的圖片準備下一級畫質。超過顯示預算的原圖不會以完整解析度直接繪製，而是先縮成符合目前顯示尺寸的點陣圖；放大超過該尺寸時自動重新產生更清晰的版本，期間畫面保持不閃爍；縮小時則從既有點陣圖產生較小版本，不重新讀取母檔。若點陣圖無法產生，會保留縮圖並提供重試，避免改畫高解析度母檔。這能避免高解析度母檔在移動時造成的重複解碼與合成負載。
 
 素材使用等高對齊列排版：每列維持接近一致的高度、固定間距並依媒體比例填滿版面，最後一列自然靠左，讓畫面緊湊但仍容易掃視。
 
@@ -73,7 +73,7 @@ Eagle 的白板式媒體瀏覽器概念驗證。它會載入 Eagle 目前選取�
 
 ## 圖片清晰化診斷
 
-若要分析縮放後等待清晰的時間，可在 Eagle 開發者工具 Console 執行 `localStorage.setItem("bird-view-debug", "1")` 後重新開啟外掛。Console 會依序記錄 `original-quality-requested`、`original-load-started` 與 `bounded-raster-built`，其中 `queueWaitMs`、`buildMs`、`totalMs` 可分辨 queue 等待與母檔／raster 處理時間；`raster-budget-change-requested` 代表縮放跨過目前 raster 預算。完成後執行 `localStorage.removeItem("bird-view-debug")` 關閉紀錄。
+若要分析縮放後等待清晰的時間，可在 Eagle 開發者工具 Console 執行 `localStorage.setItem("bird-view-debug", "1")` 後重新開啟外掛。Console 會依序記錄 `original-quality-requested`、`original-load-started` 與 `bounded-raster-built`，其中 `queueWaitMs`、`buildMs`、`totalMs` 可分辨 queue 等待與母檔／raster 處理時間；`raster-budget-change-requested` 代表縮放跨過目前 raster 預算，`bounded-raster-resized` 則代表直接從既有 raster 縮小。完成後執行 `localStorage.removeItem("bird-view-debug")` 關閉紀錄。
 
 ## POC 限制
 

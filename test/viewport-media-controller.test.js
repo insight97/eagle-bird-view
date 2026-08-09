@@ -11,6 +11,7 @@ function createNode(id, { x = 0, width = 100, mediaHeight = 400, isVideo = false
     y: 0,
     width,
     mediaHeight,
+    height: mediaHeight,
     isVideo,
   };
 }
@@ -141,6 +142,44 @@ test("continuous zoom performs quality-only passes and restarts sharpness immedi
   harness.calls.length = 0;
   harness.controller.beginMotion("zoom");
   assert.deepEqual(harness.pendingDelays, [0], "a later zoom must not inherit an old throttle");
+});
+
+test("zooming in prewarms only the selected card", () => {
+  const selected = createNode("selected", { x: 250 });
+  const neighbor = createNode("neighbor", { x: 400 });
+  const harness = createHarness({ nodes: [selected, neighbor], selectedNode: selected });
+
+  harness.controller.beginMotion("zoom");
+  harness.state.camera = { x: 0, y: 0, scale: 1.1 };
+  harness.controller.cameraChanged();
+  harness.fire();
+
+  const zoomInPlan = harness.calls.at(-1).plan;
+  assert.equal(zoomInPlan.prewarmRaster(selected), true);
+  assert.equal(zoomInPlan.prewarmRaster(neighbor), false);
+
+  harness.calls.length = 0;
+  harness.state.camera = { x: 0, y: 0, scale: 0.9 };
+  harness.controller.cameraChanged();
+  harness.advance(120);
+  harness.fire();
+
+  assert.equal(harness.calls.at(-1).plan.prewarmRaster(selected), false);
+});
+
+test("zooming in prewarms the card nearest the viewport center when none is selected", () => {
+  const edge = createNode("edge", { x: 0 });
+  const center = createNode("center", { x: 250 });
+  const harness = createHarness({ nodes: [edge, center] });
+
+  harness.controller.beginMotion("zoom");
+  harness.state.camera = { x: 0, y: 0, scale: 1.1 };
+  harness.controller.cameraChanged();
+  harness.fire();
+
+  const plan = harness.calls.at(-1).plan;
+  assert.equal(plan.prewarmRaster(center), true);
+  assert.equal(plan.prewarmRaster(edge), false);
 });
 
 test("focus suppresses viewport work until the motion ends", () => {
