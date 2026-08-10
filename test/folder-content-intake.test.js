@@ -150,3 +150,99 @@ test("a hydration failure keeps the same batch available for retry", async () =>
   assert.deepEqual(harness.batches[0].items.map(({ id }) => id), ["a"]);
   assert.equal(recovered.loadedCount, 1);
 });
+
+test("folder intake resolves a nested folder before starting its session", async () => {
+  const events = [];
+  const folder = { id: "child", name: "Child" };
+  const source = {
+    async loadFolders(folders) {
+      events.push(["load", folders[0]]);
+      return { folders, items: [summary("child-item")] };
+    },
+    async hydrate(items) {
+      return items.map(hydrated);
+    },
+  };
+  const harness = createHarness(source, {
+    getFolderTree: () => [{ id: "root", name: "Root", children: [folder] }],
+    onStart(details) {
+      events.push(["start", details.origin, details.folders[0]]);
+    },
+  });
+
+  const result = await harness.intake.startFolder({
+    folderId: "child",
+    origin: "metadata",
+  });
+
+  assert.equal(result.status, "ready");
+  assert.equal(result.folder, folder);
+  assert.deepEqual(events, [
+    ["start", "metadata", folder],
+    ["load", folder],
+  ]);
+});
+
+test("folder intake falls back to the folder adapter and reports missing folders", async () => {
+  const remote = { id: "remote", name: "Remote" };
+  const lookedUp = [];
+  const harness = createHarness(
+    {
+      async loadFolders(folders) {
+        return { folders, items: [] };
+      },
+      async hydrate(items) {
+        return items;
+      },
+    },
+    {
+      folderApi: {
+        async getById(id) {
+          lookedUp.push(id);
+          return id === "remote" ? remote : null;
+        },
+      },
+    },
+  );
+
+  const loaded = await harness.intake.startFolder({ folderId: "remote" });
+  const missing = await harness.intake.startFolder({ folderId: "missing" });
+
+  assert.equal(loaded.status, "empty");
+  assert.equal(loaded.folder, remote);
+  assert.deepEqual(lookedUp, ["remote", "missing"]);
+  assert.equal(missing.status, "missing");
+});
+
+test("a newer folder target invalidates a late folder resolution", async () => {
+  let releaseFirst;
+  const firstDone = new Promise((resolve) => {
+    releaseFirst = resolve;
+  });
+  const source = {
+    async loadFolders(folders) {
+      return { folders, items: [summary(folders[0].id)] };
+    },
+    async hydrate(items) {
+      return items.map(hydrated);
+    },
+  };
+  const harness = createHarness(source, {
+    folderApi: {
+      async getById(id) {
+        if (id === "first") await firstDone;
+        return { id, name: id };
+      },
+    },
+  });
+
+  const first = harness.intake.startFolder({ folderId: "first" });
+  await new Promise((resolve) => setImmediate(resolve));
+  const second = await harness.intake.startFolder({ folderId: "second" });
+  releaseFirst();
+  const stale = await first;
+
+  assert.equal(second.status, "ready");
+  assert.equal(stale.status, "stale");
+  assert.deepEqual(harness.batches.map(({ items }) => items.map(({ id }) => id)), [["second"]]);
+});

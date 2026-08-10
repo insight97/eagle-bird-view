@@ -9,12 +9,19 @@
   const DEFAULT_INITIAL_DISPLAY_MIN_ITEMS = 120;
   const DEFAULT_BATCH_SIZE = 120;
 
+  // Owns the folder-content session seam for selected folders, the sidebar,
+  // and folder metadata targets. Source querying, folder resolution, stale
+  // target protection, progressive hydration, and retry stay behind this
+  // interface; callers only adapt the start/batch events to the board and UI.
   function createFolderContentIntake({
     source,
+    folderApi,
+    getFolderTree = () => [],
     loadCoordinator,
     channel = DEFAULT_CHANNEL,
     initialDisplayMinItems = DEFAULT_INITIAL_DISPLAY_MIN_ITEMS,
     batchSize = DEFAULT_BATCH_SIZE,
+    onStart = () => {},
     onBatch = () => {},
     onStateChange = () => {},
   } = {}) {
@@ -32,6 +39,17 @@
     const initialThreshold = Math.max(1, Math.floor(initialDisplayMinItems));
     const batchLimit = Math.max(1, Math.floor(batchSize));
     let session = null;
+    let requestGeneration = 0;
+
+    function beginRequest() {
+      requestGeneration += 1;
+      loadCoordinator.invalidate(channel);
+      return requestGeneration;
+    }
+
+    function isRequestCurrent(generation) {
+      return requestGeneration === generation;
+    }
 
     function createSession(folders, includeSubfolders) {
       return {
@@ -75,6 +93,18 @@
 
     function notify() {
       onStateChange(snapshot());
+    }
+
+    function activateSession(folders, includeSubfolders, { generation, origin } = {}) {
+      onStart({
+        origin: origin || "folder",
+        folders: Array.isArray(folders) ? folders.slice() : [],
+        includeSubfolders: includeSubfolders !== false,
+      });
+      if (!isRequestCurrent(generation)) return null;
+      session = createSession(folders, includeSubfolders);
+      notify();
+      return session;
     }
 
     function appendSummaries(current, items) {
@@ -175,6 +205,66 @@
       return snapshot();
     }
 
+    async function resolveFolder({ folder, folderId } = {}) {
+      if (folder?.id) return { folder };
+      const normalizedId = String(folderId || "").trim();
+      if (!normalizedId) return { folder: null };
+
+      const localFolder = findFolderById(getFolderTree(), normalizedId);
+      if (localFolder) return { folder: localFolder };
+
+      if (typeof folderApi?.getById === "function") {
+        try {
+          return { folder: await folderApi.getById(normalizedId) };
+        } catch (error) {
+          return { folder: null, error };
+        }
+      }
+
+      if (typeof folderApi?.getByIds === "function") {
+        try {
+          const folders = await folderApi.getByIds([normalizedId]);
+          return { folder: folders?.[0] || null };
+        } catch (error) {
+          return { folder: null, error };
+        }
+      }
+
+      return { folder: null };
+    }
+
+    async function startFolder({
+      folder,
+      folderId,
+      includeSubfolders = true,
+      origin = "folder",
+    } = {}) {
+      const generation = beginRequest();
+      // A target can take a round trip through Eagle before its folder is
+      // known. Hide the previous session during that gap so load-more cannot
+      // continue working on stale folder contents.
+      session = null;
+      notify();
+      const resolved = await resolveFolder({ folder, folderId });
+      if (!isRequestCurrent(generation)) return { status: "stale" };
+      if (!resolved.folder) {
+        return {
+          status: "missing",
+          folderId: String(folderId || resolved.folder?.id || "").trim(),
+          error: resolved.error,
+        };
+      }
+
+      const current = activateSession([resolved.folder], includeSubfolders, {
+        generation,
+        origin,
+      });
+      if (!current) return { status: "stale" };
+      const result = await runQuery(current);
+      if (result.status === "stale") return result;
+      return { ...result, folder: resolved.folder };
+    }
+
     async function loadNextBatch(current, { focus = false } = {}) {
       if (!isCurrent(current)) return { status: "stale" };
       if (loadCoordinator.isLoading?.(channel)) return snapshot();
@@ -189,15 +279,18 @@
       return snapshot();
     }
 
-    async function start({ folders, includeSubfolders = true } = {}) {
-      loadCoordinator.invalidate(channel);
-      session = createSession(folders, includeSubfolders);
-      notify();
-      return runQuery(session);
+    async function start({ folders, includeSubfolders = true, origin = "folder" } = {}) {
+      const generation = beginRequest();
+      const current = activateSession(folders, includeSubfolders, {
+        generation,
+        origin,
+      });
+      if (!current) return { status: "stale" };
+      return runQuery(current);
     }
 
     async function startFromItems(items, { folders = [], includeSubfolders = true, focus = true } = {}) {
-      loadCoordinator.invalidate(channel);
+      beginRequest();
       session = createSession(folders, includeSubfolders);
       appendSummaries(session, items);
       session.hasStarted = true;
@@ -221,12 +314,21 @@
     }
 
     function reset() {
-      loadCoordinator.invalidate(channel);
+      beginRequest();
       session = null;
       notify();
     }
 
-    return Object.freeze({ loadMore, reset, snapshot, start, startFromItems });
+    return Object.freeze({ loadMore, reset, snapshot, start, startFolder, startFromItems });
+  }
+
+  function findFolderById(source, folderId) {
+    for (const folder of source || []) {
+      if (String(folder?.id || "").trim() === folderId) return folder;
+      const child = findFolderById(folder?.children, folderId);
+      if (child) return child;
+    }
+    return null;
   }
 
   return Object.freeze({ createFolderContentIntake });

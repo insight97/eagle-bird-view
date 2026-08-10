@@ -7,10 +7,11 @@
 })(typeof globalThis === "object" ? globalThis : this, () => {
   const DEFAULT_CHANNEL = "library-content-target";
 
+  // Tag is the pre-filtered library target. Folder resolution and folder
+  // sessions belong to FolderContentIntake so every folder origin shares one
+  // generation and retry owner.
   function createLibraryContentTarget({
     itemApi,
-    folderApi,
-    getFolderTree = () => [],
     intake,
     loadCoordinator,
     channel = DEFAULT_CHANNEL,
@@ -39,11 +40,11 @@
     async function load(options = {}) {
       const target = normalizeTarget(options);
       if (!target.type || !target.value) return { status: "invalid", target };
+      if (target.type !== "tag") return { status: "invalid", target };
 
       loadCoordinator.invalidate(channel);
       const result = await loadCoordinator.run(channel, async ({ isCurrent }) => {
-        if (target.type === "tag") return loadTag(target, options.onBeforeStart, isCurrent);
-        return loadFolder(target, options.onBeforeStart, isCurrent);
+        return loadTag(target, options.onBeforeStart, isCurrent);
       });
 
       if (result.status !== "success") return result;
@@ -68,33 +69,6 @@
       return normalizeIntakeResult(intakeResult, { ...target, items: filteredItems });
     }
 
-    async function loadFolder(target, onBeforeStart, isCurrent) {
-      const { folder, error } = await resolveFolder(target.value);
-      if (!folder) return { status: "missing", ...target, error };
-
-      await onBeforeStart?.({ ...target, folder });
-      if (!isCurrent()) return null;
-
-      const intakeResult = await intake.start({
-        folders: [folder],
-        includeSubfolders: true,
-      });
-      if (!isCurrent()) return null;
-      return normalizeIntakeResult(intakeResult, { ...target, folder });
-    }
-
-    async function resolveFolder(folderId) {
-      const localFolder = findFolderById(getFolderTree(), folderId);
-      if (localFolder) return { folder: localFolder };
-      if (typeof folderApi?.getById !== "function") return { folder: null };
-
-      try {
-        return { folder: await folderApi.getById(folderId) };
-      } catch (error) {
-        return { folder: null, error };
-      }
-    }
-
     function reset() {
       loadCoordinator.invalidate(channel);
     }
@@ -108,15 +82,6 @@
     if (result.status === "empty") return { status: "empty", ...target, intake: result };
     if (result.status === "partial") return { status: "partial", ...target, intake: result };
     return { status: "loaded", ...target, intake: result };
-  }
-
-  function findFolderById(source, folderId) {
-    for (const folder of source || []) {
-      if (String(folder?.id || "").trim() === folderId) return folder;
-      const child = findFolderById(folder?.children, folderId);
-      if (child) return child;
-    }
-    return null;
   }
 
   return Object.freeze({ createLibraryContentTarget });

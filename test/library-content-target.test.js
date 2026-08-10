@@ -5,11 +5,9 @@ const assert = require("node:assert/strict");
 const { createLibraryContentTarget } = require("../library-content-target.js");
 const { createRowLoadCoordinator } = require("../row-load-coordinator.js");
 
-function createHarness({ itemApi = {}, folderApi = {}, folderTree = [], intake = {} } = {}) {
+function createHarness({ itemApi = {}, intake = {} } = {}) {
   return createLibraryContentTarget({
     itemApi,
-    folderApi,
-    getFolderTree: () => folderTree,
     intake: {
       async start() {
         return { status: "ready" };
@@ -64,49 +62,12 @@ test("library content target filters Tag items and starts the shared intake", as
   ]);
 });
 
-test("library content target resolves nested folders before starting intake", async () => {
-  const resolved = [];
-  const intakeCalls = [];
-  const folder = { id: "child", name: "Child" };
-  const target = createHarness({
-    folderTree: [{ id: "root", name: "Root", children: [folder] }],
-    intake: {
-      async start(options) {
-        intakeCalls.push(options);
-        return { status: "ready" };
-      },
-    },
-  });
+test("library content target leaves folder sessions to the folder intake", async () => {
+  const target = createHarness();
 
-  const result = await target.load({
-    type: "folder",
-    value: " child ",
-    label: "Child",
-    onBeforeStart({ folder: selectedFolder }) {
-      resolved.push(selectedFolder);
-    },
-  });
+  const result = await target.load({ type: "folder", value: "folder-1" });
 
-  assert.equal(result.status, "loaded");
-  assert.deepEqual(resolved, [folder]);
-  assert.deepEqual(intakeCalls, [{ folders: [folder], includeSubfolders: true }]);
-});
-
-test("library content target falls back to Eagle folder lookup", async () => {
-  const folder = { id: "remote", name: "Remote" };
-  const target = createHarness({
-    folderApi: {
-      async getById(id) {
-        assert.equal(id, "remote");
-        return folder;
-      },
-    },
-  });
-
-  const result = await target.load({ type: "folder", value: "remote", label: "Remote" });
-
-  assert.equal(result.status, "loaded");
-  assert.equal(result.folder, folder);
+  assert.equal(result.status, "invalid");
 });
 
 test("a newer library content target invalidates a late request", async () => {

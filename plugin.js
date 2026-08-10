@@ -526,7 +526,10 @@ function startEagleIntegration() {
   state.folderContentIntake = state.folderItemSource
     ? createFolderContentIntake({
         source: state.folderItemSource,
+        folderApi: eagle.folder,
+        getFolderTree: () => state.folderTree,
         loadCoordinator: rowLoadCoordinator,
+        onStart: handleFolderContentStart,
         onBatch: handleFolderContentBatch,
         onStateChange: updateFolderLoadMoreUI,
       })
@@ -534,8 +537,6 @@ function startEagleIntegration() {
   state.libraryContentTarget = state.folderContentIntake
     ? createLibraryContentTarget({
         itemApi: eagle.item,
-        folderApi: eagle.folder,
-        getFolderTree: () => state.folderTree,
         intake: state.folderContentIntake,
         loadCoordinator: rowLoadCoordinator,
       })
@@ -633,6 +634,7 @@ async function loadSelectedItems({ append = false } = {}) {
       await state.folderContentIntake?.start({
         folders: selectedFolders,
         includeSubfolders: true,
+        origin: "selected",
       });
       return;
     }
@@ -656,6 +658,23 @@ async function loadSelectedItems({ append = false } = {}) {
   }
 }
 
+function handleFolderContentStart({ origin, folders }) {
+  // A folder route supersedes a pending Tag target. The two routes now share
+  // the folder session owner, but the Tag query still has its own Eagle API
+  // channel and must be invalidated explicitly at this integration seam.
+  state.libraryContentTarget?.reset();
+  if (origin === "sidebar") {
+    rowLoadCoordinator.invalidate("selected");
+    folderBrowser?.setLoading(true);
+    return;
+  }
+  if (origin !== "metadata") return;
+
+  clearBoard({ recordHistory: true });
+  folderBrowser?.setSelectedFolder(folders?.[0]?.id || "");
+  folderBrowser?.setLoading(true);
+}
+
 async function handleFolderContentBatch(items, { initial = false, focus = false, offset, total } = {}) {
   if (!items?.length) return;
   if (initial) {
@@ -674,11 +693,10 @@ async function handleFolderBrowserSelect({ folder, includeSubfolders }) {
   }
 
   folderBrowser?.setSelectedFolder(folder.id);
-  rowLoadCoordinator.invalidate("selected");
-  folderBrowser?.setLoading(true);
   const result = await state.folderContentIntake.start({
     folders: [folder],
     includeSubfolders,
+    origin: "sidebar",
   });
   if (result.status === "stale") return;
   folderBrowser?.setLoading(false);
@@ -1335,55 +1353,64 @@ async function loadTagFromMetadataTarget(tag, label) {
       clearBoard({ recordHistory: true });
     },
   });
-  handleLibraryContentTargetResult(result, { type: "tag", value, label });
+  handleLibraryContentTargetResult(result, { value, label });
 }
 
 async function loadFolderFromMetadataTarget(folderId, label) {
   const id = String(folderId || "").trim();
-  if (!id || !state.libraryContentTarget) {
+  if (!id || !state.folderContentIntake) {
     showToast("目前無法讀取 Eagle 資料夾。", true);
     return;
   }
 
   folderBrowser?.setLoading(true);
   folderBrowser?.setStatus(`正在載入資料夾「${label || id}」…`);
-  const result = await state.libraryContentTarget.load({
-    type: "folder",
-    value: id,
-    label,
-    onBeforeStart({ folder }) {
-      resetFolderItemLoad();
-      clearBoard({ recordHistory: true });
-      folderBrowser?.setSelectedFolder(folder.id);
-    },
+  const result = await state.folderContentIntake.startFolder({
+    folderId: id,
+    origin: "metadata",
   });
   if (result.status === "stale") return;
   folderBrowser?.setLoading(false);
-  handleLibraryContentTargetResult(result, { type: "folder", value: id, label });
+  handleFolderContentTargetResult(result, { value: id, label });
 }
 
-function handleLibraryContentTargetResult(result, { type, value, label }) {
+function handleLibraryContentTargetResult(result, { value, label }) {
   if (result.status === "stale") return;
   const targetLabel = label || value;
   if (result.status === "unavailable") {
-    showToast(`目前無法讀取 Eagle ${type === "tag" ? "Tag" : "資料夾"}素材。`, true);
-    return;
-  }
-  if (result.status === "missing") {
-    showToast(`無法讀取資料夾「${targetLabel}」。`, true);
+    showToast("目前無法讀取 Eagle Tag 素材。", true);
     return;
   }
   if (result.status === "error") {
     const errorMessage = result.error?.message || result.error;
-    folderBrowser?.setStatus(
-      type === "tag" ? "載入 Tag 失敗，請重新嘗試。" : "載入失敗，請重新選擇資料夾。",
-    );
+    folderBrowser?.setStatus("載入 Tag 失敗，請重新嘗試。");
     if (errorMessage) {
-      showToast(
-        `無法載入${type === "tag" ? " Tag" : "資料夾"}素材：${errorMessage}`,
-        true,
-      );
+      showToast(`無法載入 Tag 素材：${errorMessage}`, true);
     }
+    return;
+  }
+  if (result.status === "partial") {
+    folderBrowser?.setStatus("Tag 素材部分載入失敗，可按「重試載入」繼續。");
+    return;
+  }
+  if (result.status === "empty") {
+    folderBrowser?.setStatus(`Tag「${targetLabel}」沒有可載入的素材。`);
+    return;
+  }
+  folderBrowser?.setStatus(`已載入 Tag「${targetLabel}」的內容。`);
+}
+
+function handleFolderContentTargetResult(result, { value, label }) {
+  if (result.status === "stale") return;
+  if (result.status === "missing") {
+    showToast(`無法讀取資料夾「${label || value}」。`, true);
+    folderBrowser?.setStatus("載入失敗，請重新選擇資料夾。");
+    return;
+  }
+  if (result.status === "error") {
+    const errorMessage = result.error?.message || result.error;
+    folderBrowser?.setStatus("載入失敗，請重新選擇資料夾。");
+    if (errorMessage) showToast(`無法載入資料夾素材：${errorMessage}`, true);
     return;
   }
   if (result.status === "partial") {
@@ -1391,18 +1418,10 @@ function handleLibraryContentTargetResult(result, { type, value, label }) {
     return;
   }
   if (result.status === "empty") {
-    folderBrowser?.setStatus(
-      type === "tag"
-        ? `Tag「${targetLabel}」沒有可載入的素材。`
-        : `選取的資料夾${describeSelectedFolders([result.folder])}沒有可載入的素材。`,
-    );
+    folderBrowser?.setStatus(`選取的資料夾${describeSelectedFolders([result.folder])}沒有可載入的素材。`);
     return;
   }
-  folderBrowser?.setStatus(
-    type === "tag"
-      ? `已載入 Tag「${targetLabel}」的內容。`
-      : `已載入${describeSelectedFolders([result.folder])}的內容。`,
-  );
+  folderBrowser?.setStatus(`已載入${describeSelectedFolders([result.folder])}的內容。`);
 }
 
 function invalidateMetadataSources() {

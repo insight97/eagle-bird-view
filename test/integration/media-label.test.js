@@ -165,6 +165,35 @@ test("a media label right-click loads the folder contents without removing the f
   assert.equal(plugin.elements.get("#item-count").textContent, "1 個素材");
 });
 
+test("a folder route invalidates a pending Tag target", async () => {
+  let resolveTag;
+  const pendingTag = new Promise((resolve) => {
+    resolveTag = resolve;
+  });
+  const plugin = await startWithItem(labelledItem(), {
+    navigationProbe: true,
+    folderTree: [{ id: "folder-1", name: "Reference" }],
+    tagSourceResult: pendingTag,
+  });
+  plugin.setFolderSourceResult({
+    folders: [{ id: "folder-1", name: "Reference" }],
+    items: [{ id: "folder-item", name: "reference.jpg", ext: "jpg", width: 100, height: 100 }],
+  });
+
+  const label = findLabel(plugin);
+  label.querySelector(".media-metadata-tag-target").emit("contextmenu");
+  await new Promise((resolve) => setImmediate(resolve));
+
+  plugin.elements.get("#folder-browser-tree").querySelectorAll(".folder-browser-item")[0].click();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(plugin.state.folderContentIntake.snapshot().folders[0].id, "folder-1");
+
+  resolveTag([{ id: "stale-tag-item", name: "stale.jpg", ext: "jpg", width: 100, height: 100 }]);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(plugin.state.folderContentIntake.snapshot().folders[0].id, "folder-1");
+});
+
 test("clicking a rating star saves the item and repaints the label", async () => {
   const item = labelledItem();
   const plugin = await startWithItem(item);

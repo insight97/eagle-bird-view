@@ -14,8 +14,9 @@ _Avoid_: folder browser, folder query, folder loader
 | --- | --- | --- | --- |
 | Eagle selection | `plugin.js:loadSelectedItems` | `row-load-coordinator.js`, `folder-item-source.js` | `test/integration/plugin-startup.test.js` |
 | Board stage replacement and previous/next-board restore | `plugin.js:renderItems` / `restorePreviousBoard` / `restoreNextBoard` | `board-history.js`, `board-state.js` | `test/board-history.test.js`, `test/integration/plugin-startup.test.js`, `test/integration/media-label.test.js` |
-| Selected folder contents | `plugin.js:handleFolderBrowserSelect` | `folder-browser.js`, `folder-item-source.js`, `folder-content-intake.js` | `test/folder-item-source.test.js`, `test/folder-content-intake.test.js`, `test/integration/plugin-startup.test.js` |
-| Tag or folder metadata target | `plugin.js:loadTagFromMetadataTarget` / `loadFolderFromMetadataTarget` | `library-content-target.js`, `folder-content-intake.js` | `test/library-content-target.test.js`, `test/integration/media-label.test.js` |
+| Selected folder contents | `plugin.js:handleFolderBrowserSelect` / `loadSelectedItems` | `folder-browser.js`, `folder-item-source.js`, `folder-content-intake.js` | `test/folder-item-source.test.js`, `test/folder-content-intake.test.js`, `test/integration/plugin-startup.test.js` |
+| Tag metadata target | `plugin.js:loadTagFromMetadataTarget` | `library-content-target.js`, `folder-content-intake.js` | `test/library-content-target.test.js`, `test/integration/media-label.test.js` |
+| Folder metadata target | `plugin.js:loadFolderFromMetadataTarget` | `folder-content-intake.js` | `test/folder-content-intake.test.js`, `test/integration/media-label.test.js` |
 | Initial media mount | `plugin.js:renderItems` | `board-state.js`, `media-materializer.js` | `test/integration/plugin-startup.test.js`, `test/integration/original-image-load.test.js` |
 | Pan, zoom, keyboard focus | `plugin.js:handleWheel` / `handleKeyDown` | `camera-navigation.js`, `selection-navigation.js` | `test/camera-navigation.test.js`, `test/selection-navigation.test.js` |
 | Single and multiple selection | `plugin.js` media-card click handlers | `selection-model.js`, `selection-navigation.js`, `media-materializer.js` | `test/selection-model.test.js`, `test/selection-navigation.test.js`, `test/integration/multi-selection.test.js` |
@@ -28,8 +29,8 @@ _Avoid_: folder browser, folder query, folder loader
 | Channel | Started by | Invalidation owner | Result may commit at |
 | --- | --- | --- | --- |
 | `selected` | `plugin.js:loadSelectedItems` | `plugin.js` when a folder is selected, `clearBoard()`, or the library changes | `renderItems`, `appendItemsToBoard`, or empty-state handling |
-| `folder-content` | `folder-content-intake.js:start` / `startFromItems` / `loadMore`; metadata targets invoke it through `library-content-target.js` | `folder-content-intake.js` for new sessions/reset, with reset requested by `plugin.js` | shared `handleFolderContentBatch` callback |
-| `library-content-target` | `library-content-target.js:load` | `library-content-target.js`, with board reset and intake reset requested by `plugin.js` | target `onBeforeStart`, then shared `handleFolderContentBatch`; `handleLibraryContentTargetResult` only reports status |
+| `folder-content` | `folder-content-intake.js:start` / `startFolder` / `loadMore`; selected, sidebar, and folder metadata routes use it directly | `folder-content-intake.js` for folder resolution, new sessions, reset, and stale target resolution | shared `handleFolderContentStart` / `handleFolderContentBatch` callbacks |
+| `library-content-target` | `library-content-target.js:load` for Tag targets | `library-content-target.js`, with Tag board reset requested by `plugin.js` | target `onBeforeStart`, then shared `handleFolderContentBatch`; `handleLibraryContentTargetResult` only reports Tag status |
 | `exploration` | `plugin.js:exploreNextRow` / `exploreFromSelectionTarget` | `plugin.js` after library, metadata, or exploration-setting changes | `insertExplorationItemsAfterNode` |
 | `unrated` | `plugin.js:loadNextUnratedRow` | `plugin.js` after library, filter, or metadata changes | `insertExplorationItemsAfterNode` |
 
