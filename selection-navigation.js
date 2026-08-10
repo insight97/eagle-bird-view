@@ -6,21 +6,81 @@
     (typeof module === "object" && typeof require === "function"
       ? require("./bird-view-core.js")
       : null);
-  const selectionModel =
-    root.BirdViewSelectionModel ||
-    (typeof module === "object" && typeof require === "function"
-      ? require("./selection-model.js")
-      : null);
-  const selection = factory(core, selectionModel);
+  const selection = factory(core);
   if (typeof module === "object" && module.exports) module.exports = selection;
   root.BirdViewSelection = selection;
-})(typeof globalThis === "object" ? globalThis : this, (core, selectionModelApi) => {
+})(typeof globalThis === "object" ? globalThis : this, (core) => {
   const {
     findDirectionalNeighbor,
     findNearestNodeInRows,
     getViewportWorldCenter,
   } = core;
-  const { createSelectionModel } = selectionModelApi;
+
+  function createSelectionModel(options = {}) {
+    const getOrderedNodes = options.getOrderedNodes || (() => []);
+    let selectedNodes = new Set();
+    let activeNode = null;
+    let anchorNode = null;
+
+    function snapshot() {
+      return {
+        activeNode,
+        anchorNode,
+        selectedNodes: new Set(selectedNodes),
+      };
+    }
+
+    function selectNode(node, { ctrlKey = false, shiftKey = false } = {}) {
+      if (!node) return snapshot();
+      if (shiftKey) {
+        const anchor = anchorNode || activeNode || node;
+        const orderedNodes = getOrderedNodes() || [];
+        const anchorIndex = orderedNodes.indexOf(anchor);
+        const nodeIndex = orderedNodes.indexOf(node);
+        if (anchorIndex >= 0 && nodeIndex >= 0) {
+          const start = Math.min(anchorIndex, nodeIndex);
+          const end = Math.max(anchorIndex, nodeIndex);
+          selectedNodes = new Set(orderedNodes.slice(start, end + 1));
+        } else {
+          selectedNodes = new Set([node]);
+        }
+        activeNode = node;
+        if (!anchorNode) anchorNode = anchor;
+        return snapshot();
+      }
+
+      if (ctrlKey) {
+        if (selectedNodes.has(node)) selectedNodes.delete(node);
+        else selectedNodes.add(node);
+        activeNode = selectedNodes.has(node)
+          ? node
+          : [...selectedNodes][selectedNodes.size - 1] || null;
+        anchorNode = node;
+        return snapshot();
+      }
+
+      selectedNodes = new Set([node]);
+      activeNode = node;
+      anchorNode = node;
+      return snapshot();
+    }
+
+    function clear() {
+      selectedNodes = new Set();
+      activeNode = null;
+      anchorNode = null;
+      return snapshot();
+    }
+
+    return Object.freeze({
+      clear,
+      getActiveNode: () => activeNode,
+      getAnchorNode: () => anchorNode,
+      getSelectedNodes: () => new Set(selectedNodes),
+      isMultiple: () => selectedNodes.size > 1,
+      selectNode,
+    });
+  }
 
   function createSelectionNavigation(options = {}) {
     const {
@@ -51,7 +111,6 @@
     function syncState() {
       state.selectedNodes = model.getSelectedNodes();
       state.selectedNode = model.getActiveNode();
-      state.activeNode = model.getActiveNode();
       state.selectionAnchor = model.getAnchorNode();
     }
 

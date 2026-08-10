@@ -97,26 +97,38 @@ test("selection navigation clears selection state through its integration callba
   harness.navigation.clearSelection();
 
   assert.equal(harness.state.selectedNode, null);
+  assert.deepEqual([...harness.state.selectedNodes], []);
+  assert.equal(harness.state.selectionAnchor, null);
   assert.equal(harness.state.verticalNavigation, null);
   assert.deepEqual(harness.cleared, [node]);
 });
 
-test("selection navigation exposes modifier selection without changing keyboard navigation", () => {
+test("selection navigation owns normal, ctrl, and shift selection transitions", () => {
   const harness = createHarness();
   const first = createNode("first", 0, 0);
   const second = createNode("second", 120, 0);
   const third = createNode("third", 240, 0);
   harness.state.rows = [{ top: 0, bottom: 100, nodes: [first, second, third] }];
 
-  harness.navigation.selectNode(first);
-  harness.navigation.selectNode(third, { ctrlKey: true });
-  assert.deepEqual([...harness.navigation.getSelectedNodes()], [first, third]);
-  assert.equal(harness.state.selectedNode, third);
+  harness.navigation.selectNode(second);
+  assert.deepEqual([...harness.navigation.getSelectedNodes()], [second]);
+  assert.equal(harness.state.selectedNode, second);
+  assert.equal(harness.state.selectionAnchor, second);
+
+  harness.navigation.selectNode(first, { ctrlKey: true });
+  assert.deepEqual([...harness.navigation.getSelectedNodes()], [second, first]);
+  assert.equal(harness.state.selectedNode, first);
+  assert.equal(harness.state.selectionAnchor, first);
   assert.equal(harness.navigation.isMultipleSelection(), true);
 
-  harness.navigation.selectNode(second, { shiftKey: true });
-  assert.deepEqual([...harness.navigation.getSelectedNodes()], [second, third]);
-  assert.equal(harness.state.selectionAnchor, third);
+  harness.navigation.selectNode(first, { ctrlKey: true });
+  assert.deepEqual([...harness.navigation.getSelectedNodes()], [second]);
+  assert.equal(harness.state.selectedNode, second);
+
+  harness.navigation.selectNode(third, { shiftKey: true });
+  assert.deepEqual([...harness.navigation.getSelectedNodes()], [first, second, third]);
+  assert.equal(harness.state.selectedNode, third);
+  assert.equal(harness.state.selectionAnchor, first);
 });
 
 test("viewport-center selection does not replace a multiple selection", () => {

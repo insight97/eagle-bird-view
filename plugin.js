@@ -105,7 +105,6 @@ const state = {
   mountedLabelNodes: new Set(),
   labelCamera: null,
   selectedNode: null,
-  activeNode: null,
   selectedNodes: new Set(),
   selectionAnchor: null,
   verticalNavigation: null,

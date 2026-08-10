@@ -33,7 +33,6 @@ const EXPECTED_SCRIPT_SOURCES = [
   "tag-editor.js",
   "camera-navigation.js",
   "metadata-committer.js",
-  "selection-model.js",
   "selection-navigation.js",
   "plugin.js",
 ];
@@ -90,7 +89,6 @@ test("every module resolves its dependencies in index.html script order", () => 
       "BirdViewPopover",
       "BirdViewRowLoad",
       "BirdViewSelection",
-      "BirdViewSelectionModel",
       "BirdViewSelectionTags",
       "BirdViewSettingsPresets",
       "BirdViewSettingsSnapshot",

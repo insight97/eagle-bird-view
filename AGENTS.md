@@ -20,8 +20,7 @@
 - `image-downscaler.js`：把 Eagle 的全解析度母檔解碼成有上限的 `ImageBitmap`。優先以 `fetch` + `createImageBitmap` 按目標尺寸解碼，其次從已載入的 `<img>` 取得，兩者皆不可用時回傳 `null` 讓 caller 保留縮圖並提供 retry。不編碼、不產生 URL；bitmap 的所有權交給 caller。
 - `viewport-work-scheduler.js`：`viewport-media-controller.js` 的 internal seam，決定 viewport 維護何時執行、執行哪一部分；不由 `plugin.js` 直接呼叫，也不碰 DOM 或 board 狀態。
 - `viewport-media-controller.js`：管理相機移動 lifecycle、viewport 排程與媒體規劃，並驅動 `media-materializer.js`。平移只跑媒體覆蓋、縮放只跑品質判斷、相機停下才做完整 pass；caller 不需知道 timer protocol 或 media plan schema。
-- `camera-navigation.js`／`selection-navigation.js`：相機平移／縮放／聚焦與鍵盤選取。
-- `selection-model.js`：管理單選、Ctrl/Cmd 切換、Shift 區間選取、active 素材與多選集合。
+- `camera-navigation.js`／`selection-navigation.js`：相機平移／縮放／聚焦與鍵盤選取；selection-navigation 同時管理單選、Ctrl/Cmd 切換、Shift 區間選取、active 素材與多選集合。
 - `metadata-committer.js`：管理單筆與批次 metadata transaction，包含 optimistic apply、saving state、有限併發與部分失敗 rollback；Eagle item 與測試 fake 是 production／mock adapters。
 - `selection-tag-overflow.js`：選取素材 Tag 的可用寬度收合與搜尋選擇。
 - `auto-explore-settings.js`／`settings-presets.js`：設定面板、篩選器正規化與 localStorage preset。
@@ -62,7 +61,6 @@ viewport-media-controller.js
 tag-editor.js
 camera-navigation.js
 metadata-committer.js
-selection-model.js
 selection-navigation.js
 plugin.js (defer)
 ```
