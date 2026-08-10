@@ -6,10 +6,17 @@ const { createViewportMediaController } = require("../viewport-media-controller.
 
 function createNode(
   id,
-  { x = 0, width = 100, mediaHeight = 400, isVideo = false, isAudio = false } = {},
+  {
+    x = 0,
+    width = 100,
+    mediaHeight = 400,
+    isVideo = false,
+    isAudio = false,
+    isPdfPage = false,
+  } = {},
 ) {
   return {
-    item: { id },
+    item: { id, ...(isPdfPage ? { isPdfPage } : {}) },
     x,
     y: 0,
     width,
@@ -174,6 +181,18 @@ test("continuous zoom evaluates quality but defers new originals until it settle
   harness.calls.length = 0;
   harness.controller.beginMotion("zoom");
   assert.deepEqual(harness.pendingDelays, [0], "a later zoom must not inherit an old throttle");
+});
+
+test("PDF pages always keep original quality so their canvas render is not canceled", () => {
+  const page = createNode("manual:page:1", { mediaHeight: 180, isPdfPage: true });
+  const harness = createHarness({ nodes: [page] });
+
+  harness.controller.cameraChanged();
+  harness.fire();
+
+  const plan = harness.calls[0].plan;
+  assert.equal(plan.getQuality(page), "original");
+  assert.equal(plan.deferOriginals(page), false);
 });
 
 test("zooming in prewarms only the selected card", () => {

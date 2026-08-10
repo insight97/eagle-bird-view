@@ -21,6 +21,7 @@
     getPreloadMargins,
     getViewportWorldCenter,
     isPlayableNode,
+    isPdfPageNode,
   } = core;
   const { createViewportWorkScheduler } = viewportWork;
 
@@ -244,6 +245,7 @@
         deferElementFallback: () => getCameraMotion() !== "settled",
         prioritizeOriginal: (node) => node === priorityNode,
         getQuality: (node) => {
+          if (isPdfPageNode(node)) return "original";
           if (node === snapshot.selectedNode && !isPlayableNode(node)) return "original";
           if (isPlayableNode(node)) return "thumbnail";
           return node.mediaHeight * camera.scale >= ORIGINAL_IMAGE_MIN_HEIGHT

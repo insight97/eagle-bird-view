@@ -7,6 +7,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const ROOT = path.resolve(__dirname, "..");
+const EXTERNAL_SCRIPT_SOURCES = new Set(["vendor/pdfjs/pdf.min.js"]);
 const EXPECTED_SCRIPT_SOURCES = [
   "bird-view-core.js",
   "board-state.js",
@@ -25,6 +26,9 @@ const EXPECTED_SCRIPT_SOURCES = [
   "folder-browser.js",
   "folder-picker.js",
   "video-player.js",
+  "vendor/pdfjs/pdf.min.js",
+  "pdf-runtime.js",
+  "pdf-board.js",
   "video-thumbnail.js",
   "image-downscaler.js",
   "media-materializer.js",
@@ -63,6 +67,7 @@ test("every module resolves its dependencies in index.html script order", () => 
 
   for (const source of sources) {
     if (source === "plugin.js") continue;
+    if (EXTERNAL_SCRIPT_SOURCES.has(source)) continue;
     vm.runInContext(fs.readFileSync(path.join(ROOT, source), "utf8"), context, {
       filename: source,
     });
@@ -86,6 +91,8 @@ test("every module resolves its dependencies in index.html script order", () => 
       "BirdViewMaterializer",
       "BirdViewMedia",
       "BirdViewMetadata",
+      "BirdViewPdfBoard",
+      "BirdViewPdfRuntime",
       "BirdViewPopover",
       "BirdViewRowLoad",
       "BirdViewSelection",
@@ -116,6 +123,7 @@ test("plugin.js only destructures exports its dependencies provide", () => {
 
   for (const source of scriptSources()) {
     if (source === "plugin.js") continue;
+    if (EXTERNAL_SCRIPT_SOURCES.has(source)) continue;
     vm.runInContext(fs.readFileSync(path.join(ROOT, source), "utf8"), context, {
       filename: source,
     });

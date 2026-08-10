@@ -22,6 +22,8 @@ const BirdViewLibraryContent = require("../library-content-target.js");
 const BirdViewVideoThumbnail = require("../video-thumbnail.js");
 const BirdViewSelection = require("../selection-navigation.js");
 const BirdViewMetadata = require("../metadata-committer.js");
+const BirdViewPdfRuntime = require("../pdf-runtime.js");
+const BirdViewPdfBoard = require("../pdf-board.js");
 
 const PLUGIN_SOURCE = fs.readFileSync(path.resolve(__dirname, "../plugin.js"), "utf8");
 const SELECTORS = [
@@ -110,6 +112,8 @@ const SELECTORS = [
   "#folder-load-more-button",
   "#board-history-back-button",
   "#board-history-forward-button",
+  "#pdf-board-back-button",
+  "#pdf-board-breadcrumb",
   "#folder-browser",
   "#folder-browser-toggle",
   "#folder-browser-search",
@@ -331,6 +335,7 @@ function createElementStub(tag = "div") {
 function createPluginHarness({
   selectedItems = null,
   aiSearch = null,
+  pdfjsLib = null,
   storage = null,
   folderTree = [],
   tagSourceResult = [],
@@ -435,6 +440,8 @@ function createPluginHarness({
     BirdViewSettingsSnapshot,
     BirdViewRowLoad,
     BirdViewMetadata,
+    BirdViewPdfRuntime,
+    BirdViewPdfBoard,
     BirdViewSelectionTags,
     BirdViewFolderBrowser,
     BirdViewFolderContent,
@@ -479,6 +486,7 @@ function createPluginHarness({
         };
       },
     },
+    pdfjsLib,
     BirdViewTagEditor: { TagEditor },
     BirdViewFolderPicker: { FolderPicker },
     BirdViewCamera: {

@@ -13,7 +13,14 @@ const {
   findNodesNearViewport,
   getAspectRatio,
   insertExplorationRow,
+  isPdfItem,
 } = require("../bird-view-core.js");
+
+test("isPdfItem recognizes PDF extensions without changing case", () => {
+  assert.equal(isPdfItem({ ext: "PDF" }), true);
+  assert.equal(isPdfItem({ ext: ".pdf" }), true);
+  assert.equal(isPdfItem({ ext: "docx" }), false);
+});
 
 test("getAspectRatio accepts numeric strings and falls back for invalid dimensions", () => {
   assert.equal(getAspectRatio({ width: "300", height: "200" }), 1.5);

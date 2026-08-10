@@ -30,6 +30,8 @@
     getRasterDimensionBudget,
     getRasterTargetSize,
     isAudioItem,
+    isPdfItem,
+    isPdfPageNode,
     isPlayableNode,
     isVideoItem,
   } = core;
@@ -72,6 +74,8 @@
       showToast = () => {},
       debugLog = defaultDebugLog,
       startVideoPlayer: startVideoPlayerImpl = startVideoPlayer,
+      onOpenPdf = () => {},
+      renderPdfPage = null,
     } = options;
 
     if (!world || !documentRef?.createElement || !mediaLoadQueue) {
@@ -198,6 +202,8 @@
       mediaLoadQueue.dispose(node);
       node.stopVideoControls?.();
 
+      if (isPdfPageNode(node)) releaseRasterCanvas(node.mediaElement);
+
       if (node.videoElement) {
         node.videoElement.pause();
         node.videoElement.removeAttribute("src");
@@ -241,6 +247,18 @@
     function preloadSelected(node) {
       const snapshot = mediaLoadQueue.snapshot(node);
       if (!snapshot) return;
+      if (isPdfPageNode(node)) {
+        if (snapshot.readyQuality === "original" || snapshot.originalFailed) return;
+        requestMediaByNode.get(node)?.("original", { priority: "high" });
+        return;
+      }
+      if (isPdfItem(node.item) || node.isPdf) {
+        if (snapshot.readyQuality || snapshot.loading || snapshot.queued || snapshot.pendingQuality) {
+          return;
+        }
+        requestMediaByNode.get(node)?.("thumbnail");
+        return;
+      }
       if (!isPlayableNode(node)) {
         if (snapshot.readyQuality === "original" || snapshot.originalFailed) return;
         requestMediaByNode.get(node)?.("original", { priority: "high" });
@@ -253,7 +271,14 @@
     }
 
     function retryOriginal(node) {
-      if (!node || isPlayableNode(node) || !node.item?.fileURL) return;
+      if (
+        !node ||
+        isPdfPageNode(node) ||
+        isPdfItem(node.item) ||
+        node.isPdf ||
+        isPlayableNode(node) ||
+        !node.item?.fileURL
+      ) return;
       const requested = retryOriginalByNode.get(node)?.() || false;
       if (!requested) return;
       node.element?.setAttribute("data-media-quality", "loading-original");
@@ -396,16 +421,167 @@
       else node.videoElement?.pause();
     }
 
+    function createPdfPageCard(node) {
+      const { item } = node;
+      const card = documentRef.createElement("article");
+      const frame = documentRef.createElement("div");
+      const canvas = documentRef.createElement("canvas");
+      const placeholder = documentRef.createElement("div");
+      const pageNumber = documentRef.createElement("span");
+      const retryButton = documentRef.createElement("button");
+      const mediaGeneration = (node.mediaGeneration || 0) + 1;
+      let renderToken = null;
+      let activeRender = null;
+      let renderController = null;
+
+      node.mediaGeneration = mediaGeneration;
+      card.className = "media-card pdf-page-card";
+      card.dataset.itemId = item.id;
+      card.dataset.mediaQuality = "idle";
+      card.title = `${item.pdfParentItem?.name || "PDF"} 第 ${item.pdfPageNumber} 頁`;
+      frame.className = "media-frame";
+      frame.style.height = `${node.mediaHeight}px`;
+      canvas.className = "pdf-page-canvas";
+      canvas.setAttribute("role", "img");
+      canvas.setAttribute("aria-label", item.name || `PDF 第 ${item.pdfPageNumber} 頁`);
+      canvas.style.visibility = "hidden";
+      placeholder.className = "pdf-page-placeholder";
+      placeholder.textContent = "PDF";
+      placeholder.setAttribute("aria-hidden", "true");
+      pageNumber.className = "pdf-page-number";
+      pageNumber.textContent = `第 ${item.pdfPageNumber} 頁`;
+      retryButton.className = "pdf-page-retry-button";
+      retryButton.type = "button";
+      retryButton.textContent = "重試";
+      retryButton.setAttribute("aria-label", `重試載入 ${item.name || "PDF 頁面"}`);
+      retryButton.hidden = true;
+      retryButton.addEventListener("pointerdown", (event) => event.stopPropagation());
+      retryButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        mediaLoadQueue.retry(node, "original", { priority: "high" });
+      });
+
+      node.mediaElement = canvas;
+      node.previewImage = canvas;
+
+      const isCurrentRender = (token) =>
+        node.mediaGeneration === mediaGeneration &&
+        renderToken === token &&
+        mediaLoadQueue.snapshot(node)?.loadingQuality === "original";
+      const cancelRender = () => {
+        renderToken = null;
+        renderController?.abort?.();
+        renderController = null;
+        activeRender?.cancel?.();
+        activeRender = null;
+      };
+      const requestMedia = (quality = "original", request = null) =>
+        mediaLoadQueue.request(node, "original", {
+          priority: request?.priority === "high" || quality === "original" ? "high" : "normal",
+        });
+      requestMediaByNode.set(node, requestMedia);
+      retryOriginalByNode.set(node, () =>
+        mediaLoadQueue.retry(node, "original", { priority: "high" }),
+      );
+      mediaLoadQueue.register(node, {
+        hasOriginal: typeof renderPdfPage === "function",
+        hasThumbnail: false,
+        cancel: (quality) => {
+          if (quality !== "original") return;
+          cancelRender();
+          card.dataset.mediaQuality = "idle";
+        },
+        start: (quality) => {
+          if (quality !== "original" || typeof renderPdfPage !== "function") {
+            mediaLoadQueue.complete(node, quality, false);
+            return;
+          }
+          const token = {};
+          renderToken = token;
+          renderController =
+            typeof AbortController === "function" ? new AbortController() : null;
+          card.dataset.mediaQuality = "loading-original";
+          retryButton.hidden = true;
+          const screenLongEdge = getNodeScreenLongEdge(node);
+          const budget = getRasterDimensionBudget(screenLongEdge);
+          const pageLongEdge = Math.max(Number(item.width) || 0, Number(item.height) || 0);
+          const scale = pageLongEdge > 0 ? budget / pageLongEdge : 1;
+          let result;
+          try {
+            result = renderPdfPage({
+              node,
+              canvas,
+              budget,
+              scale,
+              signal: renderController?.signal,
+            });
+          } catch (error) {
+            result = Promise.reject(error);
+          }
+          activeRender = result && typeof result.promise === "object" ? result : null;
+          const promise = result?.promise || result;
+          Promise.resolve(promise).then(
+            () => {
+              if (!isCurrentRender(token)) return;
+              renderToken = null;
+              renderController = null;
+              activeRender = null;
+              canvas.style.visibility = "visible";
+              placeholder.hidden = true;
+              retryButton.hidden = true;
+              card.dataset.mediaQuality = "original";
+              applyMediaRotation(node);
+              mediaLoadQueue.complete(node, "original", true);
+            },
+            (error) => {
+              if (!isCurrentRender(token)) return;
+              renderToken = null;
+              renderController = null;
+              activeRender = null;
+              placeholder.hidden = false;
+              retryButton.hidden = false;
+              card.dataset.mediaQuality = "original-failed";
+              debugLog(item, "pdf-page-render-failed", {
+                pageNumber: item.pdfPageNumber,
+                reason: error?.message || String(error),
+              });
+              mediaLoadQueue.complete(node, "original", false);
+            },
+          );
+        },
+      });
+
+      frame.append(canvas, placeholder, pageNumber, retryButton);
+      card.append(frame);
+      card.addEventListener("click", (event) => {
+        if (event.target.closest("button, input")) return;
+        onClickNode(node, {
+          ctrlKey: event.ctrlKey,
+          metaKey: event.metaKey,
+          shiftKey: event.shiftKey,
+        });
+      });
+      card.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onOpenContextMenu(node);
+      });
+      return card;
+    }
+
     function createMediaCard(node) {
+      if (isPdfPageNode(node)) return createPdfPageCard(node);
       const { item } = node;
       const isVideo = isVideoItem(item);
       const isAudio = isAudioItem(item);
+      const isPdf = isPdfItem(item) || node.isPdf;
       const isPlayable = isVideo || isAudio;
       const card = documentRef.createElement("article");
       const frame = documentRef.createElement("div");
       const image = documentRef.createElement("img");
       const audioVisual = isAudio ? documentRef.createElement("div") : null;
-      const retryOriginalButton = !isPlayable ? documentRef.createElement("button") : null;
+      const pdfVisual = isPdf ? documentRef.createElement("div") : null;
+      const retryOriginalButton = !isPlayable && !isPdf ? documentRef.createElement("button") : null;
       const mediaGeneration = (node.mediaGeneration || 0) + 1;
       let originalLoadTimeoutId = null;
 
@@ -415,12 +591,14 @@
       card.dataset.mediaQuality = "idle";
       card.title = isPlayable
         ? `${item.name || "未命名"}（雙擊播放或暫停）`
-        : item.name || "未命名";
+        : isPdf
+          ? `${item.name || "未命名"}（雙擊進入 PDF）`
+          : item.name || "未命名";
       frame.className = "media-frame";
       frame.style.height = `${node.mediaHeight}px`;
-      const originalImageURL = !isPlayable ? item.fileURL : null;
-      const fallbackURL = item.thumbnailURL || (!isPlayable ? item.fileURL : null);
-      if (!isPlayable && !originalImageURL) {
+      const originalImageURL = !isPlayable && !isPdf ? item.fileURL : null;
+      const fallbackURL = item.thumbnailURL || (!isPlayable && !isPdf ? item.fileURL : null);
+      if (!isPlayable && !isPdf && !originalImageURL) {
         debugLog(item, "card-created-without-fileURL", { fileURL: item.fileURL });
       }
 
@@ -436,6 +614,13 @@
         audioVisual.setAttribute("role", "img");
         audioVisual.setAttribute("aria-label", `音訊 ${item.name || "未命名"}`);
       }
+      if (pdfVisual) {
+        pdfVisual.className = "pdf-visual";
+        pdfVisual.textContent = "PDF";
+        pdfVisual.style.visibility = "visible";
+        pdfVisual.setAttribute("role", "img");
+        pdfVisual.setAttribute("aria-label", `PDF ${item.name || "未命名"}`);
+      }
       if (retryOriginalButton) {
         retryOriginalButton.className = "original-retry-button";
         retryOriginalButton.type = "button";
@@ -447,7 +632,7 @@
           retryOriginal(node);
         });
       }
-      node.mediaElement = audioVisual || image;
+      node.mediaElement = audioVisual || pdfVisual || image;
 
       const clearOriginalLoadTimeout = () => {
         if (originalLoadTimeoutId === null) return;
@@ -882,8 +1067,9 @@
         }
         // A raster may already be showing if the original won the race; the
         // thumbnail is still worth keeping loaded for when it is handed back.
-        if (isAudio && audioVisual) {
-          audioVisual.style.visibility = "hidden";
+        if ((isAudio || isPdf) && (audioVisual || pdfVisual)) {
+          const visual = audioVisual || pdfVisual;
+          visual.style.visibility = "hidden";
           node.previewImage = image;
           node.mediaElement = image;
           image.style.visibility = "visible";
@@ -911,9 +1097,10 @@
 
       frame.append(image);
       if (audioVisual) frame.append(audioVisual);
+      if (pdfVisual) frame.append(pdfVisual);
       if (retryOriginalButton) frame.append(retryOriginalButton);
       card.append(frame);
-      node.previewImage = audioVisual || image;
+      node.previewImage = audioVisual || pdfVisual || image;
 
       if (isPlayable) {
         const playButton = documentRef.createElement("button");
@@ -932,9 +1119,14 @@
       }
 
       card.addEventListener("dblclick", (event) => {
-        if (!isPlayableNode(node) || event.target.closest("button, input")) return;
+        if (event.target.closest("button, input")) return;
         event.preventDefault();
         onSelectNode(node);
+        if (isPdf) {
+          void onOpenPdf(node);
+          return;
+        }
+        if (!isPlayableNode(node)) return;
         if (node.togglePlayback) node.togglePlayback();
         else node.startPlayback?.();
       });

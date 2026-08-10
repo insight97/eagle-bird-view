@@ -22,6 +22,8 @@ const {
   getWrappedGridTranslation,
   getTagColorStyle,
   isPlayingVideo,
+  isPdfItem,
+  isPdfPageNode,
   isPlayableNode,
   normalizeTags,
   normalizeTagColor,
@@ -61,6 +63,8 @@ const { createVideoThumbnailService } = BirdViewVideoThumbnail;
 const { createCameraNavigation } = BirdViewCamera;
 const { createSelectionNavigation } = BirdViewSelection;
 const { createMetadataCommitter } = BirdViewMetadata;
+const { createPdfRuntime } = BirdViewPdfRuntime;
+const { createPdfBoardSession } = BirdViewPdfBoard;
 const SEAMLESS_LAYOUT_GAP = 0;
 const SEAMLESS_ROW_GAP = 0;
 const TIGHT_FOCUS_ROW_EMPHASIS = 1.1;
@@ -162,6 +166,11 @@ const state = {
   started: false,
   eagleReady: false,
   selectedPresetName: "",
+  pdfMode: false,
+  pdfOpening: false,
+  pdfOpenController: null,
+  pdfBoardSession: null,
+  pdfParentContext: null,
 };
 
 const board = createBoardState();
@@ -179,6 +188,12 @@ let settingsPresetStore = null;
 let settingsSnapshotStore = null;
 let folderBrowser = null;
 let videoThumbnailService = null;
+const pdfRuntime = createPdfRuntime({
+  pdfjsLib: typeof pdfjsLib === "undefined" ? null : pdfjsLib,
+  document: typeof document === "undefined" ? null : document,
+  baseURI: typeof document === "undefined" ? "" : document.baseURI,
+  readFile: readPdfFile,
+});
 const rowLoadCoordinator = createRowLoadCoordinator({
   onLoadingChange(channel, isLoading) {
     if (channel === "exploration") {
@@ -320,6 +335,8 @@ function setup() {
   elements.folderLoadMoreButton = document.querySelector("#folder-load-more-button");
   elements.boardHistoryBackButton = document.querySelector("#board-history-back-button");
   elements.boardHistoryForwardButton = document.querySelector("#board-history-forward-button");
+  elements.pdfBoardBackButton = document.querySelector("#pdf-board-back-button");
+  elements.pdfBoardBreadcrumb = document.querySelector("#pdf-board-breadcrumb");
   elements.folderBrowser = document.querySelector("#folder-browser");
   elements.folderBrowserToggle = document.querySelector("#folder-browser-toggle");
   elements.folderBrowserSearch = document.querySelector("#folder-browser-search");
@@ -378,6 +395,13 @@ function setup() {
     isNodeSelected: (node) => state.selectedNodes.has(node),
     isNodeInMultipleSelection: () => state.selectedNodes.size > 1,
     onOpenContextMenu: openMediaContextMenu,
+    onOpenPdf: openPdfBoard,
+    renderPdfPage: ({ node, canvas, scale, signal }) => {
+      if (!state.pdfBoardSession) {
+        return Promise.reject(new Error("PDF 白板已關閉"));
+      }
+      return state.pdfBoardSession.renderPage(node, canvas, { scale, signal });
+    },
     onLayoutChange: updateLabels,
     getVideoControlsHeight,
     getVideoVolume: () => state.videoVolume,
@@ -463,6 +487,7 @@ function setup() {
   });
   elements.boardHistoryBackButton?.addEventListener("click", restorePreviousBoard);
   elements.boardHistoryForwardButton?.addEventListener("click", restoreNextBoard);
+  elements.pdfBoardBackButton?.addEventListener("click", () => void leavePdfBoard());
   elements.layoutDirection?.addEventListener("change", updateBoardSettings);
   elements.layoutWidth?.addEventListener("input", updateBoardSettings);
   elements.maxExplorationItems?.addEventListener("input", updateBoardSettings);
@@ -488,6 +513,7 @@ function setup() {
   updateAutoExploreToggle();
   updateBoardSettingsUI();
   updateBoardHistoryUI();
+  updatePdfModeUI();
   autoExploreSettings.update();
   updateSelectionStatus();
 
@@ -561,6 +587,10 @@ function handlePluginRun() {
 }
 
 function handleLibraryChanged() {
+  if (state.pdfMode || state.pdfOpening) {
+    void leavePdfBoard({ silent: true }).then(() => handleLibraryChanged());
+    return;
+  }
   resetFolderItemLoad();
   state.libraryContentTarget?.reset();
   folderBrowser?.setLoading(false, "資料夾清單已更新。");
@@ -589,6 +619,7 @@ function handleLibraryChanged() {
 }
 
 async function loadSelectedItems({ append = false } = {}) {
+  if (state.pdfMode || state.pdfOpening) await leavePdfBoard({ silent: true });
   if (typeof eagle === "undefined") {
     showToast("目前不在 Eagle 外掛環境中。", true);
     return;
@@ -767,6 +798,7 @@ function describeSelectedFolders(folders) {
 }
 
 function appendItemsToBoard(items) {
+  if (state.pdfMode || state.pdfOpening) return;
   if (!items.length) return;
   if (!board.rows.length) {
     renderItems(items);
@@ -779,6 +811,7 @@ function appendItemsToBoard(items) {
 }
 
 function recordBoardHistory() {
+  if (state.pdfMode || state.pdfOpening) return false;
   const snapshot = captureBoardSnapshot();
   if (!snapshot) return false;
   const recorded = boardHistory.record(snapshot);
@@ -787,16 +820,150 @@ function recordBoardHistory() {
 }
 
 function captureBoardSnapshot() {
-  if (!board.nodes.length) return null;
+  if (state.pdfMode || !board.nodes.length) return null;
   return {
     items: board.nodes.map(({ item }) => item),
     rotations: new Map(board.nodes.map((node) => [node.item.id, node.rotation || 0])),
-    camera: state.camera,
+    camera: { ...state.camera },
     selectedItemId: state.selectedNode?.item?.id || null,
   };
 }
 
+async function openPdfBoard(node) {
+  if (state.pdfMode || state.pdfOpening || !isPdfItem(node?.item)) return false;
+
+  const parentContext = captureBoardSnapshot();
+  if (!parentContext) {
+    showToast("目前沒有可返回的白板。", true);
+    return false;
+  }
+
+  state.pdfOpening = true;
+  state.pdfOpenController =
+    typeof AbortController === "function" ? new AbortController() : null;
+  updatePdfModeUI();
+  const session = createPdfBoardSession({ runtime: pdfRuntime });
+  try {
+    const result = await session.open(node.item, { signal: state.pdfOpenController?.signal });
+    if (state.pdfOpening !== true) {
+      await session.close();
+      return false;
+    }
+
+    state.pdfParentContext = parentContext;
+    state.pdfBoardSession = session;
+    state.pdfMode = true;
+    state.pdfOpening = false;
+    rowLoadCoordinator.invalidate("selected");
+    rowLoadCoordinator.invalidate("exploration");
+    rowLoadCoordinator.invalidate("unrated");
+    state.explorationSource?.clear();
+    state.unratedSource?.clear();
+    clearBoardPresentation();
+    board.replace(result.pageItems, getBoardLayoutConfig());
+    state.lastUnratedTriggerRow = null;
+    refreshBaseScale();
+    updateBoardMeta();
+    updatePdfModeUI();
+    updateSelectionStatus();
+    updateLabels();
+    requestAnimationFrame(focusFirstItem);
+    showToast(`已進入「${node.item.name || "未命名 PDF"}」，共 ${result.pageCount} 頁。`, false);
+    return true;
+  } catch (error) {
+    await session.close();
+    state.pdfOpening = false;
+    updatePdfModeUI();
+    if (error?.code !== "aborted") {
+      console.error("Failed to open PDF board", error);
+      showToast(`無法開啟 PDF：${error.message || error}`, true);
+    }
+    return false;
+  } finally {
+    state.pdfOpenController = null;
+  }
+}
+
+async function leavePdfBoard({ silent = false } = {}) {
+  if (!state.pdfMode && !state.pdfOpening) return false;
+  if (state.pdfOpening && !state.pdfMode) {
+    state.pdfOpenController?.abort?.();
+    state.pdfOpenController = null;
+    state.pdfOpening = false;
+    updatePdfModeUI();
+    return true;
+  }
+
+  const session = state.pdfBoardSession;
+  const parentContext = state.pdfParentContext;
+  state.pdfBoardSession = null;
+  state.pdfParentContext = null;
+  state.pdfMode = false;
+  state.pdfOpening = false;
+  await session?.close?.();
+  clearBoardPresentation();
+
+  if (parentContext) {
+    board.relayout(parentContext.items, getBoardLayoutConfig(), parentContext.rotations);
+    state.camera = { ...parentContext.camera };
+    refreshBaseScale();
+    updateBoardMeta();
+    const selectedNode = board.nodes.find(({ item }) => item.id === parentContext.selectedItemId);
+    if (selectedNode) selectionNavigation.setSelectedNode(selectedNode);
+    updateCamera();
+    viewportMedia.cameraChanged();
+    updateLabels();
+  }
+  updatePdfModeUI();
+  if (!silent) showToast("已返回 PDF 所在白板。", false);
+  return true;
+}
+
+function clearBoardPresentation() {
+  cameraNavigation.cancelCameraFocus();
+  tagEditor.close();
+  folderPicker.close();
+  selectionNavigation.clearSelection();
+  mediaMaterializer.releaseAll();
+  releaseAllMediaLabels();
+  elements.world.replaceChildren();
+  elements.labels.replaceChildren();
+  state.labelCamera = null;
+  elements.labels.style.transform = "none";
+}
+
+function updatePdfModeUI() {
+  const active = state.pdfMode;
+  const opening = state.pdfOpening;
+  elements.app?.classList.toggle("is-pdf-mode", active);
+  if (elements.pdfBoardBackButton) {
+    elements.pdfBoardBackButton.hidden = !active;
+    elements.pdfBoardBackButton.disabled = opening;
+  }
+  if (elements.pdfBoardBreadcrumb) {
+    elements.pdfBoardBreadcrumb.hidden = !active;
+    elements.pdfBoardBreadcrumb.textContent = active
+      ? `PDF：${state.pdfBoardSession?.parentItem?.name || "未命名"}`
+      : "";
+  }
+  if (elements.boardHistoryBackButton) {
+    elements.boardHistoryBackButton.disabled = active || !boardHistory.canUndo();
+  }
+  if (elements.boardHistoryForwardButton) {
+    elements.boardHistoryForwardButton.disabled = active || !boardHistory.canRedo();
+  }
+  if (elements.exploreButton) elements.exploreButton.disabled = active || !state.selectedNode;
+  if (elements.folderLoadMoreButton) elements.folderLoadMoreButton.disabled = active;
+  if (elements.folderBrowserToggle) elements.folderBrowserToggle.disabled = active;
+  if (elements.autoExploreSettingsButton) elements.autoExploreSettingsButton.disabled = active;
+  updateAutoExploreToggle();
+}
+
 function renderItems(items) {
+  if (state.pdfMode || state.pdfOpening) {
+    void leavePdfBoard({ silent: true });
+    return;
+  }
   recordBoardHistory();
   tagEditor.close();
   folderPicker.close();
@@ -867,9 +1034,9 @@ function restoreBoardSnapshot(snapshot, message) {
 
 function updateBoardHistoryUI() {
   const button = elements.boardHistoryBackButton;
-  if (button) button.disabled = !boardHistory.canUndo();
+  if (button) button.disabled = state.pdfMode || !boardHistory.canUndo();
   if (elements.boardHistoryForwardButton) {
-    elements.boardHistoryForwardButton.disabled = !boardHistory.canRedo();
+    elements.boardHistoryForwardButton.disabled = state.pdfMode || !boardHistory.canRedo();
   }
 }
 
@@ -919,6 +1086,7 @@ function relayoutBoard() {
 }
 
 function openMediaContextMenu(node) {
+  const targetItem = isPdfPageNode(node) ? node.item.pdfParentItem : node?.item;
   if (
     typeof eagle === "undefined" ||
     typeof eagle.contextMenu?.open !== "function" ||
@@ -931,7 +1099,7 @@ function openMediaContextMenu(node) {
     {
       id: "open-item-in-eagle",
       label: "在 Eagle 中開啟",
-      click: () => void openItemInEagle(node.item.id),
+      click: () => void openItemInEagle(targetItem?.id),
     },
   ]);
 }
@@ -1031,6 +1199,10 @@ function createMediaLabel(node) {
   fileInfo.append(basicInfo, type);
   actions.append(fileInfo, rotateLeft, rotateRight);
   metadata.append(rating, tags, editTags, folders, editFolders);
+  if (isPdfPageNode(node)) {
+    label.classList.add("is-pdf-page-label");
+    metadata.hidden = true;
+  }
   main.append(identity, actions);
   label.append(main, metadata);
   return label;
@@ -1737,6 +1909,7 @@ function handleKeyDown(event) {
   if (event.key === "Insert") {
     event.preventDefault();
     if (event.repeat) return;
+    if (state.pdfMode) return;
     toggleUnratedExploration();
     return;
   }
@@ -1745,6 +1918,10 @@ function handleKeyDown(event) {
   if (event.key === "Escape") {
     event.preventDefault();
     if (event.repeat) return;
+    if (state.pdfMode || state.pdfOpening) {
+      void leavePdfBoard();
+      return;
+    }
     selectionNavigation.clearSelection();
     return;
   }
@@ -1773,6 +1950,7 @@ function handleKeyDown(event) {
   if (event.key === "Tab") {
     event.preventDefault();
     if (event.repeat) return;
+    if (state.pdfMode) return;
     folderBrowser?.toggle?.();
     return;
   }
@@ -1786,6 +1964,7 @@ function handleKeyDown(event) {
   ) {
     event.preventDefault();
     if (event.repeat) return;
+    if (state.pdfMode) return;
     toggleSeamlessMode();
     return;
   }
@@ -1793,6 +1972,7 @@ function handleKeyDown(event) {
   if (!event.ctrlKey && !event.metaKey && !event.altKey && /^[1-5]$/.test(event.key)) {
     event.preventDefault();
     if (event.repeat) return;
+    if (state.pdfMode) return;
     const selectedNodes = getSelectedNodeList();
     if (selectedNodes.length > 1) void setItemRatingForNodes(selectedNodes, Number(event.key));
     else void setItemRating(state.selectedNode, Number(event.key));
@@ -1808,6 +1988,7 @@ function handleKeyDown(event) {
   ) {
     event.preventDefault();
     if (event.repeat) return;
+    if (state.pdfMode) return;
     void openSelectedFolderPicker();
     return;
   }
@@ -1821,6 +2002,7 @@ function handleKeyDown(event) {
   ) {
     event.preventDefault();
     if (event.repeat) return;
+    if (state.pdfMode) return;
     void setSelectedVideoThumbnail();
     return;
   }
@@ -1828,6 +2010,7 @@ function handleKeyDown(event) {
   if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === "t") {
     event.preventDefault();
     if (event.repeat) return;
+    if (state.pdfMode) return;
     openSelectedTagEditor();
     return;
   }
@@ -1885,6 +2068,7 @@ function handleKeyDown(event) {
   if (event.ctrlKey && event.key === "Enter") {
     event.preventDefault();
     if (event.repeat) return;
+    if (state.pdfMode) return;
     void exploreNextRow();
     return;
   }
@@ -2065,6 +2249,7 @@ function selectExplorationItems(candidates, pivot, maxAiItems) {
 }
 
 async function exploreNextRow() {
+  if (state.pdfMode || state.pdfOpening) return;
   const pivotNode = state.selectedNode;
   const source = state.explorationSource;
   if (!pivotNode || !source || state.explorationLoading) return;
@@ -2112,6 +2297,7 @@ async function exploreNextRow() {
 }
 
 async function exploreFromSelectionTarget({ type, value, label }) {
+  if (state.pdfMode || state.pdfOpening) return;
   const pivotNode = state.selectedNode;
   const source = state.explorationSource;
   if (!pivotNode || !source || state.explorationLoading) return;
@@ -2154,6 +2340,7 @@ async function exploreFromSelectionTarget({ type, value, label }) {
 }
 
 async function loadNextUnratedRow({ focus = false } = {}) {
+  if (state.pdfMode || state.pdfOpening) return;
   const source = state.unratedSource;
   if (!state.unratedEnabled || !source || state.unratedLoading || state.unratedExhausted) return;
 
@@ -2657,6 +2844,7 @@ function getPresetErrorMessage(error) {
 }
 
 function handleAutoExploreFilterChange(nextFilter, { changed }) {
+  if (state.pdfMode || state.pdfOpening) return;
   saveSettings();
   if (!changed) return;
   rowLoadCoordinator.invalidate("unrated");
@@ -2739,6 +2927,7 @@ function getAutoExploreKnownFolders() {
 }
 
 function toggleUnratedExploration() {
+  if (state.pdfMode || state.pdfOpening) return;
   state.unratedEnabled = !state.unratedEnabled;
   state.lastUnratedTriggerRow = null;
   if (!state.unratedEnabled) {
@@ -2758,8 +2947,10 @@ function toggleUnratedExploration() {
 
 function updateAutoExploreToggle() {
   if (!elements.autoExploreToggle) return;
-  elements.autoExploreToggle.disabled = !state.unratedSource;
-  if (elements.autoExploreSettingsButton) elements.autoExploreSettingsButton.disabled = false;
+  elements.autoExploreToggle.disabled = state.pdfMode || state.pdfOpening || !state.unratedSource;
+  if (elements.autoExploreSettingsButton) {
+    elements.autoExploreSettingsButton.disabled = state.pdfMode || state.pdfOpening;
+  }
   elements.autoExploreToggle.classList.toggle("is-active", state.unratedEnabled);
   elements.autoExploreToggle.classList.toggle("is-loading", state.unratedLoading);
   elements.autoExploreToggle.setAttribute("aria-checked", String(state.unratedEnabled));
@@ -2772,7 +2963,11 @@ function updateAutoExploreToggle() {
 function updateExploreButton() {
   if (!elements.exploreButton) return;
   elements.exploreButton.disabled =
-    state.explorationLoading || !state.explorationSource || !state.selectedNode;
+    state.pdfMode ||
+    state.pdfOpening ||
+    state.explorationLoading ||
+    !state.explorationSource ||
+    !state.selectedNode;
   elements.exploreButton.textContent = state.explorationLoading
     ? "探索中…"
     : "探索";
@@ -2799,6 +2994,11 @@ function syncSelectedVideoAutoplay() {
 
 function activateSelectedNode() {
   const node = state.selectedNode;
+  if (isPdfItem(node?.item)) {
+    void openPdfBoard(node);
+    return;
+  }
+  if (isPdfPageNode(node)) return;
   if (!isPlayableNode(node)) return;
   if (node.togglePlayback) {
     node.togglePlayback();
@@ -2930,6 +3130,26 @@ function createVideoThumbnailRuntime() {
   };
 }
 
+function readPdfFile(item) {
+  const fs = loadNodeModule("fs");
+  if (!fs) return null;
+  const source = String(item?.filePath || item?.fileURL || "").trim();
+  if (!source) return null;
+  const url = loadNodeModule("url");
+  let filePath = source;
+  if (source.startsWith("file://") && typeof url?.fileURLToPath === "function") {
+    filePath = url.fileURLToPath(source);
+  }
+  if (fs.promises?.readFile) return fs.promises.readFile(filePath);
+  if (typeof fs.readFile !== "function") return null;
+  return new Promise((resolve, reject) => {
+    fs.readFile(filePath, (error, bytes) => {
+      if (error) reject(error);
+      else resolve(bytes);
+    });
+  });
+}
+
 function loadNodeModule(name) {
   const nodeRequire =
     typeof require === "function"
@@ -3048,7 +3268,7 @@ function clearBoard({ recordHistory = false } = {}) {
 
 function updateBoardMeta() {
   const count = board.nodes.length;
-  elements.itemCount.textContent = `${count} 個素材`;
+  elements.itemCount.textContent = state.pdfMode ? `${count} 個 PDF 頁面` : `${count} 個素材`;
   elements.emptyState.hidden = count > 0;
 }
 
@@ -3114,12 +3334,37 @@ function updateSelectionStatus() {
   elements.selectionDetails.hidden = !hasSelection;
   if (!item) {
     elements.selectionDetails.classList.remove("has-selection-tags");
+    elements.selectionRating.hidden = false;
+    elements.selectionTags.hidden = false;
+    elements.selectionTagsDivider.hidden = false;
     renderSelectionTags([]);
     elements.selectionFolders.replaceChildren();
     elements.selectionFolders.hidden = true;
     elements.selectionFoldersDivider.hidden = true;
     elements.selectionAddTag.hidden = true;
     elements.selectionAddFolder.hidden = true;
+    return;
+  }
+
+  if (state.pdfMode || isPdfPageNode(state.selectedNode)) {
+    const name = isMultiple ? `${selectedNodes.length} 個 PDF 頁面` : item.name || "PDF 頁面";
+    const dimensions = isMultiple ? "" : formatItemDimensions(item);
+    elements.selectionName.textContent = name;
+    elements.selectionName.title = name;
+    elements.selectionDimensions.hidden = !dimensions;
+    elements.selectionDimensionsDivider.hidden = !dimensions;
+    elements.selectionDimensions.textContent = dimensions;
+    elements.selectionRating.replaceChildren();
+    elements.selectionRating.hidden = true;
+    elements.selectionTags.replaceChildren();
+    elements.selectionTags.hidden = true;
+    elements.selectionTagsDivider.hidden = true;
+    elements.selectionAddTag.hidden = true;
+    elements.selectionFolders.replaceChildren();
+    elements.selectionFolders.hidden = true;
+    elements.selectionFoldersDivider.hidden = true;
+    elements.selectionAddFolder.hidden = true;
+    elements.selectionDetails.classList.remove("has-selection-tags");
     return;
   }
 
@@ -3143,6 +3388,7 @@ function updateSelectionStatus() {
   elements.selectionDimensionsDivider.hidden = !dimensions;
   elements.selectionDimensions.textContent = dimensions;
   elements.selectionRating.replaceChildren();
+  elements.selectionRating.hidden = false;
   if (isMultiple) createBulkRatingControls(elements.selectionRating, selectedNodes);
   else createRatingControls(elements.selectionRating, state.selectedNode);
   elements.selectionRating.title = isMultiple
@@ -3229,7 +3475,7 @@ function renderCamera() {
 function runSettledViewportWork() {
   updateLabels();
   selectionNavigation.selectNodeAtViewportCenter();
-  maybeLoadNextUnratedRow();
+  if (!state.pdfMode) maybeLoadNextUnratedRow();
 }
 
 function getNodesNearViewport(screenMargin) {

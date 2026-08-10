@@ -7,6 +7,7 @@
 })(typeof globalThis === "object" ? globalThis : this, () => {
   const VIDEO_EXTENSIONS = new Set(["mp4", "m4v", "mov", "webm", "mkv"]);
   const AUDIO_EXTENSIONS = new Set(["mp3"]);
+  const PDF_EXTENSIONS = new Set(["pdf"]);
   const VIDEO_CONTROLS_HEIGHT = 8;
   const VIDEO_AUTOPLAY_MIN_HEIGHT = 320;
   const LAYOUT_WIDTH = 1200;
@@ -108,6 +109,14 @@
 
   function isAudioItem(item) {
     return AUDIO_EXTENSIONS.has(getItemExtension(item));
+  }
+
+  function isPdfItem(item) {
+    return PDF_EXTENSIONS.has(getItemExtension(item));
+  }
+
+  function isPdfPageNode(node) {
+    return Boolean(node?.isPdfPage || node?.item?.isPdfPage);
   }
 
   function isPlayableNode(node) {
@@ -1244,6 +1253,7 @@
     TARGET_ROW_HEIGHT,
     VIDEO_AUTOPLAY_MIN_HEIGHT,
     AUDIO_EXTENSIONS,
+    PDF_EXTENSIONS,
     VIDEO_CONTROLS_HEIGHT,
     VIDEO_EXTENSIONS,
     clamp,
@@ -1286,6 +1296,8 @@
     interpolateCamera,
     isPlayingVideo,
     isAudioItem,
+    isPdfItem,
+    isPdfPageNode,
     isPlayableNode,
     isVideoItem,
     selectDiverseExplorationRow,
