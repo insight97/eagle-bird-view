@@ -20,6 +20,7 @@
     findNodesNearViewport,
     getPreloadMargins,
     getViewportWorldCenter,
+    isPlayableNode,
   } = core;
   const { createViewportWorkScheduler } = viewportWork;
 
@@ -189,13 +190,13 @@
     function getPriorityRasterNode(plan, snapshot) {
       if (
         snapshot.selectedNode &&
-        !snapshot.selectedNode.isVideo &&
+        !isPlayableNode(snapshot.selectedNode) &&
         plan.loadNodes.includes(snapshot.selectedNode)
       ) {
         return snapshot.selectedNode;
       }
       return findNearestNodeToPoint(
-        plan.loadNodes.filter((node) => !node.isVideo),
+        plan.loadNodes.filter((node) => !isPlayableNode(node)),
         getViewportWorldCenter(snapshot.camera, snapshot.viewport),
       );
     }
@@ -243,8 +244,8 @@
         deferElementFallback: () => getCameraMotion() !== "settled",
         prioritizeOriginal: (node) => node === priorityNode,
         getQuality: (node) => {
-          if (node === snapshot.selectedNode && !node.isVideo) return "original";
-          if (node.isVideo) return "thumbnail";
+          if (node === snapshot.selectedNode && !isPlayableNode(node)) return "original";
+          if (isPlayableNode(node)) return "thumbnail";
           return node.mediaHeight * camera.scale >= ORIGINAL_IMAGE_MIN_HEIGHT
             ? "original"
             : "thumbnail";

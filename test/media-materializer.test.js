@@ -58,6 +58,7 @@ function createHarness() {
   };
   const queue = createQueueProbe();
   const clicks = [];
+  const startedPlayers = [];
   const materializer = createMediaMaterializer({
     document,
     window: {
@@ -78,9 +79,11 @@ function createHarness() {
     onVolumeChange() {},
     showToast() {},
     debugLog() {},
-    startVideoPlayer() {},
+    startVideoPlayer(options) {
+      startedPlayers.push(options);
+    },
   });
-  return { clicks, createdElements, materializer, queue, world };
+  return { clicks, createdElements, materializer, queue, startedPlayers, world };
 }
 
 function createNode(id = "item-1") {
@@ -207,6 +210,35 @@ test("media card click forwards selection modifiers", () => {
     node,
     modifiers: { ctrlKey: true, metaKey: false, shiftKey: true },
   }]);
+});
+
+test("MP3 cards request only a thumbnail and delegate playback as audio", () => {
+  const harness = createHarness();
+  const node = {
+    item: {
+      id: "song",
+      name: "song.mp3",
+      ext: "mp3",
+      fileURL: "file:///song.mp3",
+    },
+    width: 200,
+    mediaHeight: 120,
+    height: 120,
+    rotation: 0,
+    isVideo: false,
+    isAudio: true,
+  };
+
+  harness.materializer.mount(node);
+  harness.materializer.preloadSelected(node);
+
+  assert.deepEqual(harness.queue.requests.map(({ quality }) => quality), ["thumbnail"]);
+  assert.ok(node.element.querySelector(".audio-visual"));
+
+  node.element.querySelector(".play-button").emit("click");
+  assert.equal(harness.startedPlayers.length, 1);
+  assert.equal(harness.startedPlayers[0].mediaType, "audio");
+  assert.equal(harness.startedPlayers[0].item.fileURL, "file:///song.mp3");
 });
 
 // Eagle serves full-resolution masters, so a card that paints one directly makes

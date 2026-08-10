@@ -22,6 +22,7 @@ const {
   getWrappedGridTranslation,
   getTagColorStyle,
   isPlayingVideo,
+  isPlayableNode,
   normalizeTags,
   normalizeTagColor,
   reanchorCameraToNode,
@@ -291,6 +292,7 @@ function setup() {
   elements.videoAutoplayToggle = document.querySelector("#video-autoplay-toggle");
   elements.autoExploreFileTypeImage = document.querySelector("#auto-explore-file-type-image");
   elements.autoExploreFileTypeVideo = document.querySelector("#auto-explore-file-type-video");
+  elements.autoExploreFileTypeAudio = document.querySelector("#auto-explore-file-type-audio");
   elements.autoExploreRating = document.querySelector("#auto-explore-rating");
   elements.autoExploreTagMatch = document.querySelector("#auto-explore-tag-match");
   elements.autoExploreMaxTagCount = document.querySelector("#auto-explore-max-tag-count");
@@ -2797,7 +2799,7 @@ function syncSelectedVideoAutoplay() {
 
 function activateSelectedNode() {
   const node = state.selectedNode;
-  if (!node?.isVideo) return;
+  if (!isPlayableNode(node)) return;
   if (node.togglePlayback) {
     node.togglePlayback();
   } else {
@@ -3011,7 +3013,7 @@ function focusFirstItem() {
   const viewportHeight = elements.viewport.clientHeight;
   refreshBaseScale();
   const scale = getBaseScale();
-  const displayHeight = node.mediaHeight + (node.isVideo ? getVideoControlsHeight() : 0);
+  const displayHeight = node.mediaHeight + (isPlayableNode(node) ? getVideoControlsHeight() : 0);
 
   state.camera.scale = scale;
   state.camera.x = viewportWidth / 2 - (node.x + node.width / 2) * scale;
@@ -3327,7 +3329,7 @@ function refreshBaseScale() {
   const viewportHeight = Math.max(elements.viewport?.clientHeight || 0, 1);
   const referenceHeight = board.nodes.length
     ? board.nodes[0].mediaHeight +
-      (board.nodes[0].isVideo ? getVideoControlsHeight() : 0)
+      (isPlayableNode(board.nodes[0]) ? getVideoControlsHeight() : 0)
     : TARGET_ROW_HEIGHT + getVideoControlsHeight();
   const referenceWidth = board.nodes[0]?.width || TARGET_ROW_HEIGHT * (16 / 10);
   const widthScale = (viewportWidth - padding * 2) / referenceWidth;

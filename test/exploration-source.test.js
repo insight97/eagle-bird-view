@@ -26,7 +26,7 @@ function mediaItem(id, overrides = {}) {
 
 test("normalizeUnratedFilter repairs every field of a stored filter", () => {
   assert.deepEqual(normalizeUnratedFilter(), {
-    fileTypes: ["image", "video"],
+    fileTypes: ["image", "video", "audio"],
     rating: "unrated",
     minRating: null,
     maxRating: null,
@@ -58,7 +58,7 @@ test("normalizeUnratedFilter repairs every field of a stored filter", () => {
       maxTagCount: 2,
     }),
     {
-      fileTypes: ["video"],
+      fileTypes: ["video", "audio"],
       rating: 3,
       minRating: 2,
       maxRating: 5,
@@ -83,7 +83,7 @@ test("normalizeUnratedFilter falls back on unusable values", () => {
     maxTagCount: 0,
   });
 
-  assert.deepEqual(filter.fileTypes, ["image", "video"]);
+  assert.deepEqual(filter.fileTypes, ["audio"]);
   assert.equal(filter.rating, "unrated");
   assert.equal(filter.minRating, null);
   assert.equal(filter.maxRating, null);
@@ -93,7 +93,10 @@ test("normalizeUnratedFilter falls back on unusable values", () => {
 
 test("normalizeUnratedFilter accepts the legacy single fileType field", () => {
   assert.deepEqual(normalizeUnratedFilter({ fileType: "video" }).fileTypes, ["video"]);
-  assert.deepEqual(normalizeUnratedFilter({ fileType: "any" }).fileTypes, ["image", "video"]);
+  assert.deepEqual(
+    normalizeUnratedFilter({ fileType: "any" }).fileTypes,
+    ["image", "video", "audio"],
+  );
 });
 
 test("unratedFiltersEqual compares filters after normalization", () => {
@@ -377,11 +380,12 @@ test("unrated source allows exploration without a tag filter", async () => {
   assert.equal(calls[0].tags, undefined);
 });
 
-test("unrated source excludes non-media files from image and video exploration", async () => {
+test("unrated source excludes non-media files from image, video, and audio exploration", async () => {
   const source = new UnratedItemSource({
     get: async () => [
       { id: "image", ext: "jpg", width: 200, height: 100 },
       { id: "video", ext: "mp4", width: 200, height: 100 },
+      { id: "audio", ext: "mp3", width: 200, height: 100 },
       { id: "text", ext: "txt", width: 200, height: 100 },
       { id: "document", ext: "pdf", width: 200, height: 100 },
     ],
@@ -389,18 +393,19 @@ test("unrated source excludes non-media files from image and video exploration",
   }, () => 0);
 
   const result = await source.findNextRow(new Set(), {
-    fileTypes: ["image", "video"],
+    fileTypes: ["image", "video", "audio"],
     rating: "any",
   });
 
-  assert.deepEqual(result.map(({ id }) => id), ["image", "video"]);
+  assert.deepEqual(result.map(({ id }) => id), ["image", "video", "audio"]);
 });
 
-test("unrated source filters images and videos by file type", async () => {
+test("unrated source filters images, videos, and audio by file type", async () => {
   const calls = [];
   const items = [
     { id: "image", ext: "jpg", width: 200, height: 100 },
     { id: "video", ext: "mp4", width: 200, height: 100 },
+    { id: "audio", ext: "mp3", width: 200, height: 100 },
   ];
   const source = new UnratedItemSource({
     get: async (options) => {
@@ -420,13 +425,13 @@ test("unrated source filters images and videos by file type", async () => {
 
   source.clear();
   const videoResult = await source.findNextRow(new Set(), {
-    fileTypes: ["video"],
+    fileTypes: ["video", "audio"],
     rating: "any",
   });
-  assert.deepEqual(videoResult.map(({ id }) => id), ["video"]);
+  assert.deepEqual(videoResult.map(({ id }) => id), ["video", "audio"]);
   assert.deepEqual(
     calls.slice(1).map(({ ext }) => ext),
-    ["mp4", "m4v", "mov", "webm", "mkv"],
+    ["mp4", "m4v", "mov", "webm", "mkv", "mp3"],
   );
 });
 

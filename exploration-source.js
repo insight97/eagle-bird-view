@@ -10,6 +10,7 @@
   root.BirdViewExploration = exploration;
 })(typeof globalThis === "object" ? globalThis : this, (core) => {
   const {
+    AUDIO_EXTENSIONS,
     VIDEO_EXTENSIONS,
     clamp,
     getItemRating,
@@ -22,7 +23,7 @@
   const MAX_CANDIDATES = 600;
   const DEFAULT_AI_SEARCH_LIMIT = 20;
   const MAX_AI_SEARCH_LIMIT = 100;
-  const FILE_TYPES = Object.freeze(["image", "video"]);
+  const FILE_TYPES = Object.freeze(["image", "video", "audio"]);
   const IMAGE_EXTENSIONS = new Set([
     "avif",
     "bmp",
@@ -39,7 +40,7 @@
     "webp",
   ]);
   const DEFAULT_UNRATED_FILTER = Object.freeze({
-    fileTypes: Object.freeze(["image", "video"]),
+    fileTypes: Object.freeze(["image", "video", "audio"]),
     rating: "unrated",
     minRating: null,
     maxRating: null,
@@ -388,12 +389,15 @@
     }
 
     if (!queries.length) {
-      if (!filter.fileTypes.includes("video") || filter.fileTypes.includes("image")) {
+      if (filter.fileTypes.includes("image")) {
         queries.push({ ...rating, ...fields });
       } else {
-        queries.push(
-          ...[...VIDEO_EXTENSIONS].map((ext) => ({ ...rating, ext, ...fields })),
-        );
+        for (const fileType of filter.fileTypes) {
+          const extensions = fileType === "video" ? VIDEO_EXTENSIONS : AUDIO_EXTENSIONS;
+          queries.push(
+            ...[...extensions].map((ext) => ({ ...rating, ext, ...fields })),
+          );
+        }
       }
     }
 
@@ -526,6 +530,7 @@
   function getItemFileType(item) {
     const extension = String(item?.ext || "").toLowerCase().replace(/^\./, "");
     if (VIDEO_EXTENSIONS.has(extension)) return "video";
+    if (AUDIO_EXTENSIONS.has(extension)) return "audio";
     if (!extension || IMAGE_EXTENSIONS.has(extension)) return "image";
     return null;
   }

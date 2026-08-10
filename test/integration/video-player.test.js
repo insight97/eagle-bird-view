@@ -132,3 +132,44 @@ test("starting an already active video delegates to its toggle handler", () =>
 
     assert.equal(toggles, 1);
   }));
+
+test("audio player uses the same compact controls without looping the track", () =>
+  withDom(async (window) => {
+    const originalPlay = window.HTMLMediaElement.prototype.play;
+    window.HTMLMediaElement.prototype.play = function play() {
+      return Promise.resolve();
+    };
+
+    try {
+      const card = document.createElement("article");
+      const frame = document.createElement("div");
+      const image = document.createElement("div");
+      const playButton = document.createElement("button");
+      const node = { element: card, mediaHeight: 100, height: 100 };
+      frame.append(image, playButton);
+      card.append(frame);
+      document.body.append(card);
+
+      startVideoPlayer({
+        frame,
+        image,
+        playButton,
+        item: { fileURL: "file:///song.mp3" },
+        node,
+        mediaType: "audio",
+        controlsHeight: 8,
+        applyRotation() {},
+        onLayoutChange() {},
+        showToast() {},
+      });
+
+      assert.equal(node.videoElement.tagName, "AUDIO");
+      assert.equal(node.videoElement.loop, false);
+      assert.equal(node.videoElement.src, "file:///song.mp3");
+      assert.ok(card.querySelector(".video-controls"));
+      assert.equal(node.height, 108);
+      assert.equal(image.parentNode, frame);
+    } finally {
+      window.HTMLMediaElement.prototype.play = originalPlay;
+    }
+  }));

@@ -155,6 +155,7 @@
       const fileTypes = [
         ["image", elements.autoExploreFileTypeImage],
         ["video", elements.autoExploreFileTypeVideo],
+        ["audio", elements.autoExploreFileTypeAudio],
       ]
         .filter(([, input]) => input?.checked)
         .map(([fileType]) => fileType);
@@ -615,6 +616,9 @@
       if (elements.autoExploreFileTypeVideo) {
         elements.autoExploreFileTypeVideo.checked = fileTypes.has("video");
       }
+      if (elements.autoExploreFileTypeAudio) {
+        elements.autoExploreFileTypeAudio.checked = fileTypes.has("audio");
+      }
       if (elements.autoExploreRating) {
         elements.autoExploreRating.value = String(filter.rating);
       }
@@ -690,6 +694,7 @@
     }
     elements.autoExploreFileTypeImage?.addEventListener("change", updateDraftFileTypes);
     elements.autoExploreFileTypeVideo?.addEventListener("change", updateDraftFileTypes);
+    elements.autoExploreFileTypeAudio?.addEventListener("change", updateDraftFileTypes);
     elements.autoExploreRating?.addEventListener("change", updateDraftRating);
     elements.autoExploreMinRating?.addEventListener("change", (event) =>
       updateDraftRatingRange(event, "minRating"),

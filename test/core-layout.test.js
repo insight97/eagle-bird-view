@@ -124,6 +124,21 @@ test("createJustifiedLayout justifies completed rows and reserves video controls
   assert.equal(layout.nodes[1].x, layout.nodes[0].width + LAYOUT_GAP);
 });
 
+test("createJustifiedLayout reserves controls for MP3 audio cards", () => {
+  const layout = createJustifiedLayout([
+    { id: "audio", width: 4000, height: 1000, ext: "MP3" },
+    { id: "image", width: 4000, height: 1000, ext: "jpg" },
+    { id: "next", width: 1000, height: 1000, ext: "jpg" },
+  ]);
+
+  assert.equal(layout.nodes[0].isVideo, false);
+  assert.equal(layout.nodes[0].isAudio, true);
+  assert.equal(
+    layout.rows[1].top,
+    layout.rows[0].bottom + VIDEO_CONTROLS_HEIGHT + ROW_GAP,
+  );
+});
+
 test("findNodesNearViewport observes camera scale, boundaries, and margin", () => {
   const a = { x: 0, width: 100 };
   const b = { x: 120, width: 100 };

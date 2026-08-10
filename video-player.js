@@ -74,12 +74,16 @@
       applyRotation,
       onLayoutChange,
       showToast,
+      mediaType = "video",
     } = options;
+    const isAudio = mediaType === "audio";
+    const mediaLabel = isAudio ? "音訊" : "影片";
+    const playbackErrorMessage = `無法播放這個${mediaLabel}。`;
     if (node.videoElement) {
       node.togglePlayback?.();
       return;
     }
-    const video = document.createElement("video");
+    const video = document.createElement(isAudio ? "audio" : "video");
     const controls = document.createElement("div");
     const toggleButton = document.createElement("button");
     const progress = document.createElement("input");
@@ -95,14 +99,15 @@
 
     video.src = item.fileURL;
     video.autoplay = true;
-    video.loop = true;
+    video.loop = !isAudio;
     video.playsInline = true;
     video.preload = "metadata";
+    if (isAudio) video.className = "audio-source";
     const nextVolume = Number(initialVolume);
     video.volume = Number.isFinite(nextVolume)
       ? Math.min(1, Math.max(0, nextVolume))
       : 1;
-    node.mediaElement = video;
+    node.mediaElement = isAudio ? image : video;
     applyRotation();
     controls.className = "video-controls";
     toggleButton.className = "video-toggle";
@@ -114,11 +119,11 @@
     progress.min = "0";
     progress.max = "1000";
     progress.value = "0";
-    progress.setAttribute("aria-label", "影片播放進度");
+    progress.setAttribute("aria-label", `${mediaLabel}播放進度`);
     timeLabel.className = "video-time";
     timeLabel.textContent = "0:00 / --:--";
-    timeLabel.setAttribute("aria-label", "影片播放時間");
-    timeLabel.title = "目前播放時間 / 影片長度";
+    timeLabel.setAttribute("aria-label", `${mediaLabel}播放時間`);
+    timeLabel.title = `目前播放時間 / ${mediaLabel}長度`;
     volumeControl.className = "volume-control";
     volumeButton.className = "volume-toggle";
     volumeButton.type = "button";
@@ -197,13 +202,13 @@
 
     const togglePlayback = () => {
       if (video.paused) {
-        video.play().catch(() => showToast("無法播放這個影片。", true));
+        video.play().catch(() => showToast(playbackErrorMessage, true));
       } else {
         video.pause();
       }
     };
     const playPlayback = () =>
-      video.play().catch(() => showToast("無法播放這個影片。", true));
+      video.play().catch(() => showToast(playbackErrorMessage, true));
     const pausePlayback = () => video.pause();
     node.videoElement = video;
     node.togglePlayback = togglePlayback;
@@ -264,7 +269,7 @@
     video.addEventListener("error", () => {
       if (node.videoElement !== video) return;
       node.stopVideoControls?.();
-      showToast("這個影片的容器或編碼無法由外掛播放器解碼。", true);
+      showToast(`這個${mediaLabel}的容器或編碼無法由外掛播放器解碼。`, true);
       video.remove();
       controls.remove();
       node.videoElement = null;
@@ -275,13 +280,13 @@
       node.revealVideoControls = null;
       node.mediaElement = image;
       applyRotation();
-      frame.prepend(image);
-      frame.append(playButton);
+      if (!image.parentNode) frame.prepend(image);
+      if (!playButton.parentNode) frame.append(playButton);
       node.height = node.mediaHeight;
       onLayoutChange();
     });
 
-    image.remove();
+    if (!isAudio) image.remove();
     playButton.remove();
     frame.prepend(video);
     frame.after(controls);
@@ -290,7 +295,7 @@
     updateTimeLabel();
     setControlsVisibility(true);
     video.play().catch(() => {
-      showToast("瀏覽器阻擋自動播放，請按影片上的播放鍵。", false);
+      showToast(`瀏覽器阻擋自動播放，請按${mediaLabel}上的播放鍵。`, false);
     });
   }
 

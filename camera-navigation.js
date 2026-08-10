@@ -17,6 +17,7 @@
     getCrossRowFocusDuration,
     getRowFocusScale,
     getViewportPanDelta,
+    isPlayableNode,
     interpolateCamera,
     TARGET_ROW_HEIGHT,
     zoomCameraAtPoint,
@@ -164,7 +165,7 @@
         getBaseScale() * MAX_ZOOM,
       );
       const displayHeight =
-        node.mediaHeight + (node.isVideo ? getVideoControlsHeight() : 0);
+        node.mediaHeight + (isPlayableNode(node) ? getVideoControlsHeight() : 0);
       const target = centerCameraAtPoint(
         { ...state.camera, scale },
         { x: node.x + node.width / 2, y: node.y + displayHeight / 2 },
@@ -186,7 +187,7 @@
       const bounds = row.nodes.reduce(
         (result, node) => {
           const displayHeight =
-            node.mediaHeight + (node.isVideo ? getVideoControlsHeight() : 0);
+            node.mediaHeight + (isPlayableNode(node) ? getVideoControlsHeight() : 0);
           return {
             left: Math.min(result.left, node.x),
             top: Math.min(result.top, node.y),

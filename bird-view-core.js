@@ -6,6 +6,7 @@
   root.BirdViewCore = core;
 })(typeof globalThis === "object" ? globalThis : this, () => {
   const VIDEO_EXTENSIONS = new Set(["mp4", "m4v", "mov", "webm", "mkv"]);
+  const AUDIO_EXTENSIONS = new Set(["mp3"]);
   const VIDEO_CONTROLS_HEIGHT = 8;
   const VIDEO_AUTOPLAY_MIN_HEIGHT = 320;
   const LAYOUT_WIDTH = 1200;
@@ -94,6 +95,27 @@
         Number.isFinite(screenHeight) &&
         Number.isFinite(threshold) &&
         screenHeight >= threshold,
+    );
+  }
+
+  function getItemExtension(item) {
+    return String(item?.ext || "").toLowerCase().replace(/^\./, "");
+  }
+
+  function isVideoItem(item) {
+    return VIDEO_EXTENSIONS.has(getItemExtension(item));
+  }
+
+  function isAudioItem(item) {
+    return AUDIO_EXTENSIONS.has(getItemExtension(item));
+  }
+
+  function isPlayableNode(node) {
+    return Boolean(
+      node?.isVideo ||
+        node?.isAudio ||
+        isVideoItem(node?.item) ||
+        isAudioItem(node?.item),
     );
   }
 
@@ -947,7 +969,8 @@
       row.push({
         item,
         aspectRatio,
-        isVideo: VIDEO_EXTENSIONS.has(String(item.ext || "").toLowerCase()),
+        isVideo: isVideoItem(item),
+        isAudio: isAudioItem(item),
       });
       aspectRatioSum += aspectRatio;
 
@@ -1054,7 +1077,8 @@
     const entries = items.map((item) => ({
       item,
       aspectRatio: getAspectRatio(item),
-      isVideo: VIDEO_EXTENSIONS.has(String(item.ext || "").toLowerCase()),
+      isVideo: isVideoItem(item),
+      isAudio: isAudioItem(item),
     }));
     const aspectRatioSum = entries.reduce((sum, entry) => sum + entry.aspectRatio, 0);
     const gapWidth = gap * Math.max(0, entries.length - 1);
@@ -1090,6 +1114,7 @@
         height: rowHeight,
         mediaHeight: rowHeight,
         isVideo: entry.isVideo,
+        isAudio: entry.isAudio,
         rotation: 0,
       });
       x += direction === "rtl" ? -gap : width + gap;
@@ -1147,7 +1172,7 @@
   }
 
   function getRowControlsHeight(row) {
-    if (!row.nodes.some(({ isVideo }) => isVideo)) return 0;
+    if (!row.nodes.some(isPlayableNode)) return 0;
     return normalizeLayoutSpacing(row.videoControlsHeight, VIDEO_CONTROLS_HEIGHT);
   }
 
@@ -1218,6 +1243,7 @@
     MIN_ROW_HEIGHT,
     TARGET_ROW_HEIGHT,
     VIDEO_AUTOPLAY_MIN_HEIGHT,
+    AUDIO_EXTENSIONS,
     VIDEO_CONTROLS_HEIGHT,
     VIDEO_EXTENSIONS,
     clamp,
@@ -1233,6 +1259,7 @@
     formatFileSize,
     formatItemDimensions,
     getAspectRatio,
+    getItemExtension,
     getAiExplorationItemLimit,
     getItemRating,
     getNextRating,
@@ -1258,6 +1285,9 @@
     insertExplorationRow,
     interpolateCamera,
     isPlayingVideo,
+    isAudioItem,
+    isPlayableNode,
+    isVideoItem,
     selectDiverseExplorationRow,
     selectAiExplorationItems,
     selectExplorationRow,

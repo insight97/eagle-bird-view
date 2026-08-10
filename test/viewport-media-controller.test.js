@@ -4,7 +4,10 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createViewportMediaController } = require("../viewport-media-controller.js");
 
-function createNode(id, { x = 0, width = 100, mediaHeight = 400, isVideo = false } = {}) {
+function createNode(
+  id,
+  { x = 0, width = 100, mediaHeight = 400, isVideo = false, isAudio = false } = {},
+) {
   return {
     item: { id },
     x,
@@ -13,6 +16,7 @@ function createNode(id, { x = 0, width = 100, mediaHeight = 400, isVideo = false
     mediaHeight,
     height: mediaHeight,
     isVideo,
+    isAudio,
   };
 }
 
@@ -255,4 +259,14 @@ test("selection can request an original while video quality stays thumbnail", ()
   const plan = harness.calls[0].plan;
   assert.equal(plan.getQuality(selected), "original");
   assert.equal(plan.getQuality(video), "thumbnail");
+});
+
+test("selection keeps audio quality at thumbnail while playback stays available", () => {
+  const audio = createNode("audio", { mediaHeight: 500, isAudio: true });
+  const harness = createHarness({ nodes: [audio], selectedNode: audio });
+
+  harness.controller.cameraChanged();
+  harness.fire();
+
+  assert.equal(harness.calls[0].plan.getQuality(audio), "thumbnail");
 });

@@ -27,9 +27,11 @@
 })(typeof globalThis === "object" ? globalThis : this, (core, media, video, downscaler, root) => {
   const {
     VIDEO_CONTROLS_HEIGHT,
-    VIDEO_EXTENSIONS,
     getRasterDimensionBudget,
     getRasterTargetSize,
+    isAudioItem,
+    isPlayableNode,
+    isVideoItem,
   } = core;
   const { MediaLoadQueue, waitForImageDecode } = media;
   const { startVideoPlayer } = video;
@@ -239,7 +241,7 @@
     function preloadSelected(node) {
       const snapshot = mediaLoadQueue.snapshot(node);
       if (!snapshot) return;
-      if (!node.isVideo) {
+      if (!isPlayableNode(node)) {
         if (snapshot.readyQuality === "original" || snapshot.originalFailed) return;
         requestMediaByNode.get(node)?.("original", { priority: "high" });
         return;
@@ -251,7 +253,7 @@
     }
 
     function retryOriginal(node) {
-      if (!node || node.isVideo || !node.item?.fileURL) return;
+      if (!node || isPlayableNode(node) || !node.item?.fileURL) return;
       const requested = retryOriginalByNode.get(node)?.() || false;
       if (!requested) return;
       node.element?.setAttribute("data-media-quality", "loading-original");
@@ -380,7 +382,7 @@
     }
 
     function play(node) {
-      if (!node?.isVideo) return;
+      if (!isPlayableNode(node)) return;
       if (node.videoElement) {
         if (node.videoElement.paused) node.playPlayback?.();
         return;
@@ -396,12 +398,14 @@
 
     function createMediaCard(node) {
       const { item } = node;
-      const extension = String(item.ext || "").toLowerCase();
-      const isVideo = VIDEO_EXTENSIONS.has(extension);
+      const isVideo = isVideoItem(item);
+      const isAudio = isAudioItem(item);
+      const isPlayable = isVideo || isAudio;
       const card = documentRef.createElement("article");
       const frame = documentRef.createElement("div");
       const image = documentRef.createElement("img");
-      const retryOriginalButton = !isVideo ? documentRef.createElement("button") : null;
+      const audioVisual = isAudio ? documentRef.createElement("div") : null;
+      const retryOriginalButton = !isPlayable ? documentRef.createElement("button") : null;
       const mediaGeneration = (node.mediaGeneration || 0) + 1;
       let originalLoadTimeoutId = null;
 
@@ -409,14 +413,14 @@
       card.className = "media-card";
       card.dataset.itemId = item.id;
       card.dataset.mediaQuality = "idle";
-      card.title = isVideo
+      card.title = isPlayable
         ? `${item.name || "未命名"}（雙擊播放或暫停）`
         : item.name || "未命名";
       frame.className = "media-frame";
       frame.style.height = `${node.mediaHeight}px`;
-      const originalImageURL = !isVideo ? item.fileURL : null;
-      const fallbackURL = item.thumbnailURL || item.fileURL;
-      if (!isVideo && !originalImageURL) {
+      const originalImageURL = !isPlayable ? item.fileURL : null;
+      const fallbackURL = item.thumbnailURL || (!isPlayable ? item.fileURL : null);
+      if (!isPlayable && !originalImageURL) {
         debugLog(item, "card-created-without-fileURL", { fileURL: item.fileURL });
       }
 
@@ -425,6 +429,13 @@
       image.draggable = false;
       image.style.visibility = "hidden";
       thumbnailImageByNode.set(node, image);
+      if (audioVisual) {
+        audioVisual.className = "audio-visual";
+        audioVisual.textContent = "♫";
+        audioVisual.style.visibility = "visible";
+        audioVisual.setAttribute("role", "img");
+        audioVisual.setAttribute("aria-label", `音訊 ${item.name || "未命名"}`);
+      }
       if (retryOriginalButton) {
         retryOriginalButton.className = "original-retry-button";
         retryOriginalButton.type = "button";
@@ -436,7 +447,7 @@
           retryOriginal(node);
         });
       }
-      node.mediaElement = image;
+      node.mediaElement = audioVisual || image;
 
       const clearOriginalLoadTimeout = () => {
         if (originalLoadTimeoutId === null) return;
@@ -871,7 +882,14 @@
         }
         // A raster may already be showing if the original won the race; the
         // thumbnail is still worth keeping loaded for when it is handed back.
-        if (!node.previewImage || node.previewImage === image) {
+        if (isAudio && audioVisual) {
+          audioVisual.style.visibility = "hidden";
+          node.previewImage = image;
+          node.mediaElement = image;
+          image.style.visibility = "visible";
+          card.dataset.mediaQuality = "thumbnail";
+          applyMediaRotation(node);
+        } else if (!node.previewImage || node.previewImage === image) {
           image.style.visibility = "visible";
           card.dataset.mediaQuality =
             mediaLoadQueue.snapshot(node)?.originalFailed ? "original-failed" : "thumbnail";
@@ -892,28 +910,29 @@
       });
 
       frame.append(image);
+      if (audioVisual) frame.append(audioVisual);
       if (retryOriginalButton) frame.append(retryOriginalButton);
       card.append(frame);
-      node.previewImage = image;
+      node.previewImage = audioVisual || image;
 
-      if (isVideo) {
+      if (isPlayable) {
         const playButton = documentRef.createElement("button");
         playButton.className = "play-button";
         playButton.type = "button";
         playButton.textContent = "▶";
-        playButton.setAttribute("aria-label", `播放 ${item.name || "影片"}`);
+        playButton.setAttribute("aria-label", `播放 ${item.name || (isAudio ? "音訊" : "影片")}`);
         playButton.addEventListener("pointerdown", (event) => event.stopPropagation());
         playButton.addEventListener("click", (event) => {
           event.stopPropagation();
           onSelectNode(node);
-          startVideo(frame, image, playButton, item, node);
+          startVideo(frame, node.previewImage, playButton, item, node);
         });
-        node.startPlayback = () => startVideo(frame, image, playButton, item, node);
+        node.startPlayback = () => startVideo(frame, node.previewImage, playButton, item, node);
         frame.append(playButton);
       }
 
       card.addEventListener("dblclick", (event) => {
-        if (!node.isVideo || event.target.closest("button, input")) return;
+        if (!isPlayableNode(node) || event.target.closest("button, input")) return;
         event.preventDefault();
         onSelectNode(node);
         if (node.togglePlayback) node.togglePlayback();
@@ -943,6 +962,7 @@
         playButton,
         item,
         node,
+        mediaType: isAudioItem(item) || node.isAudio ? "audio" : "video",
         controlsHeight: getVideoControlsHeight(),
         initialVolume: getVideoVolume(),
         onVolumeChange,

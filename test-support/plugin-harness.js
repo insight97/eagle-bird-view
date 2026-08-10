@@ -94,6 +94,7 @@ const SELECTORS = [
   "#video-autoplay-toggle",
   "#auto-explore-file-type-image",
   "#auto-explore-file-type-video",
+  "#auto-explore-file-type-audio",
   "#auto-explore-rating",
   "#auto-explore-tag-match",
   "#auto-explore-max-tag-count",

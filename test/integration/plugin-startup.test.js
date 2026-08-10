@@ -59,6 +59,17 @@ function videoItem() {
   };
 }
 
+function audioItem() {
+  return {
+    id: "audio-0",
+    name: "audio-0.mp3",
+    ext: "mp3",
+    width: 1200,
+    height: 800,
+    fileURL: "file:///audio-0.mp3",
+  };
+}
+
 test("the board asks Eagle for the selection and leaves auto exploration off", async () => {
   const plugin = await startEmptyPlugin();
 
@@ -801,6 +812,22 @@ test("selected videos autoplay only while the video is large enough", async () =
 
   plugin.changeLibrary();
   assert.ok(plugin.videoPauseCalls >= 1, "leaving the selection pauses the video");
+});
+
+test("selected MP3 files can start playback with Enter", async () => {
+  const plugin = createPluginHarness({
+    selectedItems: [audioItem()],
+    navigationProbe: true,
+    runAnimationFrames: true,
+  });
+
+  plugin.start();
+  await flush();
+
+  assert.equal(plugin.state.selectedNode.isAudio, true);
+  plugin.keyDown({ key: "Enter", target: null, preventDefault() {} });
+
+  assert.equal(plugin.videoStartRequests, 1);
 });
 
 test("Ctrl+Home sets the selected video's current frame as its Eagle thumbnail", async () => {

@@ -1508,6 +1508,25 @@ button {
   transform-origin: center;
 }
 
+.audio-visual {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 30% 25%, rgb(121 113 237 / 34%), transparent 45%),
+    linear-gradient(135deg, #303445, #181a20);
+  color: #e7e5ff;
+  font-size: clamp(32px, 18cqw, 86px);
+  line-height: 1;
+  text-shadow: 0 2px 12px rgb(0 0 0 / 42%);
+}
+
+.media-frame .audio-source {
+  display: none;
+}
+
 .original-retry-button {
   position: absolute;
   top: 50%;

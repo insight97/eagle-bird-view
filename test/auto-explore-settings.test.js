@@ -20,6 +20,7 @@ function createHarness() {
     autoExploreSettingsPanels: [createElementStub("div"), createElementStub("div")],
     autoExploreFileTypeImage: createElementStub("input"),
     autoExploreFileTypeVideo: createElementStub("input"),
+    autoExploreFileTypeAudio: createElementStub("input"),
     autoExploreRating: createElementStub("select"),
     autoExploreMinRating: createElementStub("select"),
     autoExploreMaxRating: createElementStub("select"),
@@ -51,6 +52,7 @@ function createHarness() {
   elements.autoExploreSettingsPanels[1].dataset.settingsPanel = "display";
   elements.autoExploreFileTypeImage.checked = true;
   elements.autoExploreFileTypeVideo.checked = true;
+  elements.autoExploreFileTypeAudio.checked = true;
   elements.autoExploreIncludeSubfolders.checked = true;
 
   const document = {
