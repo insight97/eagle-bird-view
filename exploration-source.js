@@ -157,6 +157,7 @@
       filter = DEFAULT_UNRATED_FILTER,
       layoutWidth,
       maxItems,
+      layoutOptions = {},
     ) {
       const normalizedFilter = normalizeUnratedFilter(filter);
       const folderScopeResult = resolveFolderScope(this.#folderApi, normalizedFilter);
@@ -186,6 +187,7 @@
         this.#random,
         layoutWidth,
         maxItems,
+        layoutOptions,
       );
       if (selected.length) {
         const selectedIds = new Set(selected.map(({ id }) => id));

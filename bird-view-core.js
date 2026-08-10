@@ -606,12 +606,13 @@
     random = Math.random,
     layoutWidth = LAYOUT_WIDTH,
     maxItems = DEFAULT_MAX_EXPLORATION_ITEMS,
-    { maxAiItems = Infinity, diversityStrength = 0 } = {},
+    { maxAiItems = Infinity, diversityStrength = 0, gap = LAYOUT_GAP } = {},
   ) {
     const normalizedLayoutWidth = normalizeLayoutWidth(layoutWidth);
     const normalizedMaxItems = normalizeExplorationItemLimit(maxItems);
     const normalizedMaxAiItems = normalizeMaxAiExplorationItems(maxAiItems);
     const normalizedDiversityStrength = normalizeExplorationDiversityStrength(diversityStrength);
+    const normalizedGap = normalizeLayoutSpacing(gap, LAYOUT_GAP);
     const pivotFolders = new Set(pivot.folders || []);
     const pivotTags = new Set(pivot.tags || []);
     const eligible = candidates
@@ -667,7 +668,7 @@
         connectionCounts.set(key, (connectionCounts.get(key) || 0) + 1);
       }
 
-      const gapWidth = LAYOUT_GAP * Math.max(0, selected.length - 1);
+      const gapWidth = normalizedGap * Math.max(0, selected.length - 1);
       const fittedHeight = (normalizedLayoutWidth - gapWidth) / aspectRatioSum;
       if (
         selected.length >= normalizedMaxItems ||
@@ -681,14 +682,72 @@
     return selected;
   }
 
+  function selectExplorationRow(
+    candidates,
+    pivot,
+    random = Math.random,
+    layoutWidth = LAYOUT_WIDTH,
+    maxItems = DEFAULT_MAX_EXPLORATION_ITEMS,
+    { maxAiItems = 0, diversityStrength = 0, gap = LAYOUT_GAP } = {},
+  ) {
+    const availableCandidates = Array.isArray(candidates) ? candidates : [];
+    const normalizedMaxItems = normalizeExplorationItemLimit(maxItems);
+    const normalizedMaxAiItems = normalizeMaxAiExplorationItems(maxAiItems);
+    const normalizedGap = normalizeLayoutSpacing(gap, LAYOUT_GAP);
+    const aiItems = selectAiExplorationItems(availableCandidates, normalizedMaxAiItems, {
+      diversityStrength,
+    });
+    const aiIds = new Set(aiItems.map(({ id }) => id));
+    const relatedCandidates = availableCandidates.filter((candidate) => {
+      const item = candidate?.item?.id ? candidate.item : candidate;
+      return !Number.isFinite(Number(candidate?.aiScore)) && !aiIds.has(item?.id);
+    });
+    const remainingSlots = Math.max(0, normalizedMaxItems - aiItems.length);
+    const relatedItems = remainingSlots
+      ? selectDiverseExplorationRow(
+          relatedCandidates,
+          pivot,
+          random,
+          layoutWidth,
+          remainingSlots,
+          { maxAiItems: 0, diversityStrength, gap: normalizedGap },
+        )
+      : [];
+    const selected = [];
+    const selectedIds = new Set();
+
+    function isFilled() {
+      return (
+        selected.length >= MIN_EXPLORATION_ITEMS &&
+        isFilledRow(selected, layoutWidth, { gap: normalizedGap })
+      );
+    }
+
+    function append(items) {
+      for (const candidate of items) {
+        const item = candidate?.item?.id ? candidate.item : candidate;
+        if (!item?.id || selectedIds.has(item.id)) continue;
+        selected.push(item);
+        selectedIds.add(item.id);
+        if (isFilled() || selected.length >= normalizedMaxItems) break;
+      }
+    }
+
+    append(aiItems);
+    if (!isFilled() && selected.length < normalizedMaxItems) append(relatedItems);
+    return selected;
+  }
+
   function selectRandomExplorationRow(
     candidates,
     random = Math.random,
     layoutWidth = LAYOUT_WIDTH,
     maxItems = DEFAULT_MAX_EXPLORATION_ITEMS,
+    layoutOptions = {},
   ) {
     const normalizedLayoutWidth = normalizeLayoutWidth(layoutWidth);
     const normalizedMaxItems = normalizeExplorationItemLimit(maxItems);
+    const { gap } = normalizeLayoutOptions(layoutOptions);
     const remaining = [...candidates];
     const selected = [];
     let aspectRatioSum = 0;
@@ -699,7 +758,7 @@
       selected.push(item);
       aspectRatioSum += getAspectRatio(item);
 
-      const gapWidth = LAYOUT_GAP * Math.max(0, selected.length - 1);
+      const gapWidth = gap * Math.max(0, selected.length - 1);
       const fittedHeight = (normalizedLayoutWidth - gapWidth) / aspectRatioSum;
       if (
         selected.length >= normalizedMaxItems ||
@@ -1201,6 +1260,7 @@
     isPlayingVideo,
     selectDiverseExplorationRow,
     selectAiExplorationItems,
+    selectExplorationRow,
     selectRandomExplorationRow,
     shouldLoadUnratedRow,
     zoomCameraAtPoint,

@@ -26,8 +26,7 @@ const {
   normalizeTagColor,
   reanchorCameraToNode,
   resizeCamera,
-  selectAiExplorationItems,
-  selectDiverseExplorationRow,
+  selectExplorationRow,
   shouldAutoplayVideo,
   shouldLoadUnratedRow,
 } = BirdViewCore;
@@ -2049,26 +2048,18 @@ function insertExplorationItemsAfterNode(pivotNode, items) {
 }
 
 function selectExplorationItems(candidates, pivot, maxAiItems) {
-  const aiItems = selectAiExplorationItems(candidates, maxAiItems, {
-    diversityStrength: state.explorationDiversityStrength,
-  });
-  const aiIds = new Set(aiItems.map(({ id }) => id));
-  const nonAiCandidates = candidates.filter((candidate) => {
-    const item = candidate?.item?.id ? candidate.item : candidate;
-    return !Number.isFinite(Number(candidate?.aiScore)) && !aiIds.has(item?.id);
-  });
-  const remainingSlots = Math.max(0, state.maxExplorationItems - aiItems.length);
-  if (!remainingSlots) return aiItems;
-
-  const relatedItems = selectDiverseExplorationRow(
-    nonAiCandidates,
+  return selectExplorationRow(
+    candidates,
     pivot,
     Math.random,
     getBoardLayoutWidth(),
-    remainingSlots,
-    { maxAiItems: 0, diversityStrength: state.explorationDiversityStrength },
+    state.maxExplorationItems,
+    {
+      maxAiItems,
+      diversityStrength: state.explorationDiversityStrength,
+      gap: getBoardLayoutOptions().gap,
+    },
   );
-  return [...aiItems, ...relatedItems.slice(0, remainingSlots)];
 }
 
 async function exploreNextRow() {
@@ -2174,6 +2165,7 @@ async function loadNextUnratedRow({ focus = false } = {}) {
         autoExploreSettings.getFilter(),
         layoutConfig.layoutWidth,
         state.maxExplorationItems,
+        getBoardLayoutOptions(),
       ),
     hydrate: (candidates) => source.hydrate(candidates),
     isRelevant: () => board.nodes === boardNodes,

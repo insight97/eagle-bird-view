@@ -11,6 +11,7 @@ const {
   normalizeExplorationDiversityStrength,
   selectDiverseExplorationRow,
   selectAiExplorationItems,
+  selectExplorationRow,
   selectRandomExplorationRow,
   shouldLoadUnratedRow,
 } = require("../bird-view-core.js");
@@ -157,6 +158,40 @@ test("exploration stops as soon as candidates fill one justified row", () => {
 
   const selected = selectDiverseExplorationRow(candidates, pivot, () => 0);
   assert.equal(selected.length, 4);
+});
+
+test("hybrid exploration stops after one row even when AI candidates exceed its capacity", () => {
+  const pivot = item("pivot", ["ui"], []);
+  const candidates = Array.from({ length: 6 }, (_, index) => ({
+    item: item(`ai-${index}`, [], [], 200, 100),
+    aiScore: 0.2 + index / 10,
+  }));
+
+  const selected = selectExplorationRow(
+    candidates,
+    pivot,
+    () => 0,
+    1200,
+    12,
+    { maxAiItems: 6 },
+  );
+
+  assert.deepEqual(
+    selected.map(({ id }) => id),
+    ["ai-0", "ai-1", "ai-2", "ai-3"],
+  );
+});
+
+test("hybrid exploration keeps an incomplete row when candidates run out", () => {
+  const pivot = item("pivot", ["ui"], []);
+  const candidates = [
+    item("related-1", ["ui"], [], 200, 100),
+    item("related-2", ["ui"], [], 200, 100),
+  ];
+
+  const selected = selectExplorationRow(candidates, pivot, () => 0, 1200, 12);
+
+  assert.deepEqual(selected.map(({ id }) => id), ["related-1", "related-2"]);
 });
 
 test("exploration randomizes among the highest-ranked candidates", () => {
