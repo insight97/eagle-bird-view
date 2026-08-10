@@ -578,6 +578,7 @@
       const image = documentRef.createElement("img");
       const audioVisual = isAudio ? documentRef.createElement("div") : null;
       const pdfVisual = isPdf ? documentRef.createElement("div") : null;
+      const pdfEntryBadge = isPdf ? documentRef.createElement("span") : null;
       const retryOriginalButton = !isPlayable && !isPdf ? documentRef.createElement("button") : null;
       const mediaGeneration = (node.mediaGeneration || 0) + 1;
       let originalLoadTimeoutId = null;
@@ -617,6 +618,12 @@
         pdfVisual.style.visibility = "visible";
         pdfVisual.setAttribute("role", "img");
         pdfVisual.setAttribute("aria-label", `PDF ${item.name || "未命名"}`);
+      }
+      if (pdfEntryBadge) {
+        pdfEntryBadge.className = "pdf-entry-badge";
+        pdfEntryBadge.textContent = "PDF · 雙擊進入";
+        pdfEntryBadge.setAttribute("aria-label", `PDF ${item.name || "未命名"}，雙擊進入 PDF 白板`);
+        pdfEntryBadge.title = "雙擊進入 PDF 白板";
       }
       if (retryOriginalButton) {
         retryOriginalButton.className = "original-retry-button";
@@ -1095,6 +1102,7 @@
       frame.append(image);
       if (audioVisual) frame.append(audioVisual);
       if (pdfVisual) frame.append(pdfVisual);
+      if (pdfEntryBadge) frame.append(pdfEntryBadge);
       if (retryOriginalButton) frame.append(retryOriginalButton);
       card.append(frame);
       node.previewImage = audioVisual || pdfVisual || image;

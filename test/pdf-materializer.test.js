@@ -75,6 +75,10 @@ test("PDF outer cards use the thumbnail and open a PDF board on double click", (
   harness.materializer.preloadSelected(node);
 
   assert.ok(node.element.querySelector(".pdf-visual"));
+  assert.equal(
+    node.element.querySelector(".pdf-entry-badge").textContent,
+    "PDF · 雙擊進入",
+  );
   assert.deepEqual(harness.queue.snapshot(node).loadingQuality, "thumbnail");
   node.element.querySelector("img").emit("load");
   node.element.emit("dblclick");

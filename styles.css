@@ -1556,6 +1556,26 @@ button {
   text-shadow: 0 2px 12px rgb(0 0 0 / 42%);
 }
 
+.pdf-entry-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  max-width: calc(100% - 16px);
+  overflow: hidden;
+  padding: 4px 7px;
+  border: 1px solid rgb(220 233 255 / 52%);
+  border-radius: 4px;
+  background: rgb(28 30 34 / 84%);
+  color: #e7f0ff;
+  font-size: clamp(8px, 10cqw, 11px);
+  font-weight: 700;
+  line-height: 1.2;
+  pointer-events: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .pdf-page-card .media-frame {
   background: #e9e9e7;
 }
