@@ -94,6 +94,10 @@
     // and the budget it was built for, so a later zoom can tell whether it still
     // has enough pixels.
     const rasterByNode = new WeakMap();
+    // PDF pages render directly into a Canvas rather than going through the
+    // image raster path above. Keep their current budget separately so a zoom
+    // can request a sharper page without treating the page as a thumbnail.
+    const pdfRasterByNode = new WeakMap();
 
     // A canvas keeps its pixels for as long as it is around, so handing one back
     // means zeroing it. Removing the element alone leaves the backing store.
@@ -146,6 +150,28 @@
         return;
       }
       if (!mediaLoadQueue.invalidate(node, "original")) return;
+      requestMediaByNode.get(node)?.("original", { budget: needed, prewarmed, priority });
+    }
+
+    function refreshPdfRasterBudget(
+      node,
+      { targetBudget = null, prewarmed = false, priority = "normal" } = {},
+    ) {
+      const raster = pdfRasterByNode.get(node);
+      if (!raster) return;
+      const screenLongEdge = getNodeScreenLongEdge(node);
+      const actualBudget = getRasterDimensionBudget(screenLongEdge);
+      const needed = Number(targetBudget) > 0 ? Number(targetBudget) : actualBudget;
+      if (needed <= raster.budget) return;
+      if (mediaLoadQueue.snapshot(node)?.readyQuality !== "original") return;
+      if (!mediaLoadQueue.invalidate(node, "original")) return;
+      debugLog(node.item, "raster-budget-change-requested", {
+        atMs: readNow(now),
+        screenLongEdge,
+        currentBudget: raster.budget,
+        requestedBudget: needed,
+        mediaType: "pdf",
+      });
       requestMediaByNode.get(node)?.("original", { budget: needed, prewarmed, priority });
     }
 
@@ -202,7 +228,10 @@
       mediaLoadQueue.dispose(node);
       node.stopVideoControls?.();
 
-      if (isPdfPageNode(node)) releaseRasterCanvas(node.mediaElement);
+      if (isPdfPageNode(node)) {
+        releaseRasterCanvas(pdfRasterByNode.get(node)?.element || node.mediaElement);
+        pdfRasterByNode.delete(node);
+      }
 
       if (node.videoElement) {
         node.videoElement.pause();
@@ -335,10 +364,14 @@
           requested === "original" ? { priority } : null,
         );
         if (quality === "original") {
-          refreshRasterBudget(node, {
-            allowShrink: !preserveOriginals,
-            priority,
-          });
+          if (isPdfPageNode(node)) {
+            refreshPdfRasterBudget(node, { priority });
+          } else {
+            refreshRasterBudget(node, {
+              allowShrink: !preserveOriginals,
+              priority,
+            });
+          }
         }
       }
     }
@@ -393,11 +426,19 @@
           prewarmed: shouldPrewarm && targetBudget > actualBudget,
           priority,
         });
-        refreshRasterBudget(node, {
-          targetBudget,
-          prewarmed: shouldPrewarm && targetBudget > actualBudget,
-          priority,
-        });
+        if (isPdfPageNode(node)) {
+          refreshPdfRasterBudget(node, {
+            targetBudget,
+            prewarmed: shouldPrewarm && targetBudget > actualBudget,
+            priority,
+          });
+        } else {
+          refreshRasterBudget(node, {
+            targetBudget,
+            prewarmed: shouldPrewarm && targetBudget > actualBudget,
+            priority,
+          });
+        }
       }
     }
 
@@ -429,9 +470,12 @@
       const placeholder = documentRef.createElement("div");
       const retryButton = documentRef.createElement("button");
       const mediaGeneration = (node.mediaGeneration || 0) + 1;
+      let currentCanvas = canvas;
       let renderToken = null;
       let activeRender = null;
       let renderController = null;
+      let requestedRenderBudget = null;
+      let requestedRenderPrewarmed = false;
 
       node.mediaGeneration = mediaGeneration;
       card.className = "media-card pdf-page-card";
@@ -440,10 +484,7 @@
       card.title = `${item.pdfParentItem?.name || "PDF"} 第 ${item.pdfPageNumber} 頁`;
       frame.className = "media-frame";
       frame.style.height = `${node.mediaHeight}px`;
-      canvas.className = "pdf-page-canvas";
-      canvas.setAttribute("role", "img");
-      canvas.setAttribute("aria-label", item.name || `PDF 第 ${item.pdfPageNumber} 頁`);
-      canvas.style.visibility = "hidden";
+      configurePdfCanvas(canvas);
       placeholder.className = "pdf-page-placeholder";
       placeholder.textContent = "PDF";
       placeholder.setAttribute("aria-hidden", "true");
@@ -472,14 +513,24 @@
         activeRender?.cancel?.();
         activeRender = null;
       };
-      const requestMedia = (quality = "original", request = null) =>
-        mediaLoadQueue.request(node, "original", {
+      const requestMedia = (quality = "original", request = null) => {
+        if (quality === "original") {
+          requestedRenderBudget =
+            Number(request?.budget) > 0
+              ? Number(request.budget)
+              : getRasterDimensionBudget(getNodeScreenLongEdge(node));
+          requestedRenderPrewarmed = Boolean(request?.prewarmed);
+        }
+        return mediaLoadQueue.request(node, "original", {
           priority: request?.priority === "high" || quality === "original" ? "high" : "normal",
         });
+      };
       requestMediaByNode.set(node, requestMedia);
-      retryOriginalByNode.set(node, () =>
-        mediaLoadQueue.retry(node, "original", { priority: "high" }),
-      );
+      retryOriginalByNode.set(node, () => {
+        requestedRenderBudget = getRasterDimensionBudget(getNodeScreenLongEdge(node));
+        requestedRenderPrewarmed = false;
+        return mediaLoadQueue.retry(node, "original", { priority: "high" });
+      });
       mediaLoadQueue.register(node, {
         hasOriginal: typeof renderPdfPage === "function",
         hasThumbnail: false,
@@ -500,14 +551,21 @@
           card.dataset.mediaQuality = "loading-original";
           retryButton.hidden = true;
           const screenLongEdge = getNodeScreenLongEdge(node);
-          const budget = getRasterDimensionBudget(screenLongEdge);
+          const budget =
+            Number(requestedRenderBudget) > 0
+              ? Number(requestedRenderBudget)
+              : getRasterDimensionBudget(screenLongEdge);
+          const prewarmed = requestedRenderPrewarmed;
+          const renderCanvas = pdfRasterByNode.has(node)
+            ? createPdfCanvas()
+            : currentCanvas;
           const pageLongEdge = Math.max(Number(item.width) || 0, Number(item.height) || 0);
           const scale = pageLongEdge > 0 ? budget / pageLongEdge : 1;
           let result;
           try {
             result = renderPdfPage({
               node,
-              canvas,
+              canvas: renderCanvas,
               budget,
               scale,
               signal: renderController?.signal,
@@ -519,23 +577,45 @@
           const promise = result?.promise || result;
           Promise.resolve(promise).then(
             () => {
-              if (!isCurrentRender(token)) return;
+              if (!isCurrentRender(token)) {
+                if (renderCanvas !== currentCanvas) releaseRasterCanvas(renderCanvas);
+                return;
+              }
               renderToken = null;
               renderController = null;
               activeRender = null;
-              canvas.style.visibility = "visible";
+              if (renderCanvas !== currentCanvas) {
+                const previousCanvas = currentCanvas;
+                frame.append(renderCanvas);
+                previousCanvas.style.visibility = "hidden";
+                previousCanvas.remove();
+                releaseRasterCanvas(previousCanvas);
+                currentCanvas = renderCanvas;
+                node.previewImage = currentCanvas;
+                node.mediaElement = currentCanvas;
+              }
+              renderCanvas.style.visibility = "visible";
               placeholder.hidden = true;
               retryButton.hidden = true;
               card.dataset.mediaQuality = "original";
+              pdfRasterByNode.set(node, {
+                element: currentCanvas,
+                budget,
+                prewarmed,
+              });
               applyMediaRotation(node);
               mediaLoadQueue.complete(node, "original", true);
             },
             (error) => {
-              if (!isCurrentRender(token)) return;
+              if (!isCurrentRender(token)) {
+                if (renderCanvas !== currentCanvas) releaseRasterCanvas(renderCanvas);
+                return;
+              }
               renderToken = null;
               renderController = null;
               activeRender = null;
-              placeholder.hidden = false;
+              if (renderCanvas !== currentCanvas) releaseRasterCanvas(renderCanvas);
+              placeholder.hidden = pdfRasterByNode.has(node);
               retryButton.hidden = false;
               card.dataset.mediaQuality = "original-failed";
               debugLog(item, "pdf-page-render-failed", {
@@ -564,6 +644,19 @@
         onOpenContextMenu(node);
       });
       return card;
+
+      function configurePdfCanvas(target) {
+        target.className = "pdf-page-canvas";
+        target.setAttribute("role", "img");
+        target.setAttribute("aria-label", item.name || `PDF 第 ${item.pdfPageNumber} 頁`);
+        target.style.visibility = "hidden";
+      }
+
+      function createPdfCanvas() {
+        const next = documentRef.createElement("canvas");
+        configurePdfCanvas(next);
+        return next;
+      }
     }
 
     function createMediaCard(node) {

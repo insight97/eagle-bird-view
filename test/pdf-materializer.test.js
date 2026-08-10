@@ -25,7 +25,7 @@ function createHarness(options = {}) {
     window: { setTimeout, clearTimeout },
     world,
     mediaLoadQueue: queue,
-    getNodeScreenLongEdge: () => 800,
+    getNodeScreenLongEdge: options.getNodeScreenLongEdge || (() => 800),
     onPositionNode() {},
     onClickNode() {},
     onSelectNode() {},
@@ -131,4 +131,99 @@ test("PDF page cards render through the shared media queue and cancel on release
   harness.materializer.releaseAll();
   assert.equal(node.element, null);
   assert.equal(node.mediaElement, null);
+});
+
+test("PDF page cards re-render at a larger budget after zooming in", async () => {
+  let screenLongEdge = 800;
+  const renders = [];
+  const harness = createHarness({
+    getNodeScreenLongEdge: () => screenLongEdge,
+    renderPdfPage(options) {
+      renders.push(options);
+      options.canvas.width = Math.ceil(600 * options.scale);
+      options.canvas.height = Math.ceil(800 * options.scale);
+      return Promise.resolve();
+    },
+  });
+  const node = createPdfNode();
+  node.item = {
+    ...node.item,
+    id: "document:page:1",
+    name: "document.pdf · 第 1 頁",
+    ext: "pdf-page",
+    width: 600,
+    height: 800,
+    isPdfPage: true,
+    pdfPageNumber: 1,
+  };
+
+  harness.materializer.mount(node);
+  harness.materializer.preloadSelected(node);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(renders.length, 1);
+  assert.equal(renders[0].budget, 1024);
+  const firstCanvas = renders[0].canvas;
+  assert.equal(firstCanvas.style.visibility, "visible");
+
+  screenLongEdge = 1500;
+  harness.materializer.syncQuality({
+    loadNodes: [node],
+    getQuality: () => "original",
+  });
+
+  assert.equal(renders.length, 2);
+  assert.equal(renders[1].budget, 1536);
+  assert.notEqual(renders[1].canvas, firstCanvas);
+  assert.equal(firstCanvas.style.visibility, "visible");
+
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(node.mediaElement, renders[1].canvas);
+  assert.equal(firstCanvas.parentNode, null);
+  assert.equal(renders[1].canvas.style.visibility, "visible");
+});
+
+test("PDF page cards keep the previous raster when a sharper render fails", async () => {
+  let screenLongEdge = 800;
+  let renderCount = 0;
+  const harness = createHarness({
+    getNodeScreenLongEdge: () => screenLongEdge,
+    renderPdfPage(options) {
+      renderCount += 1;
+      options.canvas.width = Math.ceil(600 * options.scale);
+      options.canvas.height = Math.ceil(800 * options.scale);
+      return renderCount === 1
+        ? Promise.resolve()
+        : Promise.reject(new Error("render failed"));
+    },
+  });
+  const node = createPdfNode();
+  node.item = {
+    ...node.item,
+    id: "document:page:1",
+    ext: "pdf-page",
+    width: 600,
+    height: 800,
+    isPdfPage: true,
+    pdfPageNumber: 1,
+  };
+
+  harness.materializer.mount(node);
+  harness.materializer.preloadSelected(node);
+  await new Promise((resolve) => setImmediate(resolve));
+  const firstCanvas = node.mediaElement;
+
+  screenLongEdge = 1500;
+  harness.materializer.syncQuality({
+    loadNodes: [node],
+    getQuality: () => "original",
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(node.mediaElement, firstCanvas);
+  assert.equal(firstCanvas.style.visibility, "visible");
+  assert.equal(node.element.querySelector(".pdf-page-placeholder").hidden, true);
+  assert.equal(node.element.querySelector(".pdf-page-retry-button").hidden, false);
+  assert.equal(harness.created.at(-1).width, 0);
+  assert.equal(harness.created.at(-1).height, 0);
 });
