@@ -932,6 +932,18 @@ function clearBoardPresentation() {
   elements.labels.style.transform = "none";
 }
 
+function formatPdfPagePosition(item) {
+  const pageNumber = Number(item?.pdfPageNumber);
+  const pageCount = Number(item?.pdfPageCount);
+  if (Number.isInteger(pageNumber) && pageNumber > 0) {
+    if (Number.isInteger(pageCount) && pageCount > 0) {
+      return `第 ${pageNumber} / ${pageCount} 頁`;
+    }
+    return `第 ${pageNumber} 頁`;
+  }
+  return "PDF 頁面";
+}
+
 function updatePdfModeUI() {
   const active = state.pdfMode;
   const opening = state.pdfOpening;
@@ -942,8 +954,11 @@ function updatePdfModeUI() {
   }
   if (elements.pdfBoardBreadcrumb) {
     elements.pdfBoardBreadcrumb.hidden = !active;
+    const selectedPage = active && isPdfPageNode(state.selectedNode)
+      ? ` · ${formatPdfPagePosition(state.selectedNode.item)}`
+      : "";
     elements.pdfBoardBreadcrumb.textContent = active
-      ? `PDF：${state.pdfBoardSession?.parentItem?.name || "未命名"}`
+      ? `PDF：${state.pdfBoardSession?.parentItem?.name || "未命名"}${selectedPage}`
       : "";
   }
   if (elements.boardHistoryBackButton) {
@@ -1119,6 +1134,7 @@ async function openItemInEagle(itemId) {
 
 function createMediaLabel(node) {
   const { item } = node;
+  const isPdfPage = isPdfPageNode(node);
   const label = document.createElement("div");
   const main = document.createElement("div");
   const metadata = document.createElement("div");
@@ -1170,7 +1186,7 @@ function createMediaLabel(node) {
   });
   identity.className = "media-identity";
   name.className = "media-name";
-  name.textContent = item.name || "未命名";
+  name.textContent = isPdfPage ? formatPdfPagePosition(item) : item.name || "未命名";
   dimensions.className = "media-dimensions";
   dimensions.textContent = formatItemDimensions(item);
   dimensions.hidden = !dimensions.textContent;
@@ -1199,7 +1215,7 @@ function createMediaLabel(node) {
   fileInfo.append(basicInfo, type);
   actions.append(fileInfo, rotateLeft, rotateRight);
   metadata.append(rating, tags, editTags, folders, editFolders);
-  if (isPdfPageNode(node)) {
+  if (isPdfPage) {
     label.classList.add("is-pdf-page-label");
     metadata.hidden = true;
   }
@@ -2225,6 +2241,7 @@ function applySelectedNode(node, { changed, previousNode }) {
   }
   updateSelectionStatus();
   updateExploreButton();
+  if (state.pdfMode) updatePdfModeUI();
 }
 
 function insertExplorationItemsAfterNode(pivotNode, items) {

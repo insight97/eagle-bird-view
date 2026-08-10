@@ -427,7 +427,6 @@
       const frame = documentRef.createElement("div");
       const canvas = documentRef.createElement("canvas");
       const placeholder = documentRef.createElement("div");
-      const pageNumber = documentRef.createElement("span");
       const retryButton = documentRef.createElement("button");
       const mediaGeneration = (node.mediaGeneration || 0) + 1;
       let renderToken = null;
@@ -448,8 +447,6 @@
       placeholder.className = "pdf-page-placeholder";
       placeholder.textContent = "PDF";
       placeholder.setAttribute("aria-hidden", "true");
-      pageNumber.className = "pdf-page-number";
-      pageNumber.textContent = `第 ${item.pdfPageNumber} 頁`;
       retryButton.className = "pdf-page-retry-button";
       retryButton.type = "button";
       retryButton.textContent = "重試";
@@ -551,7 +548,7 @@
         },
       });
 
-      frame.append(canvas, placeholder, pageNumber, retryButton);
+      frame.append(canvas, placeholder, retryButton);
       card.append(frame);
       card.addEventListener("click", (event) => {
         if (event.target.closest("button, input")) return;

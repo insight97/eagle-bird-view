@@ -79,6 +79,15 @@ test("PDF enters as virtual pages and returns without polluting the parent board
   assert.equal(plugin.elements.get("#pdf-board-back-button").hidden, false);
   assert.equal(plugin.elements.get("#board-history-back-button").disabled, true);
   assert.equal(plugin.state.pdfBoardSession.pageCount, 3);
+  const pageLabel = plugin.createdElements.find((element) =>
+    element.classList.contains("is-pdf-page-label"),
+  );
+  assert.ok(pageLabel);
+  assert.equal(pageLabel.querySelector(".media-name").textContent, "第 1 / 3 頁");
+  assert.equal(
+    plugin.elements.get("#pdf-board-breadcrumb").textContent,
+    "PDF：manual.pdf · 第 1 / 3 頁",
+  );
   assert.ok(plugin.elements.get("#world").children.length > 0);
   const canvases = plugin.createdElementsOfTag("canvas");
   assert.ok(canvases.length > 0, "PDF page cards should create canvases");
@@ -88,6 +97,13 @@ test("PDF enters as virtual pages and returns without polluting the parent board
     plugin.createdElements
       .filter((element) => element.classList.contains("pdf-page-placeholder"))
       .some((placeholder) => placeholder.hidden),
+  );
+  plugin.keyDown({ key: "ArrowRight", ctrlKey: true, target: null, preventDefault() {} });
+  await flush();
+  assert.equal(plugin.state.selectedNode.item.pdfPageNumber, 2);
+  assert.equal(
+    plugin.elements.get("#pdf-board-breadcrumb").textContent,
+    "PDF：manual.pdf · 第 2 / 3 頁",
   );
 
   plugin.elements.get("#auto-explore-settings-panel").hidden = true;

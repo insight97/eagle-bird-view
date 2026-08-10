@@ -113,6 +113,7 @@ test("PDF page cards render through the shared media queue and cancel on release
   harness.materializer.preloadSelected(node);
 
   assert.equal(harness.queue.snapshot(node).loadingQuality, "original");
+  assert.equal(node.element.querySelector(".pdf-page-number"), null);
   assert.equal(renderOptions.node, node);
   assert.equal(renderOptions.scale, 1.28);
   assert.equal(node.element.querySelector(".pdf-page-placeholder").hidden, false);
