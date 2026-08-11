@@ -38,6 +38,7 @@ _Avoid_: PDF mode, PDF viewer
 | `library-content-target` | `library-content-target.js:load` for Tag targets | `library-content-target.js`, with Tag board reset requested by `plugin.js` | target `onBeforeStart`, then shared `handleFolderContentBatch`; `handleLibraryContentTargetResult` only reports Tag status |
 | `exploration` | `plugin.js:exploreNextRow` / `exploreFromSelectionTarget` | `plugin.js` after library, metadata, or exploration-setting changes | `insertExplorationItemsAfterNode` |
 | `unrated` | `plugin.js:loadNextUnratedRow` | `plugin.js` after library, filter, or metadata changes | `insertExplorationItemsAfterNode` |
+| PDF page metrics | `pdf-board.js` after the first page commits the PDF board session | `pdf-board.js` generation when the session leaves or is superseded | `plugin.js:refreshPdfPageLayout`, only while the same session revision remains active |
 
 When changing an async flow, update the row-load coordinator generation and the owning channel row above together. An `isCurrent()` check without the matching invalidation owner is incomplete.
 

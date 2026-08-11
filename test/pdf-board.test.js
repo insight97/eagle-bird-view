@@ -49,7 +49,14 @@ function createHost(calls = []) {
         calls.push(["release"]);
       },
       showPdfPages(details) {
-        calls.push(["show-pages", details]);
+        calls.push([
+          "show-pages",
+          details,
+          details.pageItems.map((item) => [item.width, item.height]),
+        ]);
+      },
+      refreshPdfPageLayout(details) {
+        calls.push(["refresh-page-layout", details]);
       },
       restoreParentBoard(snapshot) {
         calls.push(["restore", snapshot]);
@@ -64,11 +71,11 @@ function createHost(calls = []) {
   };
 }
 
-test("PDF board session keeps the parent Board until every virtual page is ready", async () => {
+test("PDF board session creates the full virtual board after the first page is ready", async () => {
   const runtime = createRuntime();
   const { calls, host } = createHost();
   const parentItem = { id: "pdf-1", name: "guide.pdf", ext: "pdf", fileURL: "file:///guide.pdf" };
-  const session = createPdfBoardSession({ runtime, host, pageSizeConcurrency: 2 });
+  const session = createPdfBoardSession({ runtime, host, pageSizeConcurrency: 4 });
 
   const transition = session.transition({ type: "enter", item: parentItem });
 
@@ -81,23 +88,20 @@ test("PDF board session keeps the parent Board until every virtual page is ready
   assert.equal(session.view().phase, "active");
   assert.equal(session.view().parentItem, parentItem);
   assert.equal(session.view().pageCount, 3);
-  const pageItems = calls.find(([type]) => type === "show-pages")[1].pageItems;
+  const showCall = calls.find(([type]) => type === "show-pages");
+  const pageItems = showCall[1].pageItems;
   assert.deepEqual(
-    pageItems.map((item) => [item.id, item.pdfPageNumber, item.width, item.height]),
+    pageItems.map((item) => [item.id, item.pdfPageNumber]),
     [
-      ["pdf-1:page:1", 1, 601, 801],
-      ["pdf-1:page:2", 2, 602, 802],
-      ["pdf-1:page:3", 3, 603, 803],
+      ["pdf-1:page:1", 1],
+      ["pdf-1:page:2", 2],
+      ["pdf-1:page:3", 3],
     ],
   );
+  assert.deepEqual(showCall[2], [[601, 801], [601, 801], [601, 801]]);
   assert.equal(pageItems[0].isPdfPage, true);
   assert.equal(pageItems[0].pdfParentItem, parentItem);
-  assert.deepEqual(runtime.calls.filter(([type]) => type === "size"), [
-    ["size", 1],
-    ["size", 2],
-    ["size", 3],
-  ]);
-  assert.deepEqual(calls.map(([type]) => type), [
+  assert.deepEqual(calls.map(([type]) => type).slice(0, 7), [
     "capture",
     "view",
     "invalidate",
@@ -106,6 +110,80 @@ test("PDF board session keeps the parent Board until every virtual page is ready
     "view",
     "focus-first-page",
   ]);
+
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(runtime.calls.filter(([type]) => type === "size"), [
+    ["size", 1],
+    ["size", 2],
+    ["size", 3],
+  ]);
+  assert.equal(calls.at(-1)[0], "refresh-page-layout");
+  assert.deepEqual(
+    pageItems.map((item) => [item.width, item.height]),
+    [[601, 801], [602, 802], [603, 803]],
+  );
+});
+
+test("PDF board session enters after the first page and hydrates the remaining metrics", async () => {
+  let releaseRemainingPages;
+  const remainingPages = new Promise((resolve) => {
+    releaseRemainingPages = resolve;
+  });
+  const runtimeCalls = [];
+  const handle = {
+    numPages: 12,
+    async getPageSize(pageNumber) {
+      runtimeCalls.push(["size", pageNumber]);
+      if (pageNumber > 1) await remainingPages;
+      return { width: 600 + pageNumber, height: 800 + pageNumber };
+    },
+    async destroy() {},
+    renderPage() {},
+  };
+  const runtime = {
+    async openDocument() {
+      return handle;
+    },
+  };
+  const { calls, host } = createHost();
+  const session = createPdfBoardSession({ runtime, host, pageSizeConcurrency: 4 });
+
+  const entering = session.transition({
+    type: "enter",
+    item: { id: "large-pdf", name: "large.pdf", ext: "pdf" },
+  });
+  let earlyResult = null;
+  void entering.then((result) => {
+    earlyResult = result;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  const shownBeforeRemainingPages = calls.some(([type]) => type === "show-pages");
+  const earlyView = session.view();
+  releaseRemainingPages();
+  await entering;
+
+  assert.equal(shownBeforeRemainingPages, true);
+  assert.deepEqual(earlyResult, { status: "entered", pageCount: 12 });
+  assert.equal(earlyView.pageCount, 12);
+  assert.deepEqual(
+    calls.find(([type]) => type === "show-pages")[1].pageItems.map((item) => item.pdfPageNumber),
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(
+    calls
+      .filter(([type]) => type === "refresh-page-layout")
+      .flatMap(([, details]) => details.pageItems.map((item) => item.pdfPageNumber)),
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  );
+  const hydratedPages = calls.find(([type]) => type === "refresh-page-layout")[1].pageItems;
+  assert.deepEqual(
+    hydratedPages.map((item) => [item.width, item.height]),
+    Array.from({ length: 12 }, (_, index) => [601 + index, 801 + index]),
+  );
 });
 
 test("PDF board session restores the parent Board before best-effort cleanup", async () => {
@@ -191,6 +269,44 @@ test("leaving while a PDF opens keeps stale pages off the parent Board", async (
   assert.equal(events.some(([type]) => type === "show-pages"), false);
   assert.equal(events.some(([type]) => type === "restore"), false);
   assert.equal(events.at(-1)[0], "destroy");
+});
+
+test("background page metrics cannot relayout the parent Board after leaving", async () => {
+  let releaseRemainingPages;
+  const remainingPages = new Promise((resolve) => {
+    releaseRemainingPages = resolve;
+  });
+  const events = [];
+  const handle = {
+    numPages: 5,
+    async getPageSize(pageNumber) {
+      events.push(["size", pageNumber]);
+      if (pageNumber > 1) await remainingPages;
+      return { width: 600 + pageNumber, height: 800 };
+    },
+    async destroy() {
+      events.push(["destroy"]);
+    },
+    renderPage() {},
+  };
+  const { host } = createHost(events);
+  const session = createPdfBoardSession({
+    runtime: { async openDocument() { return handle; } },
+    host,
+  });
+  await session.transition({
+    type: "enter",
+    item: { id: "pdf-1", name: "guide.pdf", ext: "pdf" },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  await session.transition({ type: "leave", reason: "user" });
+  releaseRemainingPages();
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(session.view().phase, "parent");
+  assert.equal(events.some(([type]) => type === "refresh-page-layout"), false);
 });
 
 test("PDF board session renders only pages owned by the active revision", async () => {

@@ -71,3 +71,25 @@ test("relayout preserves node rotations and clear removes the board", () => {
   assert.deepEqual(board.nodes, []);
   assert.deepEqual(board.rows, []);
 });
+
+test("relayoutPreservingNodes updates geometry without replacing mounted nodes", () => {
+  const board = createBoardState();
+  const first = item("first", 100, 100);
+  const second = item("second", 100, 100);
+  board.replace([first, second], config);
+  const firstNode = board.nodes[0];
+  const secondNode = board.nodes[1];
+  firstNode.element = { mounted: true };
+  firstNode.rotation = 90;
+
+  first.width = 200;
+  second.height = 200;
+  const snapshot = board.relayoutPreservingNodes([first, second], config);
+
+  assert.equal(snapshot.nodes[0], firstNode);
+  assert.equal(snapshot.nodes[1], secondNode);
+  assert.equal(snapshot.rows[0].nodes[0], firstNode);
+  assert.equal(firstNode.element.mounted, true);
+  assert.equal(firstNode.rotation, 90);
+  assert.notEqual(firstNode.width, secondNode.width);
+});

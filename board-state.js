@@ -90,6 +90,34 @@
       return snapshot();
     }
 
+    function relayoutPreservingNodes(items, config) {
+      const layout = createJustifiedLayout(
+        items,
+        config.direction,
+        config.layoutWidth,
+        config,
+      );
+      const existingById = new Map(nodes.map((node) => [node.item.id, node]));
+      const nextById = new Map();
+      nodes = layout.nodes.map((nextNode) => {
+        const currentNode = existingById.get(nextNode.item.id);
+        if (!currentNode) {
+          nextById.set(nextNode.item.id, nextNode);
+          return nextNode;
+        }
+        const rotation = currentNode.rotation || 0;
+        Object.assign(currentNode, nextNode);
+        currentNode.rotation = rotation;
+        nextById.set(nextNode.item.id, currentNode);
+        return currentNode;
+      });
+      rows = layout.rows.map((row) => ({
+        ...row,
+        nodes: row.nodes.map((node) => nextById.get(node.item.id) || node),
+      }));
+      return snapshot();
+    }
+
     function clear() {
       nodes = [];
       rows = [];
@@ -108,6 +136,7 @@
       append,
       insertAfter,
       relayout,
+      relayoutPreservingNodes,
       clear,
     });
   }

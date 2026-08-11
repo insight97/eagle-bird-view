@@ -38,6 +38,7 @@
     host,
     pageSizeConcurrency = DEFAULT_PAGE_SIZE_CONCURRENCY,
     onCleanupError = () => {},
+    onPageLoadError = () => {},
   } = {}) {
     if (!runtime?.openDocument) {
       throw new TypeError("PDF board session requires a PDF runtime");
@@ -48,6 +49,7 @@
       typeof host.invalidateParentWork !== "function" ||
       typeof host.releaseBoardPresentation !== "function" ||
       typeof host.showPdfPages !== "function" ||
+      typeof host.refreshPdfPageLayout !== "function" ||
       typeof host.restoreParentBoard !== "function" ||
       typeof host.publishView !== "function" ||
       typeof host.focusFirstPage !== "function"
@@ -60,8 +62,9 @@
     let documentHandle = null;
     let parentItem = null;
     let pageItems = [];
+    let pageCount = 0;
     let parentBoard = null;
-    let openingController = null;
+    let sessionController = null;
 
     function transition(intent) {
       if (!intent || (intent.type !== "enter" && intent.type !== "leave")) {
@@ -79,10 +82,10 @@
       const nextParentBoard = host.captureParentBoard();
       if (!nextParentBoard) return { status: "failed", code: "missing-parent-board" };
 
-      openingController?.abort?.();
+      sessionController?.abort?.();
       const currentGeneration = ++generation;
       const controller = typeof AbortController === "function" ? new AbortController() : null;
-      openingController = controller;
+      sessionController = controller;
       phase = "opening";
       parentItem = item;
       publishView();
@@ -95,15 +98,17 @@
           cleanupDetachedDocument(handle);
           return { status: "cancelled", reason: "superseded" };
         }
-        const pageCount = positiveInteger(handle?.numPages);
-        if (!pageCount) {
+        const nextPageCount = positiveInteger(handle?.numPages);
+        if (!nextPageCount) {
           cleanupDetachedDocument(handle);
           resetOpening(currentGeneration);
           return { status: "failed", code: "missing-page-count" };
         }
 
-        const nextPageItems = await loadPageItems(handle, item, pageCount, {
-          concurrency: pageSizeConcurrency,
+        const [firstPageItem] = await loadPageItems(handle, item, nextPageCount, {
+          concurrency: 1,
+          startPage: 1,
+          endPage: 1,
           signal: controller?.signal,
         });
         if (generation !== currentGeneration) {
@@ -113,16 +118,30 @@
 
         documentHandle = handle;
         parentBoard = nextParentBoard;
-        pageItems = nextPageItems;
-        openingController = null;
+        pageItems = Array.from({ length: nextPageCount }, (_, index) =>
+          createPdfPageItem(
+            item,
+            index + 1,
+            { width: firstPageItem.width, height: firstPageItem.height },
+            nextPageCount,
+          ),
+        );
+        pageCount = nextPageCount;
         host.invalidateParentWork();
         parentPresentationReleased = true;
         host.releaseBoardPresentation();
-        host.showPdfPages({ parentItem: item, pageItems: nextPageItems.slice() });
+        host.showPdfPages({ parentItem: item, pageItems: pageItems.slice() });
         phase = "active";
         publishView();
         host.focusFirstPage();
-        return { status: "entered", pageCount: nextPageItems.length };
+        scheduleRemainingPageMetrics({
+          controller,
+          currentGeneration,
+          handle,
+          item,
+          totalPageCount: nextPageCount,
+        });
+        return { status: "entered", pageCount: nextPageCount };
       } catch (error) {
         cleanupDetachedDocument(handle);
         if (generation !== currentGeneration) {
@@ -156,16 +175,19 @@
 
       generation += 1;
       if (phase === "opening") {
-        openingController?.abort?.();
-        openingController = null;
+        sessionController?.abort?.();
+        sessionController = null;
         parentItem = null;
         pageItems = [];
+        pageCount = 0;
         phase = "parent";
         publishView();
         return { status: "cancelled", reason: "left-while-opening" };
       }
       const handle = documentHandle;
       const snapshot = parentBoard;
+      sessionController?.abort?.();
+      sessionController = null;
       documentHandle = null;
       parentBoard = null;
       phase = "leaving";
@@ -185,6 +207,7 @@
       }
       parentItem = null;
       pageItems = [];
+      pageCount = 0;
       phase = "parent";
       publishView();
       cleanupDetachedDocument(handle);
@@ -194,11 +217,12 @@
 
     function resetOpening(currentGeneration) {
       if (generation !== currentGeneration) return;
-      openingController = null;
+      sessionController = null;
       documentHandle = null;
       parentBoard = null;
       parentItem = null;
       pageItems = [];
+      pageCount = 0;
       phase = "parent";
       publishView();
     }
@@ -212,6 +236,87 @@
             onCleanupError(error);
           } catch {}
         });
+    }
+
+    function scheduleRemainingPageMetrics({
+      controller,
+      currentGeneration,
+      handle,
+      item,
+      totalPageCount,
+    }) {
+      if (totalPageCount <= 1) return;
+      const run = () => {
+        void hydrateRemainingPageMetrics({
+          controller,
+          currentGeneration,
+          handle,
+          item,
+          totalPageCount,
+        }).catch((error) => {
+          if (!isActiveRevision(currentGeneration, handle)) return;
+          safelyReport(onPageLoadError, error);
+        });
+      };
+      if (typeof host.scheduleBackgroundWork === "function") {
+        try {
+          host.scheduleBackgroundWork(run);
+          return;
+        } catch (error) {
+          safelyReport(onPageLoadError, error);
+        }
+      }
+      Promise.resolve().then(run);
+    }
+
+    async function hydrateRemainingPageMetrics({
+      controller,
+      currentGeneration,
+      handle,
+      item,
+      totalPageCount,
+    }) {
+      const batchSize = Math.max(
+        1,
+        positiveInteger(pageSizeConcurrency) || DEFAULT_PAGE_SIZE_CONCURRENCY,
+      );
+      const hydratedItems = [pageItems[0]];
+      for (let startPage = 2; startPage <= totalPageCount; startPage += batchSize) {
+        const endPage = Math.min(totalPageCount, startPage + batchSize - 1);
+        const nextItems = await loadPageItems(handle, item, totalPageCount, {
+          concurrency: pageSizeConcurrency,
+          startPage,
+          endPage,
+          signal: controller?.signal,
+        });
+        if (!isActiveRevision(currentGeneration, handle)) return;
+        hydratedItems.push(...nextItems);
+      }
+      if (!isActiveRevision(currentGeneration, handle)) return;
+
+      const needsRelayout = hydratedItems.some(
+        (nextItem, index) =>
+          !sameAspectRatio(pageItems[index], nextItem),
+      );
+      for (let index = 1; index < hydratedItems.length; index += 1) {
+        pageItems[index].width = hydratedItems[index].width;
+        pageItems[index].height = hydratedItems[index].height;
+      }
+      if (needsRelayout) {
+        host.refreshPdfPageLayout({
+          parentItem: item,
+          pageItems: pageItems.slice(),
+          pageCount: totalPageCount,
+        });
+      }
+    }
+
+    function isActiveRevision(currentGeneration, handle) {
+      return (
+        generation === currentGeneration &&
+        phase === "active" &&
+        documentHandle === handle
+      );
     }
 
     function renderPage({ pageItem, canvas, scale = 1, signal = null } = {}) {
@@ -234,7 +339,7 @@
       return Object.freeze({
         phase,
         parentItem,
-        pageCount: pageItems.length,
+        pageCount,
         capabilities: Object.freeze({
           parentBoardActions: parent,
           leave: !parent,
@@ -254,11 +359,19 @@
     });
   }
 
-  async function loadPageItems(handle, parentItem, pageCount, { concurrency, signal } = {}) {
-    const sizes = new Array(pageCount);
-    let nextPage = 1;
+  async function loadPageItems(
+    handle,
+    parentItem,
+    pageCount,
+    { concurrency, startPage = 1, endPage = pageCount, signal } = {},
+  ) {
+    const firstPage = Math.max(1, positiveInteger(startPage) || 1);
+    const lastPage = Math.min(pageCount, positiveInteger(endPage) || pageCount);
+    const itemCount = Math.max(0, lastPage - firstPage + 1);
+    const sizes = new Array(itemCount);
+    let nextPage = firstPage;
     const workerCount = Math.min(
-      pageCount,
+      itemCount,
       Math.max(1, positiveInteger(concurrency) || DEFAULT_PAGE_SIZE_CONCURRENCY),
     );
 
@@ -267,15 +380,30 @@
         throwIfAborted(signal);
         const pageNumber = nextPage;
         nextPage += 1;
-        if (pageNumber > pageCount) return;
-        sizes[pageNumber - 1] = await handle.getPageSize(pageNumber);
+        if (pageNumber > lastPage) return;
+        sizes[pageNumber - firstPage] = await handle.getPageSize(pageNumber);
       }
     }
 
     await Promise.all(Array.from({ length: workerCount }, () => worker()));
     return sizes.map((size, index) =>
-      createPdfPageItem(parentItem, index + 1, size, pageCount),
+      createPdfPageItem(parentItem, firstPage + index, size, pageCount),
     );
+  }
+
+  function safelyReport(callback, error) {
+    try {
+      callback(error);
+    } catch {}
+  }
+
+  function sameAspectRatio(first, second) {
+    const firstWidth = positiveNumber(first?.width, 0);
+    const firstHeight = positiveNumber(first?.height, 0);
+    const secondWidth = positiveNumber(second?.width, 0);
+    const secondHeight = positiveNumber(second?.height, 0);
+    if (!firstWidth || !firstHeight || !secondWidth || !secondHeight) return false;
+    return Math.abs(firstWidth / firstHeight - secondWidth / secondHeight) < 0.0001;
   }
 
   function positiveInteger(value) {

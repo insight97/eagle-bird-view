@@ -465,12 +465,18 @@ function setup() {
       invalidateParentWork: invalidatePdfParentWork,
       releaseBoardPresentation: clearBoardPresentation,
       showPdfPages,
+      refreshPdfPageLayout,
       restoreParentBoard,
       publishView: updatePdfModeUI,
       focusFirstPage: () => requestAnimationFrame(focusFirstItem),
+      scheduleBackgroundWork: schedulePdfPageLoading,
     },
     onCleanupError(error) {
       console.warn("Failed to clean up PDF board session", error);
+    },
+    onPageLoadError(error) {
+      console.error("Failed to hydrate PDF page metrics", error);
+      showToast("部分 PDF 頁面比例無法預先讀取，已沿用首頁比例。", true);
     },
   });
 
@@ -901,6 +907,21 @@ function showPdfPages({ pageItems }) {
   board.replace(pageItems, getBoardLayoutConfig());
   state.lastUnratedTriggerRow = null;
   refreshBaseScale();
+}
+
+function refreshPdfPageLayout({ pageItems }) {
+  if (!isPdfBoardActive() || !pageItems.length) return;
+  board.relayoutPreservingNodes(pageItems, getBoardLayoutConfig());
+  mediaMaterializer.reposition();
+  viewportMedia.cameraChanged();
+  updateLabels();
+}
+
+function schedulePdfPageLoading(callback) {
+  if (typeof window.requestIdleCallback === "function") {
+    return window.requestIdleCallback(callback, { timeout: 250 });
+  }
+  return window.setTimeout(callback, 0);
 }
 
 function restoreParentBoard(parentContext) {
@@ -3590,6 +3611,8 @@ function positionNode(node) {
   if (!node.element) return;
   node.element.style.width = `${node.width}px`;
   node.element.style.transform = `translate(${node.x}px, ${node.y}px)`;
+  const frame = node.element.querySelector?.(".media-frame");
+  if (frame) frame.style.height = `${node.mediaHeight}px`;
 }
 
 function getBaseScale() {
