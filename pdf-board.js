@@ -35,90 +35,222 @@
 
   function createPdfBoardSession({
     runtime,
+    host,
     pageSizeConcurrency = DEFAULT_PAGE_SIZE_CONCURRENCY,
+    onCleanupError = () => {},
   } = {}) {
     if (!runtime?.openDocument) {
-      throw new Error("PDF board session requires a PDF runtime");
+      throw new TypeError("PDF board session requires a PDF runtime");
+    }
+    if (
+      !host ||
+      typeof host.captureParentBoard !== "function" ||
+      typeof host.invalidateParentWork !== "function" ||
+      typeof host.releaseBoardPresentation !== "function" ||
+      typeof host.showPdfPages !== "function" ||
+      typeof host.restoreParentBoard !== "function" ||
+      typeof host.publishView !== "function" ||
+      typeof host.focusFirstPage !== "function"
+    ) {
+      throw new TypeError("PDF board session requires a host adapter");
     }
 
+    let phase = "parent";
+    let generation = 0;
     let documentHandle = null;
     let parentItem = null;
     let pageItems = [];
-    let opening = null;
+    let parentBoard = null;
+    let openingController = null;
 
-    async function open(item, options = {}) {
-      if (!isPdfItem(item)) throw createPdfError("not-pdf", "不是 PDF 素材");
-      await closeDocument();
-
-      const handle = await runtime.openDocument(item, options);
-      const pageCount = positiveInteger(handle?.numPages);
-      if (!pageCount) {
-        await handle?.destroy?.();
-        throw createPdfError("missing-page-count", "PDF 沒有可讀取的頁面");
+    function transition(intent) {
+      if (!intent || (intent.type !== "enter" && intent.type !== "leave")) {
+        throw new TypeError("PDF board session requires an enter or leave intent");
       }
+      if (intent.type === "enter") return enter(intent.item);
+      return leave();
+    }
 
-      const load = loadPageItems(handle, item, pageCount, {
-        concurrency: pageSizeConcurrency,
-        signal: options.signal,
-      });
-      opening = load;
+    async function enter(item) {
+      if (!isPdfItem(item)) return { status: "unchanged", reason: "not-pdf" };
+      if (phase === "active" || phase === "leaving") {
+        return { status: "unchanged", reason: "already-active" };
+      }
+      const nextParentBoard = host.captureParentBoard();
+      if (!nextParentBoard) return { status: "failed", code: "missing-parent-board" };
+
+      openingController?.abort?.();
+      const currentGeneration = ++generation;
+      const controller = typeof AbortController === "function" ? new AbortController() : null;
+      openingController = controller;
+      phase = "opening";
+      parentItem = item;
+      publishView();
+
+      let handle = null;
+      let parentPresentationReleased = false;
       try {
-        const nextPageItems = await load;
-        if (opening !== load) throw createAbortError();
+        handle = await runtime.openDocument(item, { signal: controller?.signal });
+        if (generation !== currentGeneration) {
+          cleanupDetachedDocument(handle);
+          return { status: "cancelled", reason: "superseded" };
+        }
+        const pageCount = positiveInteger(handle?.numPages);
+        if (!pageCount) {
+          cleanupDetachedDocument(handle);
+          resetOpening(currentGeneration);
+          return { status: "failed", code: "missing-page-count" };
+        }
+
+        const nextPageItems = await loadPageItems(handle, item, pageCount, {
+          concurrency: pageSizeConcurrency,
+          signal: controller?.signal,
+        });
+        if (generation !== currentGeneration) {
+          cleanupDetachedDocument(handle);
+          return { status: "cancelled", reason: "superseded" };
+        }
+
         documentHandle = handle;
-        parentItem = item;
+        parentBoard = nextParentBoard;
         pageItems = nextPageItems;
-        return snapshot();
+        openingController = null;
+        host.invalidateParentWork();
+        parentPresentationReleased = true;
+        host.releaseBoardPresentation();
+        host.showPdfPages({ parentItem: item, pageItems: nextPageItems.slice() });
+        phase = "active";
+        publishView();
+        host.focusFirstPage();
+        return { status: "entered", pageCount: nextPageItems.length };
       } catch (error) {
-        await handle.destroy?.();
-        throw error;
-      } finally {
-        if (opening === load) opening = null;
+        cleanupDetachedDocument(handle);
+        if (generation !== currentGeneration) {
+          return { status: "cancelled", reason: "superseded" };
+        }
+        if (parentPresentationReleased) {
+          try {
+            host.restoreParentBoard(nextParentBoard);
+          } catch (restoreError) {
+            resetOpening(currentGeneration);
+            return {
+              status: "failed",
+              code: "restore-failed",
+              error: restoreError,
+            };
+          }
+        }
+        resetOpening(currentGeneration);
+        return {
+          status: "failed",
+          code: parentPresentationReleased
+            ? "host-transition-failed"
+            : error?.code || "load-failed",
+          error,
+        };
       }
     }
 
-    function renderPage(node, canvas, options = {}) {
-      if (!documentHandle) {
+    async function leave() {
+      if (phase === "parent") return { status: "unchanged", reason: "already-parent" };
+
+      generation += 1;
+      if (phase === "opening") {
+        openingController?.abort?.();
+        openingController = null;
+        parentItem = null;
+        pageItems = [];
+        phase = "parent";
+        publishView();
+        return { status: "cancelled", reason: "left-while-opening" };
+      }
+      const handle = documentHandle;
+      const snapshot = parentBoard;
+      documentHandle = null;
+      parentBoard = null;
+      phase = "leaving";
+      publishView();
+      let transitionError = null;
+      try {
+        host.releaseBoardPresentation();
+      } catch (error) {
+        transitionError = error;
+      }
+      if (snapshot) {
+        try {
+          host.restoreParentBoard(snapshot);
+        } catch (error) {
+          transitionError ||= error;
+        }
+      }
+      parentItem = null;
+      pageItems = [];
+      phase = "parent";
+      publishView();
+      cleanupDetachedDocument(handle);
+      if (transitionError) throw transitionError;
+      return { status: "left" };
+    }
+
+    function resetOpening(currentGeneration) {
+      if (generation !== currentGeneration) return;
+      openingController = null;
+      documentHandle = null;
+      parentBoard = null;
+      parentItem = null;
+      pageItems = [];
+      phase = "parent";
+      publishView();
+    }
+
+    function cleanupDetachedDocument(handle) {
+      if (!handle?.destroy) return;
+      Promise.resolve()
+        .then(() => handle.destroy())
+        .catch((error) => {
+          try {
+            onCleanupError(error);
+          } catch {}
+        });
+    }
+
+    function renderPage({ pageItem, canvas, scale = 1, signal = null } = {}) {
+      if (phase !== "active" || !documentHandle) {
         return Promise.reject(createPdfError("document-closed", "PDF 文件已關閉"));
       }
-      const pageNumber = Number(node?.item?.pdfPageNumber || node?.pdfPageNumber);
+      if (!pageItems.includes(pageItem)) {
+        return Promise.reject(createPdfError("stale-page", "PDF 頁面不屬於目前的白板"));
+      }
+      const pageNumber = Number(pageItem?.pdfPageNumber);
       if (!Number.isInteger(pageNumber) || pageNumber < 1) {
         return Promise.reject(createPdfError("invalid-page", "PDF 頁碼無效"));
       }
-      return documentHandle.renderPage(pageNumber, canvas, options);
+      return documentHandle.renderPage(pageNumber, canvas, { scale, signal });
     }
 
-    async function closeDocument() {
-      const handle = documentHandle;
-      documentHandle = null;
-      parentItem = null;
-      pageItems = [];
-      opening = null;
-      await handle?.destroy?.();
-    }
-
-    function snapshot() {
+    function view() {
+      const active = phase === "active";
+      const parent = phase === "parent";
       return Object.freeze({
+        phase,
         parentItem,
-        pageItems: pageItems.slice(),
         pageCount: pageItems.length,
+        capabilities: Object.freeze({
+          parentBoardActions: parent,
+          leave: !parent,
+          renderPages: active,
+        }),
       });
     }
 
+    function publishView() {
+      host.publishView(view());
+    }
+
     return Object.freeze({
-      close: closeDocument,
-      get pageItems() {
-        return pageItems;
-      },
-      get parentItem() {
-        return parentItem;
-      },
-      get pageCount() {
-        return pageItems.length;
-      },
-      open,
       renderPage,
-      snapshot,
+      transition,
+      view,
     });
   }
 

@@ -72,13 +72,12 @@ test("PDF enters as virtual pages and returns without polluting the parent board
   await flush();
   await flush();
 
-  assert.equal(plugin.state.pdfMode, true);
   assert.equal(plugin.state.selectedNode.item.isPdfPage, true);
   assert.equal(plugin.state.selectedNode.item.pdfPageNumber, 1);
   assert.equal(plugin.elements.get("#item-count").textContent, "3 個 PDF 頁面");
   assert.equal(plugin.elements.get("#pdf-board-back-button").hidden, false);
   assert.equal(plugin.elements.get("#board-history-back-button").disabled, true);
-  assert.equal(plugin.state.pdfBoardSession.pageCount, 3);
+  assert.equal(plugin.elements.get("#explore-button").disabled, true);
   const pageLabel = plugin.createdElements.find((element) =>
     element.classList.contains("is-pdf-page-label"),
   );
@@ -110,9 +109,57 @@ test("PDF enters as virtual pages and returns without polluting the parent board
   plugin.keyDown({ key: "Escape", target: null, preventDefault() {} });
   await flush();
 
-  assert.equal(plugin.state.pdfMode, false);
   assert.equal(plugin.state.selectedNode.item.id, "manual");
   assert.equal(plugin.elements.get("#item-count").textContent, "1 個素材");
   assert.equal(plugin.elements.get("#pdf-board-back-button").hidden, true);
   assert.ok(probe.calls.some(([name]) => name === "document-destroy"));
+});
+
+test("PDF board capabilities block parent Board history shortcuts", async () => {
+  const probe = createPdfJsProbe();
+  const initialItem = {
+    id: "initial",
+    name: "initial.jpg",
+    ext: "jpg",
+    width: 160,
+    height: 100,
+    fileURL: "file:///initial.jpg",
+    thumbnailURL: "file:///initial-thumb.jpg",
+  };
+  const pdfItem = {
+    id: "manual",
+    name: "manual.pdf",
+    ext: "pdf",
+    width: 600,
+    height: 800,
+    fileURL: "file:///manual.pdf",
+    thumbnailURL: "file:///manual-thumb.jpg",
+  };
+  const plugin = createPluginHarness({
+    selectedItems: [initialItem],
+    folderTree: [{ id: "pdf-folder", name: "PDF" }],
+    pdfjsLib: probe.pdfjsLib,
+    navigationProbe: true,
+    runAnimationFrames: true,
+  });
+  plugin.setFolderSourceResult({ folders: [], items: [pdfItem] });
+
+  plugin.start();
+  await flush();
+  plugin.elements.get("#folder-browser-tree").querySelectorAll(".folder-browser-item")[0].click();
+  await flush();
+  assert.equal(plugin.state.selectedNode.item.id, "manual");
+  assert.equal(plugin.elements.get("#board-history-back-button").disabled, false);
+
+  plugin.keyDown({ key: "Enter", target: null, preventDefault() {} });
+  await flush();
+  await flush();
+  assert.equal(plugin.state.selectedNode.item.isPdfPage, true);
+
+  plugin.keyDown({ key: "z", ctrlKey: true, target: null, preventDefault() {} });
+  await flush();
+
+  assert.equal(plugin.state.selectedNode.item.isPdfPage, true);
+  assert.equal(plugin.elements.get("#pdf-board-back-button").hidden, false);
+  assert.equal(plugin.elements.get("#board-history-back-button").disabled, true);
 });

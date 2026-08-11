@@ -166,11 +166,6 @@ const state = {
   started: false,
   eagleReady: false,
   selectedPresetName: "",
-  pdfMode: false,
-  pdfOpening: false,
-  pdfOpenController: null,
-  pdfBoardSession: null,
-  pdfParentContext: null,
 };
 
 const board = createBoardState();
@@ -188,6 +183,7 @@ let settingsPresetStore = null;
 let settingsSnapshotStore = null;
 let folderBrowser = null;
 let videoThumbnailService = null;
+let pdfBoardSession = null;
 const pdfRuntime = createPdfRuntime({
   pdfjsLib: typeof pdfjsLib === "undefined" ? null : pdfjsLib,
   document: typeof document === "undefined" ? null : document,
@@ -396,12 +392,8 @@ function setup() {
     isNodeInMultipleSelection: () => state.selectedNodes.size > 1,
     onOpenContextMenu: openMediaContextMenu,
     onOpenPdf: openPdfBoard,
-    renderPdfPage: ({ node, canvas, scale, signal }) => {
-      if (!state.pdfBoardSession) {
-        return Promise.reject(new Error("PDF 白板已關閉"));
-      }
-      return state.pdfBoardSession.renderPage(node, canvas, { scale, signal });
-    },
+    renderPdfPage: ({ node, canvas, scale, signal }) =>
+      pdfBoardSession.renderPage({ pageItem: node.item, canvas, scale, signal }),
     onLayoutChange: updateLabels,
     getVideoControlsHeight,
     getVideoVolume: () => state.videoVolume,
@@ -463,6 +455,22 @@ function setup() {
       state.isSmoothZooming = false;
       elements.labels?.classList.remove("is-smooth-zooming");
       viewportMedia.endMotion("zoom");
+    },
+  });
+
+  pdfBoardSession = createPdfBoardSession({
+    runtime: pdfRuntime,
+    host: {
+      captureParentBoard: captureBoardSnapshot,
+      invalidateParentWork: invalidatePdfParentWork,
+      releaseBoardPresentation: clearBoardPresentation,
+      showPdfPages,
+      restoreParentBoard,
+      publishView: updatePdfModeUI,
+      focusFirstPage: () => requestAnimationFrame(focusFirstItem),
+    },
+    onCleanupError(error) {
+      console.warn("Failed to clean up PDF board session", error);
     },
   });
 
@@ -587,7 +595,7 @@ function handlePluginRun() {
 }
 
 function handleLibraryChanged() {
-  if (state.pdfMode || state.pdfOpening) {
+  if (isPdfBoardBusy()) {
     void leavePdfBoard({ silent: true }).then(() => handleLibraryChanged());
     return;
   }
@@ -619,7 +627,7 @@ function handleLibraryChanged() {
 }
 
 async function loadSelectedItems({ append = false } = {}) {
-  if (state.pdfMode || state.pdfOpening) await leavePdfBoard({ silent: true });
+  if (isPdfBoardBusy()) await leavePdfBoard({ silent: true });
   if (typeof eagle === "undefined") {
     showToast("目前不在 Eagle 外掛環境中。", true);
     return;
@@ -798,7 +806,7 @@ function describeSelectedFolders(folders) {
 }
 
 function appendItemsToBoard(items) {
-  if (state.pdfMode || state.pdfOpening) return;
+  if (!canUseParentBoardActions()) return;
   if (!items.length) return;
   if (!board.rows.length) {
     renderItems(items);
@@ -811,7 +819,7 @@ function appendItemsToBoard(items) {
 }
 
 function recordBoardHistory() {
-  if (state.pdfMode || state.pdfOpening) return false;
+  if (!canUseParentBoardActions()) return false;
   const snapshot = captureBoardSnapshot();
   if (!snapshot) return false;
   const recorded = boardHistory.record(snapshot);
@@ -820,7 +828,7 @@ function recordBoardHistory() {
 }
 
 function captureBoardSnapshot() {
-  if (state.pdfMode || !board.nodes.length) return null;
+  if (!canUseParentBoardActions() || !board.nodes.length) return null;
   return {
     items: board.nodes.map(({ item }) => item),
     rotations: new Map(board.nodes.map((node) => [node.item.id, node.rotation || 0])),
@@ -829,94 +837,81 @@ function captureBoardSnapshot() {
   };
 }
 
-async function openPdfBoard(node) {
-  if (state.pdfMode || state.pdfOpening || !isPdfItem(node?.item)) return false;
+function getPdfBoardView() {
+  return pdfBoardSession?.view() || {
+    phase: "parent",
+    parentItem: null,
+    pageCount: 0,
+    capabilities: {
+      parentBoardActions: true,
+      leave: false,
+      renderPages: false,
+    },
+  };
+}
 
-  const parentContext = captureBoardSnapshot();
-  if (!parentContext) {
+function canUseParentBoardActions() {
+  return getPdfBoardView().capabilities.parentBoardActions;
+}
+
+function isPdfBoardActive() {
+  return getPdfBoardView().phase === "active";
+}
+
+function isPdfBoardBusy() {
+  return getPdfBoardView().phase !== "parent";
+}
+
+async function openPdfBoard(node) {
+  if (!isPdfItem(node?.item) || !pdfBoardSession) return false;
+  const result = await pdfBoardSession.transition({ type: "enter", item: node.item });
+  if (result.status === "entered") {
+    showToast(`已進入「${node.item.name || "未命名 PDF"}」，共 ${result.pageCount} 頁。`, false);
+    return true;
+  }
+  if (result.status === "failed" && result.code === "missing-parent-board") {
     showToast("目前沒有可返回的白板。", true);
     return false;
   }
-
-  state.pdfOpening = true;
-  state.pdfOpenController =
-    typeof AbortController === "function" ? new AbortController() : null;
-  updatePdfModeUI();
-  const session = createPdfBoardSession({ runtime: pdfRuntime });
-  try {
-    const result = await session.open(node.item, { signal: state.pdfOpenController?.signal });
-    if (state.pdfOpening !== true) {
-      await session.close();
-      return false;
-    }
-
-    state.pdfParentContext = parentContext;
-    state.pdfBoardSession = session;
-    state.pdfMode = true;
-    state.pdfOpening = false;
-    rowLoadCoordinator.invalidate("selected");
-    rowLoadCoordinator.invalidate("exploration");
-    rowLoadCoordinator.invalidate("unrated");
-    state.explorationSource?.clear();
-    state.unratedSource?.clear();
-    clearBoardPresentation();
-    board.replace(result.pageItems, getBoardLayoutConfig());
-    state.lastUnratedTriggerRow = null;
-    refreshBaseScale();
-    updateBoardMeta();
-    updatePdfModeUI();
-    updateSelectionStatus();
-    updateLabels();
-    requestAnimationFrame(focusFirstItem);
-    showToast(`已進入「${node.item.name || "未命名 PDF"}」，共 ${result.pageCount} 頁。`, false);
-    return true;
-  } catch (error) {
-    await session.close();
-    state.pdfOpening = false;
-    updatePdfModeUI();
-    if (error?.code !== "aborted") {
-      console.error("Failed to open PDF board", error);
-      showToast(`無法開啟 PDF：${error.message || error}`, true);
-    }
-    return false;
-  } finally {
-    state.pdfOpenController = null;
+  if (result.status === "failed") {
+    const error = result.error;
+    console.error("Failed to open PDF board", error);
+    showToast(`無法開啟 PDF：${error?.message || error || result.code}`, true);
   }
+  return false;
 }
 
 async function leavePdfBoard({ silent = false } = {}) {
-  if (!state.pdfMode && !state.pdfOpening) return false;
-  if (state.pdfOpening && !state.pdfMode) {
-    state.pdfOpenController?.abort?.();
-    state.pdfOpenController = null;
-    state.pdfOpening = false;
-    updatePdfModeUI();
-    return true;
-  }
+  if (!pdfBoardSession) return false;
+  const result = await pdfBoardSession.transition({ type: "leave" });
+  const changed = result.status === "left" || result.status === "cancelled";
+  if (result.status === "left" && !silent) showToast("已返回 PDF 所在白板。", false);
+  return changed;
+}
 
-  const session = state.pdfBoardSession;
-  const parentContext = state.pdfParentContext;
-  state.pdfBoardSession = null;
-  state.pdfParentContext = null;
-  state.pdfMode = false;
-  state.pdfOpening = false;
-  await session?.close?.();
-  clearBoardPresentation();
+function invalidatePdfParentWork() {
+  rowLoadCoordinator.invalidate("selected");
+  rowLoadCoordinator.invalidate("exploration");
+  rowLoadCoordinator.invalidate("unrated");
+  state.explorationSource?.clear();
+  state.unratedSource?.clear();
+}
 
-  if (parentContext) {
-    board.relayout(parentContext.items, getBoardLayoutConfig(), parentContext.rotations);
-    state.camera = { ...parentContext.camera };
-    refreshBaseScale();
-    updateBoardMeta();
-    const selectedNode = board.nodes.find(({ item }) => item.id === parentContext.selectedItemId);
-    if (selectedNode) selectionNavigation.setSelectedNode(selectedNode);
-    updateCamera();
-    viewportMedia.cameraChanged();
-    updateLabels();
-  }
-  updatePdfModeUI();
-  if (!silent) showToast("已返回 PDF 所在白板。", false);
-  return true;
+function showPdfPages({ pageItems }) {
+  board.replace(pageItems, getBoardLayoutConfig());
+  state.lastUnratedTriggerRow = null;
+  refreshBaseScale();
+}
+
+function restoreParentBoard(parentContext) {
+  board.relayout(parentContext.items, getBoardLayoutConfig(), parentContext.rotations);
+  state.camera = { ...parentContext.camera };
+  refreshBaseScale();
+  const selectedNode = board.nodes.find(({ item }) => item.id === parentContext.selectedItemId);
+  if (selectedNode) selectionNavigation.setSelectedNode(selectedNode);
+  updateCamera();
+  viewportMedia.cameraChanged();
+  updateLabels();
 }
 
 function clearBoardPresentation() {
@@ -944,9 +939,9 @@ function formatPdfPagePosition(item) {
   return "PDF 頁面";
 }
 
-function updatePdfModeUI() {
-  const active = state.pdfMode;
-  const opening = state.pdfOpening;
+function updatePdfModeUI(view = getPdfBoardView()) {
+  const active = view.phase === "active";
+  const opening = view.phase === "opening";
   elements.app?.classList.toggle("is-pdf-mode", active);
   if (elements.pdfBoardBackButton) {
     elements.pdfBoardBackButton.hidden = !active;
@@ -958,24 +953,37 @@ function updatePdfModeUI() {
       ? ` · ${formatPdfPagePosition(state.selectedNode.item)}`
       : "";
     elements.pdfBoardBreadcrumb.textContent = active
-      ? `PDF：${state.pdfBoardSession?.parentItem?.name || "未命名"}${selectedPage}`
+      ? `PDF：${view.parentItem?.name || "未命名"}${selectedPage}`
       : "";
   }
   if (elements.boardHistoryBackButton) {
-    elements.boardHistoryBackButton.disabled = active || !boardHistory.canUndo();
+    elements.boardHistoryBackButton.disabled =
+      !view.capabilities.parentBoardActions || !boardHistory.canUndo();
   }
   if (elements.boardHistoryForwardButton) {
-    elements.boardHistoryForwardButton.disabled = active || !boardHistory.canRedo();
+    elements.boardHistoryForwardButton.disabled =
+      !view.capabilities.parentBoardActions || !boardHistory.canRedo();
   }
-  if (elements.exploreButton) elements.exploreButton.disabled = active || !state.selectedNode;
-  if (elements.folderLoadMoreButton) elements.folderLoadMoreButton.disabled = active;
-  if (elements.folderBrowserToggle) elements.folderBrowserToggle.disabled = active;
-  if (elements.autoExploreSettingsButton) elements.autoExploreSettingsButton.disabled = active;
+  if (elements.exploreButton) {
+    elements.exploreButton.disabled = !view.capabilities.parentBoardActions || !state.selectedNode;
+  }
+  if (elements.folderLoadMoreButton) {
+    elements.folderLoadMoreButton.disabled = !view.capabilities.parentBoardActions;
+  }
+  if (elements.folderBrowserToggle) {
+    elements.folderBrowserToggle.disabled = !view.capabilities.parentBoardActions;
+  }
+  if (elements.autoExploreSettingsButton) {
+    elements.autoExploreSettingsButton.disabled = !view.capabilities.parentBoardActions;
+  }
+  updateBoardMeta();
+  updateSelectionStatus();
+  updateLabels();
   updateAutoExploreToggle();
 }
 
 function renderItems(items) {
-  if (state.pdfMode || state.pdfOpening) {
+  if (isPdfBoardBusy()) {
     void leavePdfBoard({ silent: true });
     return;
   }
@@ -1000,6 +1008,7 @@ function renderItems(items) {
 }
 
 function restorePreviousBoard() {
+  if (!canUseParentBoardActions()) return false;
   const snapshot = boardHistory.undo(captureBoardSnapshot());
   updateBoardHistoryUI();
   if (!snapshot) return false;
@@ -1009,6 +1018,7 @@ function restorePreviousBoard() {
 }
 
 function restoreNextBoard() {
+  if (!canUseParentBoardActions()) return false;
   const snapshot = boardHistory.redo(captureBoardSnapshot());
   updateBoardHistoryUI();
   if (!snapshot) return false;
@@ -1049,9 +1059,10 @@ function restoreBoardSnapshot(snapshot, message) {
 
 function updateBoardHistoryUI() {
   const button = elements.boardHistoryBackButton;
-  if (button) button.disabled = state.pdfMode || !boardHistory.canUndo();
+  if (button) button.disabled = !canUseParentBoardActions() || !boardHistory.canUndo();
   if (elements.boardHistoryForwardButton) {
-    elements.boardHistoryForwardButton.disabled = state.pdfMode || !boardHistory.canRedo();
+    elements.boardHistoryForwardButton.disabled =
+      !canUseParentBoardActions() || !boardHistory.canRedo();
   }
 }
 
@@ -1925,7 +1936,7 @@ function handleKeyDown(event) {
   if (event.key === "Insert") {
     event.preventDefault();
     if (event.repeat) return;
-    if (state.pdfMode) return;
+    if (!canUseParentBoardActions()) return;
     toggleUnratedExploration();
     return;
   }
@@ -1934,7 +1945,7 @@ function handleKeyDown(event) {
   if (event.key === "Escape") {
     event.preventDefault();
     if (event.repeat) return;
-    if (state.pdfMode || state.pdfOpening) {
+    if (isPdfBoardBusy()) {
       void leavePdfBoard();
       return;
     }
@@ -1966,7 +1977,7 @@ function handleKeyDown(event) {
   if (event.key === "Tab") {
     event.preventDefault();
     if (event.repeat) return;
-    if (state.pdfMode) return;
+    if (!canUseParentBoardActions()) return;
     folderBrowser?.toggle?.();
     return;
   }
@@ -1980,7 +1991,7 @@ function handleKeyDown(event) {
   ) {
     event.preventDefault();
     if (event.repeat) return;
-    if (state.pdfMode) return;
+    if (!canUseParentBoardActions()) return;
     toggleSeamlessMode();
     return;
   }
@@ -1988,7 +1999,7 @@ function handleKeyDown(event) {
   if (!event.ctrlKey && !event.metaKey && !event.altKey && /^[1-5]$/.test(event.key)) {
     event.preventDefault();
     if (event.repeat) return;
-    if (state.pdfMode) return;
+    if (!canUseParentBoardActions()) return;
     const selectedNodes = getSelectedNodeList();
     if (selectedNodes.length > 1) void setItemRatingForNodes(selectedNodes, Number(event.key));
     else void setItemRating(state.selectedNode, Number(event.key));
@@ -2004,7 +2015,7 @@ function handleKeyDown(event) {
   ) {
     event.preventDefault();
     if (event.repeat) return;
-    if (state.pdfMode) return;
+    if (!canUseParentBoardActions()) return;
     void openSelectedFolderPicker();
     return;
   }
@@ -2018,7 +2029,7 @@ function handleKeyDown(event) {
   ) {
     event.preventDefault();
     if (event.repeat) return;
-    if (state.pdfMode) return;
+    if (!canUseParentBoardActions()) return;
     void setSelectedVideoThumbnail();
     return;
   }
@@ -2026,7 +2037,7 @@ function handleKeyDown(event) {
   if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === "t") {
     event.preventDefault();
     if (event.repeat) return;
-    if (state.pdfMode) return;
+    if (!canUseParentBoardActions()) return;
     openSelectedTagEditor();
     return;
   }
@@ -2084,7 +2095,7 @@ function handleKeyDown(event) {
   if (event.ctrlKey && event.key === "Enter") {
     event.preventDefault();
     if (event.repeat) return;
-    if (state.pdfMode) return;
+    if (!canUseParentBoardActions()) return;
     void exploreNextRow();
     return;
   }
@@ -2241,7 +2252,7 @@ function applySelectedNode(node, { changed, previousNode }) {
   }
   updateSelectionStatus();
   updateExploreButton();
-  if (state.pdfMode) updatePdfModeUI();
+  if (isPdfBoardActive()) updatePdfModeUI();
 }
 
 function insertExplorationItemsAfterNode(pivotNode, items) {
@@ -2266,7 +2277,7 @@ function selectExplorationItems(candidates, pivot, maxAiItems) {
 }
 
 async function exploreNextRow() {
-  if (state.pdfMode || state.pdfOpening) return;
+  if (!canUseParentBoardActions()) return;
   const pivotNode = state.selectedNode;
   const source = state.explorationSource;
   if (!pivotNode || !source || state.explorationLoading) return;
@@ -2314,7 +2325,7 @@ async function exploreNextRow() {
 }
 
 async function exploreFromSelectionTarget({ type, value, label }) {
-  if (state.pdfMode || state.pdfOpening) return;
+  if (!canUseParentBoardActions()) return;
   const pivotNode = state.selectedNode;
   const source = state.explorationSource;
   if (!pivotNode || !source || state.explorationLoading) return;
@@ -2357,7 +2368,7 @@ async function exploreFromSelectionTarget({ type, value, label }) {
 }
 
 async function loadNextUnratedRow({ focus = false } = {}) {
-  if (state.pdfMode || state.pdfOpening) return;
+  if (!canUseParentBoardActions()) return;
   const source = state.unratedSource;
   if (!state.unratedEnabled || !source || state.unratedLoading || state.unratedExhausted) return;
 
@@ -2861,7 +2872,7 @@ function getPresetErrorMessage(error) {
 }
 
 function handleAutoExploreFilterChange(nextFilter, { changed }) {
-  if (state.pdfMode || state.pdfOpening) return;
+  if (!canUseParentBoardActions()) return;
   saveSettings();
   if (!changed) return;
   rowLoadCoordinator.invalidate("unrated");
@@ -2944,7 +2955,7 @@ function getAutoExploreKnownFolders() {
 }
 
 function toggleUnratedExploration() {
-  if (state.pdfMode || state.pdfOpening) return;
+  if (!canUseParentBoardActions()) return;
   state.unratedEnabled = !state.unratedEnabled;
   state.lastUnratedTriggerRow = null;
   if (!state.unratedEnabled) {
@@ -2964,9 +2975,9 @@ function toggleUnratedExploration() {
 
 function updateAutoExploreToggle() {
   if (!elements.autoExploreToggle) return;
-  elements.autoExploreToggle.disabled = state.pdfMode || state.pdfOpening || !state.unratedSource;
+  elements.autoExploreToggle.disabled = !canUseParentBoardActions() || !state.unratedSource;
   if (elements.autoExploreSettingsButton) {
-    elements.autoExploreSettingsButton.disabled = state.pdfMode || state.pdfOpening;
+    elements.autoExploreSettingsButton.disabled = !canUseParentBoardActions();
   }
   elements.autoExploreToggle.classList.toggle("is-active", state.unratedEnabled);
   elements.autoExploreToggle.classList.toggle("is-loading", state.unratedLoading);
@@ -2980,8 +2991,7 @@ function updateAutoExploreToggle() {
 function updateExploreButton() {
   if (!elements.exploreButton) return;
   elements.exploreButton.disabled =
-    state.pdfMode ||
-    state.pdfOpening ||
+    !canUseParentBoardActions() ||
     state.explorationLoading ||
     !state.explorationSource ||
     !state.selectedNode;
@@ -3285,7 +3295,7 @@ function clearBoard({ recordHistory = false } = {}) {
 
 function updateBoardMeta() {
   const count = board.nodes.length;
-  elements.itemCount.textContent = state.pdfMode ? `${count} 個 PDF 頁面` : `${count} 個素材`;
+  elements.itemCount.textContent = isPdfBoardActive() ? `${count} 個 PDF 頁面` : `${count} 個素材`;
   elements.emptyState.hidden = count > 0;
 }
 
@@ -3363,7 +3373,7 @@ function updateSelectionStatus() {
     return;
   }
 
-  if (state.pdfMode || isPdfPageNode(state.selectedNode)) {
+  if (isPdfBoardActive() || isPdfPageNode(state.selectedNode)) {
     const name = isMultiple ? `${selectedNodes.length} 個 PDF 頁面` : item.name || "PDF 頁面";
     const dimensions = isMultiple ? "" : formatItemDimensions(item);
     elements.selectionName.textContent = name;
@@ -3492,7 +3502,7 @@ function renderCamera() {
 function runSettledViewportWork() {
   updateLabels();
   selectionNavigation.selectNodeAtViewportCenter();
-  if (!state.pdfMode) maybeLoadNextUnratedRow();
+  if (canUseParentBoardActions()) maybeLoadNextUnratedRow();
 }
 
 function getNodesNearViewport(screenMargin) {

@@ -8,12 +8,17 @@ Bird View is Eagle's whiteboard-style window for browsing and exploring image an
 The process of turning selected Eagle folders into an ordered set of media content available for Bird View browsing, including nested-folder scope and progressive availability.
 _Avoid_: folder browser, folder query, folder loader
 
+**PDF board session**:
+A temporary browsing context entered from a parent Board, where one PDF appears as virtual page media before the user returns to that same Board; it does not join Board history or change Eagle metadata.
+_Avoid_: PDF mode, PDF viewer
+
 ## Navigation map
 
 | User flow | Integration entry | Deep module | Tests |
 | --- | --- | --- | --- |
 | Eagle selection | `plugin.js:loadSelectedItems` | `row-load-coordinator.js`, `folder-item-source.js` | `test/integration/plugin-startup.test.js` |
 | Board stage replacement and previous/next-board restore | `plugin.js:renderItems` / `restorePreviousBoard` / `restoreNextBoard` | `board-history.js`, `board-state.js` | `test/board-history.test.js`, `test/integration/plugin-startup.test.js`, `test/integration/media-label.test.js` |
+| Enter and leave a PDF board session | `plugin.js:openPdfBoard` / `leavePdfBoard` | `pdf-board.js`, `pdf-runtime.js`, `media-materializer.js` | `test/pdf-board.test.js`, `test/integration/pdf-board.test.js`, `test/pdf-materializer.test.js` |
 | Selected folder contents | `plugin.js:handleFolderBrowserSelect` / `loadSelectedItems` | `folder-browser.js`, `folder-item-source.js`, `folder-content-intake.js` | `test/folder-item-source.test.js`, `test/folder-content-intake.test.js`, `test/integration/plugin-startup.test.js` |
 | Tag metadata target | `plugin.js:loadTagFromMetadataTarget` | `library-content-target.js`, `folder-content-intake.js` | `test/library-content-target.test.js`, `test/integration/media-label.test.js` |
 | Folder metadata target | `plugin.js:loadFolderFromMetadataTarget` | `folder-content-intake.js` | `test/folder-content-intake.test.js`, `test/integration/media-label.test.js` |
