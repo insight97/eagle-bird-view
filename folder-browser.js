@@ -47,6 +47,7 @@
       renderFolders();
       renderStatus();
     });
+    elements.includeSubfolders?.addEventListener("change", renderFolders);
     elements.tagSearch?.addEventListener("input", () => {
       if (!isLoading) statusMessage = "";
       renderTags();
@@ -205,7 +206,11 @@
       if (folder.iconColor) {
         button.style.setProperty("--folder-icon-color", folder.iconColor);
       }
-      button.title = `載入「${folder.name}」並取代白板內容`;
+      const count = elements.includeSubfolders?.checked !== false
+        ? folder.recursiveCount ?? folder.count
+        : folder.count;
+      const countLabel = count === null || count === undefined ? "" : `（${count} 個素材）`;
+      button.title = `載入「${folder.name}」${countLabel}並取代白板內容`;
       button.setAttribute("aria-label", button.title);
       const icon = document.createElement("span");
       icon.className = "folder-browser-icon";
@@ -215,6 +220,7 @@
       label.className = "folder-browser-label";
       label.textContent = folder.name;
       button.append(icon, label);
+      appendCount(button, count);
       button.addEventListener("click", () => {
         selectedTarget = { type: "folder", value: String(folder.id) };
         statusMessage = "";
@@ -281,6 +287,7 @@
         label: tag.name,
         icon: "#",
         color: tag.color,
+        count: tag.count,
       });
     }
 
@@ -293,12 +300,13 @@
             value: fileType.value,
             label: fileType.label,
             icon: fileType.value.slice(0, 3).toUpperCase(),
+            count: fileType.count,
           }),
         ),
       );
     }
 
-    function renderTargetItem({ type, value, label, icon, color = "" }) {
+    function renderTargetItem({ type, value, label, icon, color = "", count = null }) {
       const button = document.createElement("button");
       const isSelected = selectedTarget.type === type && selectedTarget.value === value;
       button.type = "button";
@@ -308,7 +316,8 @@
       button.dataset.value = value;
       button.setAttribute("role", "option");
       button.setAttribute("aria-selected", String(isSelected));
-      button.title = `載入「${label}」並取代白板內容`;
+      const countLabel = count === null || count === undefined ? "" : `（${count} 個素材）`;
+      button.title = `載入「${label}」${countLabel}並取代白板內容`;
       button.setAttribute("aria-label", button.title);
 
       const iconElement = document.createElement("span");
@@ -321,6 +330,7 @@
       labelElement.className = "folder-browser-label";
       labelElement.textContent = label;
       button.append(iconElement, labelElement);
+      appendCount(button, count);
       button.addEventListener("click", () => {
         selectedTarget = { type, value };
         statusMessage = "";
@@ -330,6 +340,15 @@
         onSelect?.({ type, value, label });
       });
       return button;
+    }
+
+    function appendCount(target, count) {
+      if (count === null || count === undefined) return;
+      const countElement = document.createElement("span");
+      countElement.className = "folder-browser-count";
+      countElement.textContent = `(${count})`;
+      countElement.setAttribute("aria-hidden", "true");
+      target.append(countElement);
     }
 
     function renderSourceState() {
@@ -447,6 +466,7 @@
       entries.push({
         name,
         color: String(tag?.color || "").trim(),
+        count: normalizeCount(tag?.count),
         groups: normalizeStringList(tag?.groups),
         searchText: name.toLocaleLowerCase(),
       });
@@ -460,10 +480,13 @@
     for (const fileType of Array.isArray(source) ? source : []) {
       const value = normalizeTargetValue("extension", fileType?.value || fileType);
       if (!value || values.has(value)) continue;
+      const count = normalizeCount(fileType?.count);
+      if (count === 0) continue;
       values.add(value);
       entries.push({
         value,
         label: String(fileType?.label || value.toUpperCase()).trim(),
+        count,
       });
     }
     return entries.sort((left, right) => compareLabels(left.value, right.value));
@@ -480,6 +503,12 @@
       entries.push({ id, name, tags: normalizeStringList(group?.tags) });
     }
     return entries;
+  }
+
+  function normalizeCount(value) {
+    if (value === null || value === undefined || value === "") return null;
+    const number = Number(value);
+    return Number.isFinite(number) && number >= 0 ? Math.floor(number) : null;
   }
 
   function normalizeStringList(source) {
@@ -544,7 +573,12 @@
       const children = (folder.children || []).map(visit).filter(Boolean);
       const name = folder.name;
       if (!query || name.toLocaleLowerCase().includes(query) || children.length) {
-        return { id, name, icon: folder.icon, iconColor: folder.iconColor, children };
+        const filtered = { id, name, icon: folder.icon, iconColor: folder.iconColor, children };
+        if (folder.count !== undefined) filtered.count = folder.count;
+        if (folder.recursiveCount !== undefined) {
+          filtered.recursiveCount = folder.recursiveCount;
+        }
+        return filtered;
       }
       return null;
     }
@@ -574,7 +608,12 @@
       const children = (Array.isArray(folder?.children) ? folder.children : [])
         .map(visit)
         .filter(Boolean);
-      return { id, name, icon, iconColor, children };
+      const normalized = { id, name, icon, iconColor, children };
+      const count = normalizeCount(folder?.count);
+      const recursiveCount = normalizeCount(folder?.recursiveCount);
+      if (count !== null) normalized.count = count;
+      if (recursiveCount !== null) normalized.recursiveCount = recursiveCount;
+      return normalized;
     }
 
     return (Array.isArray(source) ? source : []).map(visit).filter(Boolean);

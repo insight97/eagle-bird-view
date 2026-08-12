@@ -228,6 +228,56 @@ test("folder item source limits concurrent Eagle folder queries", async () => {
   await loading;
 });
 
+test("folder item source summarizes Tag, extension, and recursive folder counts", async () => {
+  const queries = [];
+  const source = new FolderItemSource(
+    {
+      async get(options) {
+        queries.push(options);
+        return [
+          { id: "root-jpg", ext: "jpg", folders: ["root"], tags: ["UI"] },
+          { id: "child-pdf", ext: "pdf", folders: ["child"], tags: ["UI", "Doc"] },
+          { id: "shared-jpg", ext: "jpg", folders: ["root", "child"], tags: ["Shared"] },
+          { id: "deleted-mp4", ext: "mp4", folders: ["other"], isDeleted: true },
+          { id: "loose-webm", ext: "webm", folders: ["missing"], tags: ["Loose"] },
+        ];
+      },
+    },
+    null,
+  );
+  const folders = [
+    { id: "root", children: [{ id: "child", children: [] }] },
+    { id: "other", children: [] },
+  ];
+
+  const result = await source.loadLibrarySummary(folders);
+
+  assert.deepEqual(queries, [
+    { fields: ["id", "ext", "isDeleted", "tags", "folders"] },
+  ]);
+  assert.deepEqual(result.extensionCounts, new Map([
+    ["jpg", 2],
+    ["pdf", 1],
+    ["webm", 1],
+  ]));
+  assert.deepEqual(result.tagCounts, new Map([
+    ["UI", 2],
+    ["Doc", 1],
+    ["Shared", 1],
+    ["Loose", 1],
+  ]));
+  assert.deepEqual(result.folderCounts, new Map([
+    ["root", 2],
+    ["child", 2],
+    ["other", 0],
+  ]));
+  assert.deepEqual(result.recursiveFolderCounts, new Map([
+    ["root", 3],
+    ["child", 2],
+    ["other", 0],
+  ]));
+});
+
 test("folder item source reuses completed folder queries", async () => {
   let queryCount = 0;
   const source = new FolderItemSource(

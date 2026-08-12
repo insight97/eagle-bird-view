@@ -92,6 +92,7 @@ test("the sidebar replaces the board from a Tag or file extension", async () => 
   });
   plugin.start();
   await flush();
+  await flush();
 
   plugin.elements.get("#folder-browser-tab-tag").click();
   plugin.elements
@@ -145,6 +146,57 @@ test("the sidebar loads Eagle Tag Groups for grouped sorting", async () => {
       .querySelectorAll(".folder-browser-tag-group-heading")
       .map(({ textContent }) => textContent),
     ["主題", "工作", "未分組"],
+  );
+});
+
+test("the sidebar displays source counts and omits empty file extensions", async () => {
+  const plugin = createPluginHarness({
+    selectedItems: [],
+    folderTree: [
+      { id: "root", name: "Assets", children: [{ id: "child", name: "Icons" }] },
+    ],
+    tags: [{ name: "UI", count: 99 }],
+    libraryItems: [
+      { id: "root-jpg", ext: "jpg", folders: ["root"], tags: ["UI"] },
+      { id: "child-pdf", ext: "pdf", folders: ["child"], tags: ["UI"] },
+      { id: "deleted-mp4", ext: "mp4", isDeleted: true, folders: ["root"] },
+    ],
+  });
+  plugin.start();
+  await flush();
+  await flush();
+
+  assert.deepEqual(
+    plugin.elements
+      .get("#folder-browser-tree")
+      .querySelectorAll(".folder-browser-count")
+      .map(({ textContent }) => textContent),
+    ["(2)"],
+  );
+
+  plugin.elements.get("#folder-browser-tab-tag").click();
+  assert.deepEqual(
+    plugin.elements
+      .get("#folder-browser-tag-list")
+      .querySelectorAll(".folder-browser-count")
+      .map(({ textContent }) => textContent),
+    ["(2)"],
+  );
+
+  plugin.elements.get("#folder-browser-tab-extension").click();
+  assert.deepEqual(
+    plugin.elements
+      .get("#folder-browser-extension-list")
+      .querySelectorAll(".folder-browser-label")
+      .map(({ textContent }) => textContent),
+    ["JPG", "PDF"],
+  );
+  assert.deepEqual(
+    plugin.elements
+      .get("#folder-browser-extension-list")
+      .querySelectorAll(".folder-browser-count")
+      .map(({ textContent }) => textContent),
+    ["(1)", "(1)"],
   );
 });
 

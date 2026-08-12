@@ -16,6 +16,7 @@ const BirdViewSettingsPresets = require("../settings-presets.js");
 const BirdViewSettingsSnapshot = require("../settings-snapshot.js");
 const BirdViewRowLoad = require("../row-load-coordinator.js");
 const BirdViewSelectionTags = require("../selection-tag-overflow.js");
+const BirdViewFolder = require("../folder-item-source.js");
 const BirdViewFolderBrowser = require("../folder-browser.js");
 const BirdViewFolderContent = require("../folder-content-intake.js");
 const BirdViewLibraryContent = require("../library-content-target.js");
@@ -350,6 +351,7 @@ function createPluginHarness({
   folderTree = [],
   tags = [],
   tagGroups = null,
+  libraryItems = null,
   tagSourceResult = [],
   extensionSourceResult = [],
   folderSelectionApi = true,
@@ -424,6 +426,12 @@ function createPluginHarness({
   }
 
   const DefaultFolderItemSource = class {
+    constructor(itemApi) {
+      this.summarySource = new BirdViewFolder.FolderItemSource(itemApi, null);
+    }
+    async loadLibrarySummary(folders) {
+      return this.summarySource.loadLibrarySummary(folders);
+    }
     async getSelectedFolders() {
       folderLoadRequests += 1;
       return [];
@@ -616,6 +624,16 @@ function createPluginHarness({
           return new Promise((resolve) => selectedResolvers.push(resolve));
         },
         async get(options = {}) {
+          if (
+            options.fields?.includes("folders") &&
+            !options.folders?.length &&
+            !options.ids?.length
+          ) {
+            const items = Array.isArray(libraryItems)
+              ? libraryItems
+              : [...currentTagSourceResult, ...extensionSourceResult];
+            return [...new Map(items.map((item) => [item.id, item])).values()];
+          }
           if (options.tags?.length) {
             tagLoadRequests += 1;
             return currentTagSourceResult;

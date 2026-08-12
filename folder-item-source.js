@@ -11,6 +11,13 @@
     "ext",
     "isDeleted",
   ]);
+  const LIBRARY_SUMMARY_FIELDS = Object.freeze([
+    "id",
+    "ext",
+    "isDeleted",
+    "tags",
+    "folders",
+  ]);
   const ITEM_COLLATOR = new Intl.Collator(undefined, {
     numeric: true,
     sensitivity: "base",
@@ -91,6 +98,13 @@
       return items.map(({ id }) => hydratedById.get(id)).filter(Boolean);
     }
 
+    async loadLibrarySummary(folders) {
+      const items = typeof this.#itemApi?.get === "function"
+        ? (await this.#itemApi.get({ fields: LIBRARY_SUMMARY_FIELDS })) || []
+        : [];
+      return summarizeLibraryItems(items, folders);
+    }
+
     clear() {
       this.#folderQueryCache.clear();
     }
@@ -151,6 +165,81 @@
     );
     if (extensionOrder !== 0) return extensionOrder;
     return String(first?.id || "").localeCompare(String(second?.id || ""));
+  }
+
+  function summarizeLibraryItems(items, folders) {
+    const extensionCounts = new Map();
+    const tagCounts = new Map();
+    const folderEntries = flattenFolders(folders);
+    const itemIdsByFolder = new Map(folderEntries.map(({ id }) => [id, new Set()]));
+
+    for (const item of Array.isArray(items) ? items : []) {
+      const itemId = String(item?.id || "").trim();
+      if (!itemId || item.isDeleted) continue;
+
+      const extension = String(item.ext || "").trim().replace(/^\./, "").toLowerCase();
+      if (extension) incrementCount(extensionCounts, extension);
+
+      for (const tag of normalizeStringList(item.tags)) incrementCount(tagCounts, tag);
+      for (const folderId of normalizeStringList(item.folders)) {
+        itemIdsByFolder.get(folderId)?.add(itemId);
+      }
+    }
+
+    const recursiveItemIds = new Map();
+    const visiting = new Set();
+    const collectRecursiveItemIds = (folder) => {
+      const id = String(folder?.id || "").trim();
+      if (!id) return new Set();
+      if (recursiveItemIds.has(id)) return recursiveItemIds.get(id);
+      const collected = new Set(itemIdsByFolder.get(id) || []);
+      if (visiting.has(id)) return collected;
+      visiting.add(id);
+      for (const child of folder.children || []) {
+        for (const itemId of collectRecursiveItemIds(child)) collected.add(itemId);
+      }
+      visiting.delete(id);
+      recursiveItemIds.set(id, collected);
+      return collected;
+    };
+    for (const folder of folders || []) collectRecursiveItemIds(folder);
+
+    return {
+      extensionCounts,
+      tagCounts,
+      folderCounts: new Map(
+        folderEntries.map(({ id }) => [id, itemIdsByFolder.get(id)?.size || 0]),
+      ),
+      recursiveFolderCounts: new Map(
+        folderEntries.map(({ id, folder }) => [id, collectRecursiveItemIds(folder).size]),
+      ),
+    };
+  }
+
+  function flattenFolders(folders) {
+    const entries = [];
+    const visited = new Set();
+    const visit = (folder) => {
+      const id = String(folder?.id || "").trim();
+      if (!id || visited.has(id)) return;
+      visited.add(id);
+      entries.push({ id, folder });
+      for (const child of folder.children || []) visit(child);
+    };
+    for (const folder of folders || []) visit(folder);
+    return entries;
+  }
+
+  function normalizeStringList(source) {
+    return [...new Set(
+      (Array.isArray(source) ? source : [])
+        .map((value) => String(value || "").trim())
+        .filter(Boolean),
+    )];
+  }
+
+  function incrementCount(counts, key) {
+    counts.set(key, (counts.get(key) || 0) + 1);
   }
 
   async function queryFolders(queryFolder, folderIds, onItems) {

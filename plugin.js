@@ -178,6 +178,10 @@ const state = {
   lastUnratedTriggerRow: null,
   tagColors: new Map(),
   tagColorGeneration: 0,
+  sidebarTags: [],
+  sidebarTagGroups: [],
+  librarySourceSummary: null,
+  librarySourceSummaryGeneration: 0,
   selectionTags: [],
   selectionTagButtons: [],
   selectionTagOverflowButton: null,
@@ -422,7 +426,7 @@ function setup() {
     },
     onSelect: handleFolderBrowserSelect,
   });
-  folderBrowser.setFileTypes(LIBRARY_FILE_TYPES);
+  folderBrowser.setFileTypes([]);
 
   mediaMaterializer = createMediaMaterializer({
     document,
@@ -639,7 +643,9 @@ function startEagleIntegration() {
   updateBoardSettingsUI();
   updateAutoExploreToggle();
   void loadTagColors();
-  void loadAutoExploreFolders();
+  void loadAutoExploreFolders().then((isCurrent) => {
+    if (isCurrent) void loadLibrarySourceSummary();
+  });
   void loadSelectedItems();
 }
 
@@ -668,6 +674,11 @@ function handleLibraryChanged() {
   state.folderTree = [];
   folderBrowser?.setFolders([]);
   folderBrowser?.setTags([]);
+  folderBrowser?.setFileTypes([]);
+  state.sidebarTags = [];
+  state.sidebarTagGroups = [];
+  state.librarySourceSummary = null;
+  state.librarySourceSummaryGeneration += 1;
   state.folderOptionGeneration += 1;
   state.folderOptions = [];
   state.explorationSource.clear();
@@ -679,7 +690,9 @@ function handleLibraryChanged() {
   updateAutoExploreToggle();
   autoExploreSettings.update();
   void loadTagColors();
-  void loadAutoExploreFolders();
+  void loadAutoExploreFolders().then((isCurrent) => {
+    if (isCurrent) void loadLibrarySourceSummary();
+  });
   showToast("Eagle 資料庫已切換，正在重新載入選取素材。", false);
   void loadSelectedItems();
 }
@@ -1752,6 +1765,9 @@ async function commitMetadataChanges(property, changes, messages = {}) {
   for (const { error } of result.failed) {
     console.error("Failed to save Eagle item metadata", error);
   }
+  if (result.succeeded.length && (property === "tags" || property === "folders")) {
+    void loadLibrarySourceSummary();
+  }
   if (result.status === "partial") {
     const message =
       typeof messages.partialMessage === "function"
@@ -1836,7 +1852,9 @@ async function loadTagColors() {
   const generation = ++state.tagColorGeneration;
   if (typeof eagle === "undefined" || typeof eagle.tag?.get !== "function") {
     state.tagColors = new Map();
-    folderBrowser?.setTags([]);
+    state.sidebarTags = [];
+    state.sidebarTagGroups = [];
+    updateFolderBrowserTags();
     autoExploreSettings.update();
     return;
   }
@@ -1853,15 +1871,17 @@ async function loadTagColors() {
       }
     }
     if (generation !== state.tagColorGeneration) return;
-    const sidebarTags = (tags || [])
+    state.sidebarTags = (tags || [])
       .filter(({ name }) => name)
-      .map(({ name, color, groups }) => ({
+      .map(({ name, color, groups, count }) => ({
         name,
         color: normalizeTagColor(color),
         groups: Array.isArray(groups) ? groups : [],
+        count,
       }));
-    state.tagColors = new Map(sidebarTags.map(({ name, color }) => [name, color]));
-    folderBrowser?.setTags(sidebarTags, tagGroups);
+    state.sidebarTagGroups = tagGroups || [];
+    state.tagColors = new Map(state.sidebarTags.map(({ name, color }) => [name, color]));
+    updateFolderBrowserTags();
     for (const node of state.mountedLabelNodes) refreshMediaMetadata(node);
     autoExploreSettings.update();
     updateSelectionStatus();
@@ -1869,7 +1889,9 @@ async function loadTagColors() {
   } catch (error) {
     if (generation !== state.tagColorGeneration) return;
     state.tagColors = new Map();
-    folderBrowser?.setTags([]);
+    state.sidebarTags = [];
+    state.sidebarTagGroups = [];
+    updateFolderBrowserTags();
     autoExploreSettings.update();
     console.warn("Failed to load Eagle tag colors", error);
   }
@@ -1880,26 +1902,99 @@ async function loadAutoExploreFolders() {
   if (typeof eagle === "undefined" || typeof eagle.folder?.getAll !== "function") {
     state.folderTree = [];
     state.folderOptions = [];
-    folderBrowser?.setFolders([]);
+    updateFolderBrowserFolders();
     autoExploreSettings.update();
-    return;
+    return true;
   }
 
   try {
     const folders = await eagle.folder.getAll();
-    if (generation !== state.folderOptionGeneration) return;
+    if (generation !== state.folderOptionGeneration) return false;
     state.folderTree = folders || [];
     state.folderOptions = flattenFolderOptions(folders);
-    folderBrowser?.setFolders(state.folderTree);
+    updateFolderBrowserFolders();
     autoExploreSettings.update();
+    return true;
   } catch (error) {
-    if (generation !== state.folderOptionGeneration) return;
+    if (generation !== state.folderOptionGeneration) return false;
     state.folderTree = [];
     state.folderOptions = [];
-    folderBrowser?.setFolders([]);
+    updateFolderBrowserFolders();
     autoExploreSettings.update();
     console.warn("Failed to load Eagle folders for auto exploration", error);
+    return true;
   }
+}
+
+async function loadLibrarySourceSummary() {
+  const generation = ++state.librarySourceSummaryGeneration;
+  if (typeof state.folderItemSource?.loadLibrarySummary !== "function") {
+    state.librarySourceSummary = null;
+    folderBrowser?.setFileTypes([]);
+    updateFolderBrowserTags();
+    updateFolderBrowserFolders();
+    return;
+  }
+
+  try {
+    const summary = await state.folderItemSource.loadLibrarySummary(state.folderTree);
+    if (generation !== state.librarySourceSummaryGeneration) return;
+    state.librarySourceSummary = summary;
+    updateFolderBrowserTags();
+    updateFolderBrowserFolders();
+    folderBrowser?.setFileTypes(
+      LIBRARY_FILE_TYPES.map((fileType) => ({
+        ...fileType,
+        count: summary.extensionCounts.get(fileType.value) || 0,
+      })),
+    );
+  } catch (error) {
+    if (generation !== state.librarySourceSummaryGeneration) return;
+    state.librarySourceSummary = null;
+    folderBrowser?.setFileTypes([]);
+    updateFolderBrowserTags();
+    updateFolderBrowserFolders();
+    console.warn("Failed to load Eagle library source counts", error);
+  }
+}
+
+function updateFolderBrowserTags() {
+  const counts = state.librarySourceSummary?.tagCounts;
+  folderBrowser?.setTags(
+    state.sidebarTags.map((tag) => ({
+      ...tag,
+      count: counts ? counts.get(tag.name) || 0 : tag.count,
+    })),
+    state.sidebarTagGroups,
+  );
+}
+
+function updateFolderBrowserFolders() {
+  const summary = state.librarySourceSummary;
+  if (!summary) {
+    folderBrowser?.setFolders(state.folderTree);
+    return;
+  }
+  folderBrowser?.setFolders(addFolderCounts(state.folderTree, summary));
+}
+
+function addFolderCounts(folders, summary, visited = new Set()) {
+  const countedFolders = [];
+  for (const folder of folders || []) {
+    const id = String(folder?.id || "").trim();
+    if (!id || visited.has(id)) continue;
+    visited.add(id);
+    countedFolders.push({
+      id,
+      name: folder.name,
+      icon: folder.icon,
+      iconColor: folder.iconColor,
+      count: summary.folderCounts.get(id) || 0,
+      recursiveCount: summary.recursiveFolderCounts.get(id) || 0,
+      children: addFolderCounts(folder.children, summary, visited),
+    });
+  }
+  return countedFolders;
 }
 
 function flattenFolderOptions(folders) {

@@ -60,6 +60,12 @@ function tagGroupHeadings(harness) {
     .map(({ textContent }) => textContent);
 }
 
+function sourceCounts(element) {
+  return element
+    .querySelectorAll(".folder-browser-count")
+    .map(({ textContent }) => textContent);
+}
+
 test("folder browser renders nested folders and reports the selected folder", () => {
   const harness = createHarness();
   harness.browser.setFolders([
@@ -202,6 +208,38 @@ test("library sidebar falls back to alphabetical Tags without Eagle groups", () 
   assert.equal(harness.elements.tagSort.hidden, true);
   assert.equal(harness.elements.tagSort.value, "alphabetical");
   assert.deepEqual(tagLabels(harness), ["Alpha", "Zulu"]);
+});
+
+test("library sidebar displays source counts and hides empty file extensions", () => {
+  const harness = createHarness();
+  harness.browser.setFolders([
+    {
+      id: "root",
+      name: "Assets",
+      count: 2,
+      recursiveCount: 5,
+      children: [{ id: "child", name: "Icons", count: 3, recursiveCount: 3 }],
+    },
+  ]);
+  harness.browser.setTags([{ name: "UI", count: 12 }]);
+  harness.browser.setFileTypes([
+    { value: "jpg", label: "JPG", count: 7 },
+    { value: "pdf", label: "PDF", count: 0 },
+    { value: "mp4", label: "MP4", count: 2 },
+  ]);
+
+  assert.deepEqual(sourceCounts(harness.elements.tree), ["(5)"]);
+  harness.elements.includeSubfolders.checked = false;
+  harness.elements.includeSubfolders.emit("change");
+  assert.deepEqual(sourceCounts(harness.elements.tree), ["(2)"]);
+  assert.deepEqual(sourceCounts(harness.elements.tagList), ["(12)"]);
+  assert.deepEqual(
+    harness.elements.extensionList
+      .querySelectorAll(".folder-browser-label")
+      .map(({ textContent }) => textContent),
+    ["JPG", "MP4"],
+  );
+  assert.deepEqual(sourceCounts(harness.elements.extensionList), ["(7)", "(2)"]);
 });
 
 test("library sidebar searches Tags independently from folders", () => {

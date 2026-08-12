@@ -1457,6 +1457,14 @@ button {
   white-space: nowrap;
 }
 
+.folder-browser-count {
+  flex: none;
+  margin-left: auto;
+  color: #8f95a0;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
 .folder-browser-item:hover,
 .folder-browser-item:focus-visible {
   outline: 0;
