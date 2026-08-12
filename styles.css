@@ -1248,6 +1248,27 @@ button {
   border-color: #7971ed;
 }
 
+.folder-browser-sort {
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid #454950;
+  border-radius: 6px;
+  outline: 0;
+  background: #24272b;
+  color: #d9dbe0;
+  font: inherit;
+  font-size: 11px;
+}
+
+.folder-browser-sort:focus {
+  border-color: #7971ed;
+}
+
+.folder-browser-sort[hidden] {
+  display: none;
+}
+
 .folder-browser-option {
   display: flex;
   align-items: center;
@@ -1400,6 +1421,18 @@ button {
 
 .folder-browser-target-item {
   width: 100%;
+}
+
+.folder-browser-tag-group + .folder-browser-tag-group {
+  margin-top: 8px;
+}
+
+.folder-browser-tag-group-heading {
+  padding: 5px 8px 3px;
+  color: #8f95a0;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
 }
 
 .folder-browser-tag-icon {

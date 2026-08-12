@@ -117,6 +117,37 @@ test("the sidebar replaces the board from a Tag or file extension", async () => 
   assert.match(statusOf(plugin, "#folder-browser-status"), /PDF/);
 });
 
+test("the sidebar loads Eagle Tag Groups for grouped sorting", async () => {
+  const plugin = createPluginHarness({
+    selectedItems: [],
+    tags: [
+      { name: "UI", groups: ["work"] },
+      { name: "Portrait", groups: ["subject"] },
+      { name: "Loose" },
+    ],
+    tagGroups: [
+      { id: "subject", name: "主題", tags: ["Portrait"] },
+      { id: "work", name: "工作", tags: ["UI"] },
+    ],
+  });
+  plugin.start();
+  await flush();
+
+  plugin.elements.get("#folder-browser-tab-tag").click();
+  const sort = plugin.elements.get("#folder-browser-tag-sort");
+  sort.value = "grouped";
+  sort.emit("change");
+
+  assert.equal(sort.hidden, false);
+  assert.deepEqual(
+    plugin.elements
+      .get("#folder-browser-tag-list")
+      .querySelectorAll(".folder-browser-tag-group-heading")
+      .map(({ textContent }) => textContent),
+    ["主題", "工作", "未分組"],
+  );
+});
+
 test("AI exploration is controlled by ratio and similarity settings", async () => {
   const plugin = createPluginHarness({
     selectedItems: [],

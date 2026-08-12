@@ -376,6 +376,7 @@ function setup() {
   elements.folderBrowserStatus = document.querySelector("#folder-browser-status");
   elements.folderBrowserTree = document.querySelector("#folder-browser-tree");
   elements.folderBrowserTagSearch = document.querySelector("#folder-browser-tag-search");
+  elements.folderBrowserTagSort = document.querySelector("#folder-browser-tag-sort");
   elements.folderBrowserTagList = document.querySelector("#folder-browser-tag-list");
   elements.folderBrowserExtensionList = document.querySelector(
     "#folder-browser-extension-list",
@@ -415,6 +416,7 @@ function setup() {
       status: elements.folderBrowserStatus,
       tree: elements.folderBrowserTree,
       tagSearch: elements.folderBrowserTagSearch,
+      tagSort: elements.folderBrowserTagSort,
       tagList: elements.folderBrowserTagList,
       extensionList: elements.folderBrowserExtensionList,
     },
@@ -1842,11 +1844,24 @@ async function loadTagColors() {
   try {
     const tags = await eagle.tag.get();
     if (generation !== state.tagColorGeneration) return;
+    let tagGroups = [];
+    if (typeof eagle.tagGroup?.get === "function") {
+      try {
+        tagGroups = await eagle.tagGroup.get();
+      } catch (error) {
+        console.warn("Failed to load Eagle tag groups", error);
+      }
+    }
+    if (generation !== state.tagColorGeneration) return;
     const sidebarTags = (tags || [])
       .filter(({ name }) => name)
-      .map(({ name, color }) => ({ name, color: normalizeTagColor(color) }));
+      .map(({ name, color, groups }) => ({
+        name,
+        color: normalizeTagColor(color),
+        groups: Array.isArray(groups) ? groups : [],
+      }));
     state.tagColors = new Map(sidebarTags.map(({ name, color }) => [name, color]));
-    folderBrowser?.setTags(sidebarTags);
+    folderBrowser?.setTags(sidebarTags, tagGroups);
     for (const node of state.mountedLabelNodes) refreshMediaMetadata(node);
     autoExploreSettings.update();
     updateSelectionStatus();

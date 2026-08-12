@@ -19,11 +19,13 @@ function createHarness() {
     includeSubfolders: createElementStub("input"),
     tree: createElementStub("div"),
     tagSearch: createElementStub("input"),
+    tagSort: createElementStub("select"),
     tagList: createElementStub("div"),
     extensionList: createElementStub("div"),
     status: createElementStub("div"),
   };
   elements.includeSubfolders.checked = true;
+  elements.tagSort.value = "alphabetical";
   const document = {
     createElement(tag) {
       return createElementStub(tag);
@@ -43,6 +45,18 @@ function createHarness() {
 function folderLabels(harness) {
   return harness.elements.tree
     .querySelectorAll(".folder-browser-label")
+    .map(({ textContent }) => textContent);
+}
+
+function tagLabels(harness) {
+  return harness.elements.tagList
+    .querySelectorAll(".folder-browser-label")
+    .map(({ textContent }) => textContent);
+}
+
+function tagGroupHeadings(harness) {
+  return harness.elements.tagList
+    .querySelectorAll(".folder-browser-tag-group-heading")
     .map(({ textContent }) => textContent);
 }
 
@@ -92,22 +106,102 @@ test("library sidebar switches between folders, Tags, and file extensions", () =
   assert.equal(harness.elements.folderPanel.hidden, true);
   assert.equal(harness.elements.tagPanel.hidden, false);
   assert.deepEqual(
-    harness.elements.tagList
-      .querySelectorAll(".folder-browser-label")
-      .map(({ textContent }) => textContent),
-    ["UI", "Reference"],
+    tagLabels(harness),
+    ["Reference", "UI"],
   );
-  harness.elements.tagList.querySelectorAll(".folder-browser-item")[0].click();
+  harness.elements.tagList
+    .querySelectorAll(".folder-browser-item")
+    .find((button) => button.dataset.value === "UI")
+    .click();
 
   harness.elements.extensionTab.click();
   assert.equal(harness.elements.tagPanel.hidden, true);
   assert.equal(harness.elements.extensionPanel.hidden, false);
-  harness.elements.extensionList.querySelectorAll(".folder-browser-item")[1].click();
+  harness.elements.extensionList
+    .querySelectorAll(".folder-browser-item")
+    .find((button) => button.dataset.value === "pdf")
+    .click();
 
   assert.deepEqual(harness.selections, [
     { type: "tag", value: "UI", label: "UI" },
     { type: "extension", value: "pdf", label: "PDF" },
   ]);
+});
+
+test("library sidebar sorts Tags and file extensions alphabetically", () => {
+  const harness = createHarness();
+  harness.browser.setTags([{ name: "zebra" }, { name: "Alpha" }, { name: "beta" }]);
+  harness.browser.setFileTypes([
+    { value: "pdf", label: "PDF" },
+    { value: "jpg", label: "JPG" },
+    { value: "mp4", label: "MP4" },
+  ]);
+
+  assert.deepEqual(tagLabels(harness), ["Alpha", "beta", "zebra"]);
+  assert.deepEqual(
+    harness.elements.extensionList
+      .querySelectorAll(".folder-browser-label")
+      .map(({ textContent }) => textContent),
+    ["JPG", "MP4", "PDF"],
+  );
+});
+
+test("library sidebar can render Tags in Eagle group order", () => {
+  const harness = createHarness();
+  harness.browser.setTags(
+    [
+      { name: "UI", groups: ["work"] },
+      { name: "Portrait", groups: ["subject"] },
+      { name: "Shared", groups: ["work", "subject"] },
+      { name: "Loose" },
+    ],
+    [
+      { id: "subject", name: "主題", tags: ["Portrait", "Shared"] },
+      { id: "work", name: "工作", tags: ["Shared", "UI"] },
+    ],
+  );
+
+  harness.elements.tagSort.value = "grouped";
+  harness.elements.tagSort.emit("change");
+
+  assert.equal(harness.elements.tagSort.hidden, false);
+  assert.deepEqual(tagGroupHeadings(harness), ["主題", "工作", "未分組"]);
+  assert.deepEqual(tagLabels(harness), ["Portrait", "Shared", "Shared", "UI", "Loose"]);
+});
+
+test("grouped Tag search keeps only groups with matching Tags", () => {
+  const harness = createHarness();
+  harness.browser.setTags(
+    [
+      { name: "Portrait", groups: ["subject"] },
+      { name: "UI", groups: ["work"] },
+      { name: "Loose" },
+    ],
+    [
+      { id: "subject", name: "主題", tags: ["Portrait"] },
+      { id: "work", name: "工作", tags: ["UI"] },
+    ],
+  );
+  harness.elements.tagSort.value = "grouped";
+  harness.elements.tagSort.emit("change");
+
+  harness.elements.tagSearch.value = "por";
+  harness.elements.tagSearch.emit("input");
+
+  assert.deepEqual(tagGroupHeadings(harness), ["主題"]);
+  assert.deepEqual(tagLabels(harness), ["Portrait"]);
+});
+
+test("library sidebar falls back to alphabetical Tags without Eagle groups", () => {
+  const harness = createHarness();
+  harness.browser.setTags([{ name: "Zulu" }, { name: "Alpha" }]);
+
+  harness.elements.tagSort.value = "grouped";
+  harness.elements.tagSort.emit("change");
+
+  assert.equal(harness.elements.tagSort.hidden, true);
+  assert.equal(harness.elements.tagSort.value, "alphabetical");
+  assert.deepEqual(tagLabels(harness), ["Alpha", "Zulu"]);
 });
 
 test("library sidebar searches Tags independently from folders", () => {

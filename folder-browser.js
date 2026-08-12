@@ -19,13 +19,20 @@
     pink: "#d978a6",
   });
   const SOURCE_TYPES = Object.freeze(["folder", "tag", "extension"]);
+  const TAG_SORT_MODES = Object.freeze(["alphabetical", "grouped"]);
+  const LABEL_COLLATOR = new Intl.Collator(undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
 
   function createFolderBrowser({ document, elements, onSelect }) {
     let folders = [];
     let tags = [];
+    let tagGroups = [];
     let fileTypes = [];
     let isOpen = false;
     let activeType = "folder";
+    let tagSortMode = "alphabetical";
     let selectedTarget = { type: "", value: "" };
     let isLoading = false;
     let statusMessage = "";
@@ -42,6 +49,15 @@
     });
     elements.tagSearch?.addEventListener("input", () => {
       if (!isLoading) statusMessage = "";
+      renderTags();
+      renderStatus();
+    });
+    elements.tagSort?.addEventListener("change", () => {
+      const requestedMode = normalizeTagSortMode(elements.tagSort.value);
+      tagSortMode = requestedMode === "grouped" && tagGroups.length
+        ? "grouped"
+        : "alphabetical";
+      updateTagSortState();
       renderTags();
       renderStatus();
     });
@@ -71,14 +87,17 @@
       renderStatus();
     }
 
-    function setTags(nextTags) {
+    function setTags(nextTags, nextTagGroups = []) {
       tags = normalizeTagEntries(nextTags);
+      tagGroups = normalizeTagGroups(nextTagGroups);
+      if (!tagGroups.length) tagSortMode = "alphabetical";
       if (
         selectedTarget.type === "tag" &&
         !tags.some(({ name }) => name === selectedTarget.value)
       ) {
         selectedTarget = { type: "", value: "" };
       }
+      updateTagSortState();
       renderTags();
       renderStatus();
     }
@@ -226,18 +245,43 @@
     function renderTags() {
       if (!elements.tagList) return;
       const query = String(elements.tagSearch?.value || "").trim().toLocaleLowerCase();
-      const visibleTags = tags.filter(({ searchText }) => !query || searchText.includes(query));
+      const visibleTags = tags
+        .filter(({ searchText }) => !query || searchText.includes(query))
+        .sort(compareTags);
+      if (tagSortMode === "grouped" && tagGroups.length) {
+        elements.tagList.replaceChildren(
+          ...groupTags(visibleTags, tagGroups).map(renderTagGroup),
+        );
+        return;
+      }
       elements.tagList.replaceChildren(
         ...visibleTags.map((tag) =>
-          renderTargetItem({
-            type: "tag",
-            value: tag.name,
-            label: tag.name,
-            icon: "#",
-            color: tag.color,
-          }),
+          renderTagItem(tag),
         ),
       );
+    }
+
+    function renderTagGroup(group) {
+      const section = document.createElement("section");
+      section.className = "folder-browser-tag-group";
+      section.setAttribute("role", "group");
+      section.setAttribute("aria-label", group.name);
+
+      const heading = document.createElement("div");
+      heading.className = "folder-browser-tag-group-heading";
+      heading.textContent = group.name;
+      section.append(heading, ...group.tags.map(renderTagItem));
+      return section;
+    }
+
+    function renderTagItem(tag) {
+      return renderTargetItem({
+        type: "tag",
+        value: tag.name,
+        label: tag.name,
+        icon: "#",
+        color: tag.color,
+      });
     }
 
     function renderFileTypes() {
@@ -357,7 +401,14 @@
       );
     }
 
+    function updateTagSortState() {
+      if (!elements.tagSort) return;
+      elements.tagSort.hidden = tagGroups.length === 0;
+      elements.tagSort.value = tagSortMode;
+    }
+
     updateOpenState();
+    updateTagSortState();
     renderSourceState();
     renderFolders();
     renderTags();
@@ -396,6 +447,7 @@
       entries.push({
         name,
         color: String(tag?.color || "").trim(),
+        groups: normalizeStringList(tag?.groups),
         searchText: name.toLocaleLowerCase(),
       });
     }
@@ -414,6 +466,71 @@
         label: String(fileType?.label || value.toUpperCase()).trim(),
       });
     }
+    return entries.sort((left, right) => compareLabels(left.value, right.value));
+  }
+
+  function normalizeTagGroups(source) {
+    const ids = new Set();
+    const entries = [];
+    for (const group of Array.isArray(source) ? source : []) {
+      const id = String(group?.id || "").trim();
+      const name = String(group?.name || "").trim();
+      if (!id || !name || ids.has(id)) continue;
+      ids.add(id);
+      entries.push({ id, name, tags: normalizeStringList(group?.tags) });
+    }
+    return entries;
+  }
+
+  function normalizeStringList(source) {
+    const values = new Set();
+    for (const value of Array.isArray(source) ? source : []) {
+      const normalized = String(value || "").trim();
+      if (normalized) values.add(normalized);
+    }
+    return [...values];
+  }
+
+  function normalizeTagSortMode(value) {
+    const normalized = String(value || "").trim();
+    return TAG_SORT_MODES.includes(normalized) ? normalized : "alphabetical";
+  }
+
+  function compareTags(left, right) {
+    return compareLabels(left.name, right.name);
+  }
+
+  function compareLabels(left, right) {
+    const firstResult = LABEL_COLLATOR.compare(String(left), String(right));
+    return firstResult || String(left).localeCompare(String(right));
+  }
+
+  function groupTags(tags, groups) {
+    const tagsByName = new Map(tags.map((tag) => [tag.name, tag]));
+    const groupedNames = new Set();
+    const entries = [];
+
+    for (const group of groups) {
+      const groupTags = [];
+      const names = new Set();
+      for (const name of group.tags) {
+        const tag = tagsByName.get(name);
+        if (!tag || names.has(name)) continue;
+        names.add(name);
+        groupedNames.add(name);
+        groupTags.push(tag);
+      }
+      for (const tag of tags) {
+        if (names.has(tag.name) || !tag.groups.includes(group.id)) continue;
+        names.add(tag.name);
+        groupedNames.add(tag.name);
+        groupTags.push(tag);
+      }
+      if (groupTags.length) entries.push({ name: group.name, tags: groupTags });
+    }
+
+    const ungrouped = tags.filter((tag) => !groupedNames.has(tag.name));
+    if (ungrouped.length) entries.push({ name: "未分組", tags: ungrouped });
     return entries;
   }
 

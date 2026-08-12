@@ -127,6 +127,7 @@ const SELECTORS = [
   "#folder-browser-status",
   "#folder-browser-tree",
   "#folder-browser-tag-search",
+  "#folder-browser-tag-sort",
   "#folder-browser-tag-list",
   "#folder-browser-extension-list",
   "#toast",
@@ -348,6 +349,7 @@ function createPluginHarness({
   storage = null,
   folderTree = [],
   tags = [],
+  tagGroups = null,
   tagSourceResult = [],
   extensionSourceResult = [],
   folderSelectionApi = true,
@@ -631,6 +633,15 @@ function createPluginHarness({
           return tags;
         },
       },
+      ...(Array.isArray(tagGroups)
+        ? {
+            tagGroup: {
+              async get() {
+                return tagGroups;
+              },
+            },
+          }
+        : {}),
       folder: {
         async getAll() {
           return folderTree;
