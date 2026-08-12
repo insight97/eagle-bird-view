@@ -7,9 +7,9 @@
 })(typeof globalThis === "object" ? globalThis : this, () => {
   const DEFAULT_CHANNEL = "library-content-target";
 
-  // Tag is the pre-filtered library target. Folder resolution and folder
-  // sessions belong to FolderContentIntake so every folder origin shares one
-  // generation and retry owner.
+  // Tag and file extension are pre-filtered library targets. Folder resolution
+  // and folder sessions belong to FolderContentIntake so every folder origin
+  // shares one generation and retry owner.
   function createLibraryContentTarget({
     itemApi,
     intake,
@@ -28,8 +28,11 @@
     }
 
     function normalizeTarget({ type, value, label } = {}) {
-      const normalizedType = type === "tag" || type === "folder" ? type : "";
-      const normalizedValue = String(value || "").trim();
+      const normalizedType = ["tag", "extension", "folder"].includes(type) ? type : "";
+      const normalizedValue =
+        normalizedType === "extension"
+          ? String(value || "").trim().replace(/^\./, "").toLowerCase()
+          : String(value || "").trim();
       return {
         type: normalizedType,
         value: normalizedValue,
@@ -40,25 +43,27 @@
     async function load(options = {}) {
       const target = normalizeTarget(options);
       if (!target.type || !target.value) return { status: "invalid", target };
-      if (target.type !== "tag") return { status: "invalid", target };
+      if (target.type === "folder") return { status: "invalid", target };
 
       loadCoordinator.invalidate(channel);
       const result = await loadCoordinator.run(channel, async ({ isCurrent }) => {
-        return loadTag(target, options.onBeforeStart, isCurrent);
+        return loadTarget(target, options.onBeforeStart, isCurrent);
       });
 
       if (result.status !== "success") return result;
       return result.value || { status: "stale" };
     }
 
-    async function loadTag(target, onBeforeStart, isCurrent) {
+    async function loadTarget(target, onBeforeStart, isCurrent) {
       if (typeof itemApi?.get !== "function") {
         return { status: "unavailable", ...target };
       }
 
       await onBeforeStart?.({ ...target });
       if (!isCurrent()) return null;
-      const items = (await itemApi.get({ tags: [target.value] })) || [];
+      const query =
+        target.type === "tag" ? { tags: [target.value] } : { ext: target.value };
+      const items = (await itemApi.get(query)) || [];
       if (!isCurrent()) return null;
 
       const filteredItems = items.filter((item) => item?.id && !item.isDeleted);

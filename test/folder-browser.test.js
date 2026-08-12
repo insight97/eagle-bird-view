@@ -9,9 +9,18 @@ function createHarness() {
   const elements = {
     root: createElementStub("aside"),
     toggle: createElementStub("button"),
+    folderTab: createElementStub("button"),
+    tagTab: createElementStub("button"),
+    extensionTab: createElementStub("button"),
+    folderPanel: createElementStub("section"),
+    tagPanel: createElementStub("section"),
+    extensionPanel: createElementStub("section"),
     search: createElementStub("input"),
     includeSubfolders: createElementStub("input"),
     tree: createElementStub("div"),
+    tagSearch: createElementStub("input"),
+    tagList: createElementStub("div"),
+    extensionList: createElementStub("div"),
     status: createElementStub("div"),
   };
   elements.includeSubfolders.checked = true;
@@ -58,10 +67,87 @@ test("folder browser renders nested folders and reports the selected folder", ()
 
   assert.deepEqual(harness.selections, [
     {
+      type: "folder",
+      value: "child",
+      label: "Icons",
       folder: { id: "child", name: "Icons", icon: "📁", iconColor: "", children: [] },
       includeSubfolders: false,
     },
   ]);
+});
+
+test("library sidebar switches between folders, Tags, and file extensions", () => {
+  const harness = createHarness();
+  harness.browser.setTags([
+    { name: "UI", color: "red" },
+    { name: "Reference", color: "blue" },
+  ]);
+  harness.browser.setFileTypes([
+    { value: "jpg", label: "JPG" },
+    { value: "pdf", label: "PDF" },
+    { value: "mp4", label: "MP4" },
+  ]);
+
+  harness.elements.tagTab.click();
+  assert.equal(harness.elements.folderPanel.hidden, true);
+  assert.equal(harness.elements.tagPanel.hidden, false);
+  assert.deepEqual(
+    harness.elements.tagList
+      .querySelectorAll(".folder-browser-label")
+      .map(({ textContent }) => textContent),
+    ["UI", "Reference"],
+  );
+  harness.elements.tagList.querySelectorAll(".folder-browser-item")[0].click();
+
+  harness.elements.extensionTab.click();
+  assert.equal(harness.elements.tagPanel.hidden, true);
+  assert.equal(harness.elements.extensionPanel.hidden, false);
+  harness.elements.extensionList.querySelectorAll(".folder-browser-item")[1].click();
+
+  assert.deepEqual(harness.selections, [
+    { type: "tag", value: "UI", label: "UI" },
+    { type: "extension", value: "pdf", label: "PDF" },
+  ]);
+});
+
+test("library sidebar searches Tags independently from folders", () => {
+  const harness = createHarness();
+  harness.browser.setTags([{ name: "UI" }, { name: "Photography" }]);
+  harness.elements.tagTab.click();
+  harness.elements.tagSearch.value = "photo";
+  harness.elements.tagSearch.emit("input");
+
+  assert.deepEqual(
+    harness.elements.tagList
+      .querySelectorAll(".folder-browser-label")
+      .map(({ textContent }) => textContent),
+    ["Photography"],
+  );
+});
+
+test("library sidebar keeps one selected target across source tabs", () => {
+  const harness = createHarness();
+  harness.browser.setTags([{ name: "UI" }]);
+  harness.browser.setFileTypes([{ value: "pdf", label: "PDF" }]);
+
+  harness.browser.setSelectedTarget({ type: "tag", value: "UI" });
+  assert.equal(harness.elements.tagPanel.hidden, false);
+  assert.equal(
+    harness.elements.tagList
+      .querySelectorAll(".folder-browser-item")[0]
+      .classList.contains("is-selected"),
+    true,
+  );
+
+  harness.elements.extensionTab.click();
+  harness.elements.extensionList.querySelectorAll(".folder-browser-item")[0].click();
+  harness.elements.tagTab.click();
+  assert.equal(
+    harness.elements.tagList
+      .querySelectorAll(".folder-browser-item")[0]
+      .classList.contains("is-selected"),
+    false,
+  );
 });
 
 test("folder browser keeps the selected folder highlighted across refreshes", () => {
@@ -90,7 +176,7 @@ test("folder browser keeps the selected folder highlighted across refreshes", ()
 test("folder browser highlights the Eagle-selected folder when the tree arrives later", () => {
   const harness = createHarness();
 
-  harness.browser.setSelectedFolder("child");
+  harness.browser.setSelectedTarget({ type: "folder", value: "child" });
   harness.browser.setFolders([
     { id: "root", name: "Design", children: [{ id: "child", name: "Icons" }] },
   ]);

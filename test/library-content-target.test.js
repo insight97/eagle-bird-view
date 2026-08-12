@@ -62,6 +62,43 @@ test("library content target filters Tag items and starts the shared intake", as
   ]);
 });
 
+test("library content target loads one file extension through the shared intake", async () => {
+  const queries = [];
+  const intakeCalls = [];
+  const target = createHarness({
+    itemApi: {
+      async get(options) {
+        queries.push(options);
+        return [
+          { id: "pdf", name: "guide.pdf", ext: "pdf" },
+          { id: "deleted", ext: "pdf", isDeleted: true },
+        ];
+      },
+    },
+    intake: {
+      async startFromItems(items, options) {
+        intakeCalls.push({ items, options });
+        return { status: "ready" };
+      },
+    },
+  });
+
+  const result = await target.load({
+    type: "extension",
+    value: ".PDF",
+    label: "PDF",
+  });
+
+  assert.equal(result.status, "loaded");
+  assert.deepEqual(queries, [{ ext: "pdf" }]);
+  assert.deepEqual(intakeCalls, [
+    {
+      items: [{ id: "pdf", name: "guide.pdf", ext: "pdf" }],
+      options: { focus: true },
+    },
+  ]);
+});
+
 test("library content target leaves folder sessions to the folder intake", async () => {
   const target = createHarness();
 

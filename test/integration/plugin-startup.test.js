@@ -79,6 +79,44 @@ test("the board asks Eagle for the selection and leaves auto exploration off", a
   assert.equal(plugin.elements.get("#video-autoplay-toggle").checked, false);
 });
 
+test("the sidebar replaces the board from a Tag or file extension", async () => {
+  const plugin = createPluginHarness({
+    selectedItems: [],
+    tags: [{ name: "UI", color: "red" }],
+    tagSourceResult: [
+      { id: "tag-item", name: "reference.jpg", ext: "jpg", width: 100, height: 100 },
+    ],
+    extensionSourceResult: [
+      { id: "pdf-item", name: "guide.pdf", ext: "pdf", width: 100, height: 140 },
+    ],
+  });
+  plugin.start();
+  await flush();
+
+  plugin.elements.get("#folder-browser-tab-tag").click();
+  plugin.elements
+    .get("#folder-browser-tag-list")
+    .querySelectorAll(".folder-browser-item")[0]
+    .click();
+  await flush();
+
+  assert.equal(plugin.tagLoadRequests, 1);
+  assert.equal(statusOf(plugin, "#item-count"), "1 個素材");
+  assert.match(statusOf(plugin, "#folder-browser-status"), /Tag「UI」/);
+
+  plugin.elements.get("#folder-browser-tab-extension").click();
+  const pdfButton = plugin.elements
+    .get("#folder-browser-extension-list")
+    .querySelectorAll(".folder-browser-item")
+    .find((button) => button.dataset.value === "pdf");
+  pdfButton.click();
+  await flush();
+
+  assert.equal(plugin.extensionLoadRequests, 1);
+  assert.equal(statusOf(plugin, "#item-count"), "1 個素材");
+  assert.match(statusOf(plugin, "#folder-browser-status"), /PDF/);
+});
+
 test("AI exploration is controlled by ratio and similarity settings", async () => {
   const plugin = createPluginHarness({
     selectedItems: [],

@@ -18,43 +18,109 @@
     purple: "#8b7bd8",
     pink: "#d978a6",
   });
+  const SOURCE_TYPES = Object.freeze(["folder", "tag", "extension"]);
 
   function createFolderBrowser({ document, elements, onSelect }) {
     let folders = [];
+    let tags = [];
+    let fileTypes = [];
     let isOpen = false;
-    let selectedFolderId = "";
+    let activeType = "folder";
+    let selectedTarget = { type: "", value: "" };
+    let isLoading = false;
+    let statusMessage = "";
     const expandedFolderIds = new Set();
 
     elements.toggle?.addEventListener("click", toggle);
+    elements.folderTab?.addEventListener("click", () => setActiveType("folder"));
+    elements.tagTab?.addEventListener("click", () => setActiveType("tag"));
+    elements.extensionTab?.addEventListener("click", () => setActiveType("extension"));
+    elements.search?.addEventListener("input", () => {
+      if (!isLoading) statusMessage = "";
+      renderFolders();
+      renderStatus();
+    });
+    elements.tagSearch?.addEventListener("input", () => {
+      if (!isLoading) statusMessage = "";
+      renderTags();
+      renderStatus();
+    });
 
     function toggle() {
       isOpen = !isOpen;
       updateOpenState();
     }
-    elements.search?.addEventListener("input", render);
+
+    function setActiveType(type) {
+      if (!SOURCE_TYPES.includes(type) || type === activeType) return;
+      activeType = type;
+      if (!isLoading) statusMessage = "";
+      renderSourceState();
+      renderStatus();
+    }
 
     function setFolders(nextFolders) {
       folders = normalizeFolderTree(nextFolders);
-      if (selectedFolderId && !containsFolder(folders, selectedFolderId)) {
-        selectedFolderId = "";
+      if (
+        selectedTarget.type === "folder" &&
+        !containsFolder(folders, selectedTarget.value)
+      ) {
+        selectedTarget = { type: "", value: "" };
       }
-      render();
+      renderFolders();
+      renderStatus();
     }
 
-    function setSelectedFolder(folderId) {
-      selectedFolderId = String(folderId || "").trim();
-      render();
+    function setTags(nextTags) {
+      tags = normalizeTagEntries(nextTags);
+      if (
+        selectedTarget.type === "tag" &&
+        !tags.some(({ name }) => name === selectedTarget.value)
+      ) {
+        selectedTarget = { type: "", value: "" };
+      }
+      renderTags();
+      renderStatus();
     }
 
-    function setLoading(isLoading, message = "") {
-      if (elements.status) {
-        setStatusText(isLoading ? "正在載入資料夾…" : message);
+    function setFileTypes(nextFileTypes) {
+      fileTypes = normalizeFileTypes(nextFileTypes);
+      if (
+        selectedTarget.type === "extension" &&
+        !fileTypes.some(({ value }) => value === selectedTarget.value)
+      ) {
+        selectedTarget = { type: "", value: "" };
       }
-      if (elements.tree) elements.tree.setAttribute("aria-busy", String(isLoading));
+      renderFileTypes();
+      renderStatus();
+    }
+
+    function setSelectedTarget(target = {}) {
+      const type = SOURCE_TYPES.includes(target.type) ? target.type : "";
+      const value = normalizeTargetValue(type, target.value);
+      selectedTarget = type && value ? { type, value } : { type: "", value: "" };
+      if (selectedTarget.type) activeType = selectedTarget.type;
+      renderSourceState();
+      renderFolders();
+      renderTags();
+      renderFileTypes();
+    }
+
+    function setLoading(nextValue, message = "") {
+      const nextLoading = Boolean(nextValue);
+      isLoading = nextLoading;
+      statusMessage = nextLoading
+        ? message || `正在載入${getSourceLabel(activeType)}…`
+        : message;
+      for (const list of [elements.tree, elements.tagList, elements.extensionList]) {
+        list?.setAttribute("aria-busy", String(nextLoading));
+      }
+      renderStatus();
     }
 
     function setStatus(message) {
-      setStatusText(message);
+      statusMessage = String(message || "");
+      renderStatus();
     }
 
     function setStatusText(message) {
@@ -63,20 +129,11 @@
       elements.status.title = message;
     }
 
-    function render() {
+    function renderFolders() {
       if (!elements.tree) return;
       const query = String(elements.search?.value || "").trim().toLocaleLowerCase();
       const visibleFolders = filterFolders(folders, query);
       elements.tree.replaceChildren(...visibleFolders.map((folder) => renderFolder(folder, 0)));
-      if (elements.status && !elements.status.textContent.includes("載入")) {
-        setStatusText(query
-          ? visibleFolders.length
-            ? ""
-            : "找不到符合的資料夾。"
-          : folders.length
-            ? "選取資料夾後，白板只顯示該資料夾內容。"
-            : "目前沒有可用的資料夾。");
-      }
     }
 
     function renderFolder(folder, depth) {
@@ -85,7 +142,8 @@
       row.style.setProperty("--folder-depth", String(depth));
       row.setAttribute("role", "treeitem");
       row.setAttribute("aria-level", String(depth + 1));
-      const isSelected = String(folder.id) === selectedFolderId;
+      const isSelected =
+        selectedTarget.type === "folder" && String(folder.id) === selectedTarget.value;
       row.setAttribute("aria-selected", String(isSelected));
 
       const children = Array.isArray(folder.children) ? folder.children : [];
@@ -110,7 +168,7 @@
           event.stopPropagation();
           if (expandedFolderIds.has(folder.id)) expandedFolderIds.delete(folder.id);
           else expandedFolderIds.add(folder.id);
-          render();
+          renderFolders();
         });
         entry.append(disclosure);
       } else {
@@ -139,9 +197,13 @@
       label.textContent = folder.name;
       button.append(icon, label);
       button.addEventListener("click", () => {
-        selectedFolderId = String(folder.id);
-        render();
+        selectedTarget = { type: "folder", value: String(folder.id) };
+        statusMessage = "";
+        renderFolders();
         onSelect?.({
+          type: "folder",
+          value: String(folder.id),
+          label: folder.name,
           folder,
           includeSubfolders: elements.includeSubfolders?.checked !== false,
         });
@@ -161,20 +223,198 @@
       return row;
     }
 
+    function renderTags() {
+      if (!elements.tagList) return;
+      const query = String(elements.tagSearch?.value || "").trim().toLocaleLowerCase();
+      const visibleTags = tags.filter(({ searchText }) => !query || searchText.includes(query));
+      elements.tagList.replaceChildren(
+        ...visibleTags.map((tag) =>
+          renderTargetItem({
+            type: "tag",
+            value: tag.name,
+            label: tag.name,
+            icon: "#",
+            color: tag.color,
+          }),
+        ),
+      );
+    }
+
+    function renderFileTypes() {
+      if (!elements.extensionList) return;
+      elements.extensionList.replaceChildren(
+        ...fileTypes.map((fileType) =>
+          renderTargetItem({
+            type: "extension",
+            value: fileType.value,
+            label: fileType.label,
+            icon: fileType.value.slice(0, 3).toUpperCase(),
+          }),
+        ),
+      );
+    }
+
+    function renderTargetItem({ type, value, label, icon, color = "" }) {
+      const button = document.createElement("button");
+      const isSelected = selectedTarget.type === type && selectedTarget.value === value;
+      button.type = "button";
+      button.className = "folder-browser-item folder-browser-target-item";
+      button.classList.toggle("is-selected", isSelected);
+      button.dataset.type = type;
+      button.dataset.value = value;
+      button.setAttribute("role", "option");
+      button.setAttribute("aria-selected", String(isSelected));
+      button.title = `載入「${label}」並取代白板內容`;
+      button.setAttribute("aria-label", button.title);
+
+      const iconElement = document.createElement("span");
+      iconElement.className = `folder-browser-icon folder-browser-${type}-icon`;
+      iconElement.textContent = icon;
+      iconElement.setAttribute("aria-hidden", "true");
+      if (color) iconElement.style.setProperty("--library-source-color", color);
+
+      const labelElement = document.createElement("span");
+      labelElement.className = "folder-browser-label";
+      labelElement.textContent = label;
+      button.append(iconElement, labelElement);
+      button.addEventListener("click", () => {
+        selectedTarget = { type, value };
+        statusMessage = "";
+        renderTags();
+        renderFileTypes();
+        renderFolders();
+        onSelect?.({ type, value, label });
+      });
+      return button;
+    }
+
+    function renderSourceState() {
+      const entries = [
+        ["folder", elements.folderTab, elements.folderPanel],
+        ["tag", elements.tagTab, elements.tagPanel],
+        ["extension", elements.extensionTab, elements.extensionPanel],
+      ];
+      for (const [type, tab, panel] of entries) {
+        const isActive = type === activeType;
+        if (tab) {
+          tab.classList.toggle("is-active", isActive);
+          tab.setAttribute("aria-selected", String(isActive));
+        }
+        if (panel) panel.hidden = !isActive;
+      }
+    }
+
+    function renderStatus() {
+      if (!elements.status) return;
+      if (isLoading || statusMessage) {
+        setStatusText(statusMessage);
+        return;
+      }
+
+      if (activeType === "tag") {
+        const query = String(elements.tagSearch?.value || "").trim().toLocaleLowerCase();
+        const hasMatch = tags.some(({ searchText }) => !query || searchText.includes(query));
+        setStatusText(
+          query && !hasMatch
+            ? "找不到符合的 Tag。"
+            : tags.length
+              ? "選取 Tag 後，白板只顯示含有該 Tag 的素材。"
+              : "目前沒有可用的 Tag。",
+        );
+        return;
+      }
+
+      if (activeType === "extension") {
+        setStatusText(
+          fileTypes.length
+            ? "選取檔案類型後，白板只顯示該副檔名素材。"
+            : "目前沒有可用的檔案類型。",
+        );
+        return;
+      }
+
+      const query = String(elements.search?.value || "").trim().toLocaleLowerCase();
+      const hasMatch = filterFolders(folders, query).length > 0;
+      setStatusText(
+        query && !hasMatch
+          ? "找不到符合的資料夾。"
+          : folders.length
+            ? "選取資料夾後，白板只顯示該資料夾內容。"
+            : "目前沒有可用的資料夾。",
+      );
+    }
+
     function updateOpenState() {
       elements.root?.classList.toggle("is-open", isOpen);
       elements.toggle?.setAttribute("aria-expanded", String(isOpen));
       elements.toggle?.setAttribute(
         "aria-label",
-        isOpen ? "收合資料夾側欄" : "開啟資料夾側欄",
+        isOpen ? "收合素材來源側欄" : "開啟素材來源側欄",
       );
-      elements.toggle?.setAttribute("title", isOpen ? "收合資料夾側欄" : "開啟資料夾側欄");
+      elements.toggle?.setAttribute(
+        "title",
+        isOpen ? "收合素材來源側欄" : "開啟素材來源側欄",
+      );
     }
 
     updateOpenState();
-    render();
+    renderSourceState();
+    renderFolders();
+    renderTags();
+    renderFileTypes();
+    renderStatus();
 
-    return Object.freeze({ setFolders, setLoading, setSelectedFolder, setStatus, toggle });
+    return Object.freeze({
+      setFileTypes,
+      setFolders,
+      setLoading,
+      setSelectedTarget,
+      setStatus,
+      setTags,
+      toggle,
+    });
+  }
+
+  function getSourceLabel(type) {
+    if (type === "tag") return " Tag";
+    if (type === "extension") return "檔案類型";
+    return "資料夾";
+  }
+
+  function normalizeTargetValue(type, value) {
+    const normalized = String(value || "").trim();
+    return type === "extension" ? normalized.replace(/^\./, "").toLowerCase() : normalized;
+  }
+
+  function normalizeTagEntries(source) {
+    const names = new Set();
+    const entries = [];
+    for (const tag of Array.isArray(source) ? source : []) {
+      const name = String(tag?.name || tag || "").trim();
+      if (!name || names.has(name)) continue;
+      names.add(name);
+      entries.push({
+        name,
+        color: String(tag?.color || "").trim(),
+        searchText: name.toLocaleLowerCase(),
+      });
+    }
+    return entries;
+  }
+
+  function normalizeFileTypes(source) {
+    const values = new Set();
+    const entries = [];
+    for (const fileType of Array.isArray(source) ? source : []) {
+      const value = normalizeTargetValue("extension", fileType?.value || fileType);
+      if (!value || values.has(value)) continue;
+      values.add(value);
+      entries.push({
+        value,
+        label: String(fileType?.label || value.toUpperCase()).trim(),
+      });
+    }
+    return entries;
   }
 
   function filterFolders(source, query) {

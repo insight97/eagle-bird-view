@@ -19,7 +19,7 @@ _Avoid_: PDF mode, PDF viewer
 | Eagle selection | `plugin.js:loadSelectedItems` | `row-load-coordinator.js`, `folder-item-source.js` | `test/integration/plugin-startup.test.js` |
 | Board stage replacement and previous/next-board restore | `plugin.js:renderItems` / `restorePreviousBoard` / `restoreNextBoard` | `board-history.js`, `board-state.js` | `test/board-history.test.js`, `test/integration/plugin-startup.test.js`, `test/integration/media-label.test.js` |
 | Enter and leave a PDF board session | `plugin.js:openPdfBoard` / `leavePdfBoard` | `pdf-board.js`, `pdf-runtime.js`, `media-materializer.js` | `test/pdf-board.test.js`, `test/integration/pdf-board.test.js`, `test/pdf-materializer.test.js` |
-| Selected folder contents | `plugin.js:handleFolderBrowserSelect` / `loadSelectedItems` | `folder-browser.js`, `folder-item-source.js`, `folder-content-intake.js` | `test/folder-item-source.test.js`, `test/folder-content-intake.test.js`, `test/integration/plugin-startup.test.js` |
+| Sidebar folder, Tag, or file-extension selection | `plugin.js:handleFolderBrowserSelect` / `loadSelectedItems` | `folder-browser.js`, `folder-item-source.js`, `folder-content-intake.js`, `library-content-target.js` | `test/folder-browser.test.js`, `test/library-content-target.test.js`, `test/integration/plugin-startup.test.js` |
 | Tag metadata target | `plugin.js:loadTagFromMetadataTarget` | `library-content-target.js`, `folder-content-intake.js` | `test/library-content-target.test.js`, `test/integration/media-label.test.js` |
 | Folder metadata target | `plugin.js:loadFolderFromMetadataTarget` | `folder-content-intake.js` | `test/folder-content-intake.test.js`, `test/integration/media-label.test.js` |
 | Initial media mount | `plugin.js:renderItems` | `board-state.js`, `media-materializer.js` | `test/integration/plugin-startup.test.js`, `test/integration/original-image-load.test.js` |
@@ -35,7 +35,7 @@ _Avoid_: PDF mode, PDF viewer
 | --- | --- | --- | --- |
 | `selected` | `plugin.js:loadSelectedItems` | `plugin.js` when a folder is selected, `clearBoard()`, or the library changes | `renderItems`, `appendItemsToBoard`, or empty-state handling |
 | `folder-content` | `folder-content-intake.js:start` / `startFolder` / `loadMore`; selected, sidebar, and folder metadata routes use it directly | `folder-content-intake.js` for folder resolution, new sessions, reset, and stale target resolution | shared `handleFolderContentStart` / `handleFolderContentBatch` callbacks |
-| `library-content-target` | `library-content-target.js:load` for Tag targets | `library-content-target.js`, with Tag board reset requested by `plugin.js` | target `onBeforeStart`, then shared `handleFolderContentBatch`; `handleLibraryContentTargetResult` only reports Tag status |
+| `library-content-target` | `library-content-target.js:load` for Tag and file-extension targets | `library-content-target.js`, with board reset requested by `plugin.js` | target `onBeforeStart`, then shared `handleFolderContentBatch`; `handleLibraryContentTargetResult` reports target status |
 | `exploration` | `plugin.js:exploreNextRow` / `exploreFromSelectionTarget` | `plugin.js` after library, metadata, or exploration-setting changes | `insertExplorationItemsAfterNode` |
 | `unrated` | `plugin.js:loadNextUnratedRow` | `plugin.js` after library, filter, or metadata changes | `insertExplorationItemsAfterNode` |
 | PDF page metrics | `pdf-board.js` after the first page commits the PDF board session | `pdf-board.js` generation when the session leaves or is superseded | `plugin.js:refreshPdfPageLayout`, only while the same session revision remains active |
@@ -51,6 +51,7 @@ Run this manually in an actual Eagle window before claiming a runtime or renderi
 | [ ] Pass [ ] Fail | Select one image and one video; both appear without panning or zooming. | |
 | [ ] Pass [ ] Fail | Select a folder containing one or two media items; the thumbnail is visible immediately after loading. | |
 | [ ] Pass [ ] Fail | Select a folder containing more than one progressive batch; the first batch appears before the remainder, and “載入更多” completes the rest. | |
+| [ ] Pass [ ] Fail | Open the sidebar and load one Tag, then one file extension such as JPG or PDF; each replaces the board and late results from the first selection do not return. | |
 | [ ] Pass [ ] Fail | Start a folder or exploration load, change the Eagle library, and confirm old results never return to the board. | |
 | [ ] Pass [ ] Fail | Pan and zoom rapidly; visible media remains mounted and distant media is released, without labels or cards appearing only after another gesture. | |
 | [ ] Pass [ ] Fail | Disable or make unavailable an optional Eagle API such as AI Search; the documented fallback remains usable. | |

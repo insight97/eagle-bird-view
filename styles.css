@@ -1195,6 +1195,42 @@ button {
   font-size: 11px;
 }
 
+.folder-browser-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 2px;
+  border: 1px solid #41454c;
+  border-radius: 7px;
+  background: #24272b;
+}
+
+.folder-browser-tab {
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #aeb2b9;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+}
+
+.folder-browser-tab:hover,
+.folder-browser-tab:focus-visible {
+  outline: 0;
+  color: #fff;
+}
+
+.folder-browser-tab:focus-visible {
+  box-shadow: inset 0 0 0 1px #7971ed;
+}
+
+.folder-browser-tab.is-active {
+  background: rgb(121 113 237 / 24%);
+  color: #fff;
+}
+
 .folder-browser-search {
   width: 100%;
   height: 28px;
@@ -1220,6 +1256,18 @@ button {
   font-size: 11px;
 }
 
+.folder-browser-panel {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.folder-browser-panel[hidden] {
+  display: none;
+}
+
 .folder-browser-status {
   display: block;
   min-width: 0;
@@ -1230,30 +1278,31 @@ button {
   white-space: nowrap;
 }
 
-.folder-browser-tree {
+.folder-browser-list {
   min-height: 0;
+  flex: 1 1 auto;
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-color: #596170 transparent;
   scrollbar-width: thin;
 }
 
-.folder-browser-tree::-webkit-scrollbar {
+.folder-browser-list::-webkit-scrollbar {
   width: 8px;
 }
 
-.folder-browser-tree::-webkit-scrollbar-track {
+.folder-browser-list::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.folder-browser-tree::-webkit-scrollbar-thumb {
+.folder-browser-list::-webkit-scrollbar-thumb {
   border: 2px solid transparent;
   border-radius: 999px;
   background: #596170;
   background-clip: padding-box;
 }
 
-.folder-browser-tree::-webkit-scrollbar-thumb:hover {
+.folder-browser-list::-webkit-scrollbar-thumb:hover {
   background: #7b8494;
   background-clip: padding-box;
 }
@@ -1347,6 +1396,25 @@ button {
   width: 16px;
   height: 16px;
   fill: currentColor;
+}
+
+.folder-browser-target-item {
+  width: 100%;
+}
+
+.folder-browser-tag-icon {
+  color: var(--library-source-color, #a9a4ff);
+  font-weight: 700;
+}
+
+.folder-browser-extension-icon {
+  width: 30px;
+  flex-basis: 30px;
+  color: #a9a4ff;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
 .folder-browser-label {

@@ -77,6 +77,30 @@ const GRID_LAYER_OVERFLOW = 768;
 const METADATA_SUCCESS_TOAST_MS = 1200;
 const BOARD_HISTORY_MAX_ENTRIES = 10;
 const BOARD_HISTORY_MAX_ITEMS = 5000;
+const LIBRARY_FILE_TYPES = Object.freeze(
+  [
+    "jpg",
+    "jpeg",
+    "png",
+    "webp",
+    "gif",
+    "avif",
+    "svg",
+    "bmp",
+    "ico",
+    "tif",
+    "tiff",
+    "heic",
+    "heif",
+    "pdf",
+    "mp4",
+    "m4v",
+    "mov",
+    "webm",
+    "mkv",
+    "mp3",
+  ].map((value) => Object.freeze({ value, label: value.toUpperCase() })),
+);
 const metadataCommitter = createMetadataCommitter({
   maxConcurrent: 4,
   onChange: refreshCommittedMetadata,
@@ -335,12 +359,27 @@ function setup() {
   elements.pdfBoardBreadcrumb = document.querySelector("#pdf-board-breadcrumb");
   elements.folderBrowser = document.querySelector("#folder-browser");
   elements.folderBrowserToggle = document.querySelector("#folder-browser-toggle");
+  elements.folderBrowserFolderTab = document.querySelector("#folder-browser-tab-folder");
+  elements.folderBrowserTagTab = document.querySelector("#folder-browser-tab-tag");
+  elements.folderBrowserExtensionTab = document.querySelector(
+    "#folder-browser-tab-extension",
+  );
+  elements.folderBrowserFolderPanel = document.querySelector("#folder-browser-panel-folder");
+  elements.folderBrowserTagPanel = document.querySelector("#folder-browser-panel-tag");
+  elements.folderBrowserExtensionPanel = document.querySelector(
+    "#folder-browser-panel-extension",
+  );
   elements.folderBrowserSearch = document.querySelector("#folder-browser-search");
   elements.folderBrowserIncludeSubfolders = document.querySelector(
     "#folder-browser-include-subfolders",
   );
   elements.folderBrowserStatus = document.querySelector("#folder-browser-status");
   elements.folderBrowserTree = document.querySelector("#folder-browser-tree");
+  elements.folderBrowserTagSearch = document.querySelector("#folder-browser-tag-search");
+  elements.folderBrowserTagList = document.querySelector("#folder-browser-tag-list");
+  elements.folderBrowserExtensionList = document.querySelector(
+    "#folder-browser-extension-list",
+  );
   elements.toast = document.querySelector("#toast");
 
   autoExploreSettings = createAutoExploreSettings({
@@ -365,13 +404,23 @@ function setup() {
     elements: {
       root: elements.folderBrowser,
       toggle: elements.folderBrowserToggle,
+      folderTab: elements.folderBrowserFolderTab,
+      tagTab: elements.folderBrowserTagTab,
+      extensionTab: elements.folderBrowserExtensionTab,
+      folderPanel: elements.folderBrowserFolderPanel,
+      tagPanel: elements.folderBrowserTagPanel,
+      extensionPanel: elements.folderBrowserExtensionPanel,
       search: elements.folderBrowserSearch,
       includeSubfolders: elements.folderBrowserIncludeSubfolders,
       status: elements.folderBrowserStatus,
       tree: elements.folderBrowserTree,
+      tagSearch: elements.folderBrowserTagSearch,
+      tagList: elements.folderBrowserTagList,
+      extensionList: elements.folderBrowserExtensionList,
     },
     onSelect: handleFolderBrowserSelect,
   });
+  folderBrowser.setFileTypes(LIBRARY_FILE_TYPES);
 
   mediaMaterializer = createMediaMaterializer({
     document,
@@ -616,6 +665,7 @@ function handleLibraryChanged() {
   state.folderNames.clear();
   state.folderTree = [];
   folderBrowser?.setFolders([]);
+  folderBrowser?.setTags([]);
   state.folderOptionGeneration += 1;
   state.folderOptions = [];
   state.explorationSource.clear();
@@ -644,7 +694,7 @@ async function loadSelectedItems({ append = false } = {}) {
     if (!isCurrent()) return;
 
     if (items.length) {
-      folderBrowser?.setSelectedFolder("");
+      folderBrowser?.setSelectedTarget();
       if (append) {
         resetFolderItemLoad();
         const existingIds = new Set(board.nodes.map(({ item }) => item.id));
@@ -675,7 +725,10 @@ async function loadSelectedItems({ append = false } = {}) {
     }
     if (!isCurrent()) return;
     if (selectedFolders.length) {
-      folderBrowser?.setSelectedFolder(selectedFolders[0]?.id);
+      folderBrowser?.setSelectedTarget({
+        type: "folder",
+        value: selectedFolders[0]?.id,
+      });
       await state.folderContentIntake?.start({
         folders: selectedFolders,
         includeSubfolders: true,
@@ -686,7 +739,7 @@ async function loadSelectedItems({ append = false } = {}) {
 
     if (append) return;
 
-    folderBrowser?.setSelectedFolder("");
+    folderBrowser?.setSelectedTarget();
     resetFolderItemLoad();
     clearBoard({ recordHistory: true });
     if (state.unratedEnabled) {
@@ -704,8 +757,8 @@ async function loadSelectedItems({ append = false } = {}) {
 }
 
 function handleFolderContentStart({ origin, folders }) {
-  // A folder route supersedes a pending Tag target. The two routes now share
-  // the folder session owner, but the Tag query still has its own Eagle API
+  // A folder route supersedes a pending Tag or extension target. The routes
+  // share the folder session owner, but the Eagle item query still has its own
   // channel and must be invalidated explicitly at this integration seam.
   state.libraryContentTarget?.reset();
   if (origin === "sidebar") {
@@ -716,7 +769,7 @@ function handleFolderContentStart({ origin, folders }) {
   if (origin !== "metadata") return;
 
   clearBoard({ recordHistory: true });
-  folderBrowser?.setSelectedFolder(folders?.[0]?.id || "");
+  folderBrowser?.setSelectedTarget({ type: "folder", value: folders?.[0]?.id });
   folderBrowser?.setLoading(true);
 }
 
@@ -728,16 +781,21 @@ async function handleFolderContentBatch(items, { initial = false, focus = false,
     return;
   }
   appendItemsToBoard(items);
-  showToast(`已載入 ${offset} / ${total} 個資料夾素材。`);
+  showToast(`已載入 ${offset} / ${total} 個素材。`);
 }
 
-async function handleFolderBrowserSelect({ folder, includeSubfolders }) {
+async function handleFolderBrowserSelect(selection = {}) {
+  if (selection.type !== "folder") {
+    await loadLibraryContentTarget(selection);
+    return;
+  }
+  const { folder, includeSubfolders } = selection;
   if (!folder?.id || !state.folderContentIntake) {
     folderBrowser?.setStatus("目前無法讀取 Eagle 資料夾。");
     return;
   }
 
-  folderBrowser?.setSelectedFolder(folder.id);
+  folderBrowser?.setSelectedTarget({ type: "folder", value: folder.id });
   const result = await state.folderContentIntake.start({
     folders: [folder],
     includeSubfolders,
@@ -768,13 +826,17 @@ async function loadMoreFolderItems() {
   const result = await intake.loadMore();
   if (result.status === "error" && result.error) {
     console.error("Failed to load folder items", result.error);
-    showToast(`無法載入資料夾素材：${result.error.message || result.error}`, true);
+    showToast(`無法載入素材：${result.error.message || result.error}`, true);
   }
   if (result.status === "partial") {
-    folderBrowser?.setStatus("部分資料夾載入失敗，可按「重試載入」繼續。");
+    folderBrowser?.setStatus("部分素材載入失敗，可按「重試載入」繼續。");
   }
-  if (result.status === "ready" && result.folders?.length && result.remaining === 0) {
-    folderBrowser?.setStatus(`已完成載入${describeSelectedFolders(result.folders)}的內容。`);
+  if (result.status === "ready" && result.remaining === 0) {
+    folderBrowser?.setStatus(
+      result.folders?.length
+        ? `已完成載入${describeSelectedFolders(result.folders)}的內容。`
+        : "已完成載入素材。",
+    );
   }
   return result;
 }
@@ -796,10 +858,10 @@ function updateFolderLoadMoreUI(snapshot = state.folderContentIntake?.snapshot()
       ? "重試載入"
       : `載入更多（${remaining}）`;
   button.title = snapshot?.isLoading
-    ? "正在載入資料夾素材"
+    ? "正在載入素材"
     : canRetry
-      ? "重試載入失敗的資料夾素材"
-      : `載入剩餘 ${remaining} 個資料夾素材`;
+      ? "重試載入失敗的素材"
+      : `載入剩餘 ${remaining} 個素材`;
 }
 
 function describeSelectedFolders(folders) {
@@ -1059,7 +1121,7 @@ function restoreBoardSnapshot(snapshot, message) {
   state.unratedExhausted = false;
   state.lastUnratedTriggerRow = null;
   folderBrowser?.setLoading(false);
-  folderBrowser?.setSelectedFolder("");
+  folderBrowser?.setSelectedTarget();
 
   clearBoard();
   board.relayout(snapshot.items, getBoardLayoutConfig(), snapshot.rotations);
@@ -1555,17 +1617,22 @@ function createMetadataTarget({ node, type, value, label, selection = false }) {
 }
 
 async function loadTagFromMetadataTarget(tag, label) {
-  const value = String(tag || "").trim();
-  if (!value || !state.libraryContentTarget) {
-    showToast("目前無法讀取 Eagle Tag 素材。", true);
+  await loadLibraryContentTarget({ type: "tag", value: tag, label });
+}
+
+async function loadLibraryContentTarget({ type, value: rawValue, label } = {}) {
+  const value = String(rawValue || "").trim();
+  const typeLabel = type === "extension" ? "檔案類型" : "Tag";
+  const targetLabel = label || value;
+  if (!value || !state.libraryContentTarget || !["tag", "extension"].includes(type)) {
+    showToast(`目前無法讀取 Eagle ${typeLabel}素材。`, true);
     return;
   }
 
-  folderBrowser?.setLoading(false);
-  folderBrowser?.setSelectedFolder("");
-  folderBrowser?.setStatus(`正在載入 Tag「${label || value}」…`);
+  folderBrowser?.setSelectedTarget({ type, value });
+  folderBrowser?.setLoading(true, `正在載入${typeLabel}「${targetLabel}」…`);
   const result = await state.libraryContentTarget.load({
-    type: "tag",
+    type,
     value,
     label,
     onBeforeStart() {
@@ -1573,7 +1640,9 @@ async function loadTagFromMetadataTarget(tag, label) {
       clearBoard({ recordHistory: true });
     },
   });
-  handleLibraryContentTargetResult(result, { value, label });
+  if (result.status === "stale") return;
+  folderBrowser?.setLoading(false);
+  handleLibraryContentTargetResult(result, { type, value, label });
 }
 
 async function loadFolderFromMetadataTarget(folderId, label) {
@@ -1594,30 +1663,32 @@ async function loadFolderFromMetadataTarget(folderId, label) {
   handleFolderContentTargetResult(result, { value: id, label });
 }
 
-function handleLibraryContentTargetResult(result, { value, label }) {
+function handleLibraryContentTargetResult(result, { type, value, label }) {
   if (result.status === "stale") return;
   const targetLabel = label || value;
+  const typeLabel = type === "extension" ? "檔案類型" : "Tag";
+  const targetDescription = `${typeLabel}「${targetLabel}」`;
   if (result.status === "unavailable") {
-    showToast("目前無法讀取 Eagle Tag 素材。", true);
+    showToast(`目前無法讀取 Eagle ${typeLabel}素材。`, true);
     return;
   }
   if (result.status === "error") {
     const errorMessage = result.error?.message || result.error;
-    folderBrowser?.setStatus("載入 Tag 失敗，請重新嘗試。");
+    folderBrowser?.setStatus(`載入${typeLabel}失敗，請重新嘗試。`);
     if (errorMessage) {
-      showToast(`無法載入 Tag 素材：${errorMessage}`, true);
+      showToast(`無法載入${typeLabel}素材：${errorMessage}`, true);
     }
     return;
   }
   if (result.status === "partial") {
-    folderBrowser?.setStatus("Tag 素材部分載入失敗，可按「重試載入」繼續。");
+    folderBrowser?.setStatus(`${typeLabel}素材部分載入失敗，可按「重試載入」繼續。`);
     return;
   }
   if (result.status === "empty") {
-    folderBrowser?.setStatus(`Tag「${targetLabel}」沒有可載入的素材。`);
+    folderBrowser?.setStatus(`${targetDescription}沒有可載入的素材。`);
     return;
   }
-  folderBrowser?.setStatus(`已載入 Tag「${targetLabel}」的內容。`);
+  folderBrowser?.setStatus(`已載入${targetDescription}的內容。`);
 }
 
 function handleFolderContentTargetResult(result, { value, label }) {
@@ -1763,6 +1834,7 @@ async function loadTagColors() {
   const generation = ++state.tagColorGeneration;
   if (typeof eagle === "undefined" || typeof eagle.tag?.get !== "function") {
     state.tagColors = new Map();
+    folderBrowser?.setTags([]);
     autoExploreSettings.update();
     return;
   }
@@ -1770,11 +1842,11 @@ async function loadTagColors() {
   try {
     const tags = await eagle.tag.get();
     if (generation !== state.tagColorGeneration) return;
-    state.tagColors = new Map(
-      tags
-        .filter(({ name }) => name)
-        .map(({ name, color }) => [name, normalizeTagColor(color)]),
-    );
+    const sidebarTags = (tags || [])
+      .filter(({ name }) => name)
+      .map(({ name, color }) => ({ name, color: normalizeTagColor(color) }));
+    state.tagColors = new Map(sidebarTags.map(({ name, color }) => [name, color]));
+    folderBrowser?.setTags(sidebarTags);
     for (const node of state.mountedLabelNodes) refreshMediaMetadata(node);
     autoExploreSettings.update();
     updateSelectionStatus();
@@ -1782,6 +1854,7 @@ async function loadTagColors() {
   } catch (error) {
     if (generation !== state.tagColorGeneration) return;
     state.tagColors = new Map();
+    folderBrowser?.setTags([]);
     autoExploreSettings.update();
     console.warn("Failed to load Eagle tag colors", error);
   }

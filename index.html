@@ -49,8 +49,8 @@
             type="button"
             aria-controls="folder-browser-content"
             aria-expanded="false"
-            aria-label="開啟資料夾側欄"
-            title="開啟資料夾側欄"
+            aria-label="開啟素材來源側欄"
+            title="開啟素材來源側欄"
           >
             <svg viewBox="0 0 20 20" aria-hidden="true">
               <rect x="2.5" y="3" width="15" height="14" rx="2"></rect>
@@ -703,27 +703,91 @@
         </div>
       </header>
 
-      <aside id="folder-browser" class="folder-browser" aria-label="資料夾瀏覽">
+      <aside id="folder-browser" class="folder-browser" aria-label="素材來源">
         <div id="folder-browser-content" class="folder-browser-content">
           <div class="folder-browser-heading">
             <div>
-              <strong>資料夾</strong>
+              <strong>素材來源</strong>
               <span>選取後取代白板內容</span>
             </div>
           </div>
-          <input
-            id="folder-browser-search"
-            class="folder-browser-search"
-            type="search"
-            placeholder="搜尋資料夾"
-            aria-label="搜尋資料夾"
-          />
-          <label class="folder-browser-option">
-            <input id="folder-browser-include-subfolders" type="checkbox" checked />
-            <span>包含子資料夾</span>
-          </label>
+          <div class="folder-browser-tabs" role="tablist" aria-label="選擇素材來源">
+            <button
+              id="folder-browser-tab-folder"
+              class="folder-browser-tab is-active"
+              type="button"
+              role="tab"
+              aria-controls="folder-browser-panel-folder"
+              aria-selected="true"
+            >
+              資料夾
+            </button>
+            <button
+              id="folder-browser-tab-tag"
+              class="folder-browser-tab"
+              type="button"
+              role="tab"
+              aria-controls="folder-browser-panel-tag"
+              aria-selected="false"
+            >
+              Tag
+            </button>
+            <button
+              id="folder-browser-tab-extension"
+              class="folder-browser-tab"
+              type="button"
+              role="tab"
+              aria-controls="folder-browser-panel-extension"
+              aria-selected="false"
+            >
+              類型
+            </button>
+          </div>
           <div id="folder-browser-status" class="folder-browser-status" role="status" aria-live="polite"></div>
-          <div id="folder-browser-tree" class="folder-browser-tree" role="tree"></div>
+          <section
+            id="folder-browser-panel-folder"
+            class="folder-browser-panel"
+            role="tabpanel"
+            aria-labelledby="folder-browser-tab-folder"
+          >
+            <input
+              id="folder-browser-search"
+              class="folder-browser-search"
+              type="search"
+              placeholder="搜尋資料夾"
+              aria-label="搜尋資料夾"
+            />
+            <label class="folder-browser-option">
+              <input id="folder-browser-include-subfolders" type="checkbox" checked />
+              <span>包含子資料夾</span>
+            </label>
+            <div id="folder-browser-tree" class="folder-browser-list folder-browser-tree" role="tree"></div>
+          </section>
+          <section
+            id="folder-browser-panel-tag"
+            class="folder-browser-panel"
+            role="tabpanel"
+            aria-labelledby="folder-browser-tab-tag"
+            hidden
+          >
+            <input
+              id="folder-browser-tag-search"
+              class="folder-browser-search"
+              type="search"
+              placeholder="搜尋 Tag"
+              aria-label="搜尋 Tag"
+            />
+            <div id="folder-browser-tag-list" class="folder-browser-list" role="listbox"></div>
+          </section>
+          <section
+            id="folder-browser-panel-extension"
+            class="folder-browser-panel"
+            role="tabpanel"
+            aria-labelledby="folder-browser-tab-extension"
+            hidden
+          >
+            <div id="folder-browser-extension-list" class="folder-browser-list" role="listbox"></div>
+          </section>
         </div>
       </aside>
 

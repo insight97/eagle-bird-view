@@ -116,10 +116,19 @@ const SELECTORS = [
   "#pdf-board-breadcrumb",
   "#folder-browser",
   "#folder-browser-toggle",
+  "#folder-browser-tab-folder",
+  "#folder-browser-tab-tag",
+  "#folder-browser-tab-extension",
+  "#folder-browser-panel-folder",
+  "#folder-browser-panel-tag",
+  "#folder-browser-panel-extension",
   "#folder-browser-search",
   "#folder-browser-include-subfolders",
   "#folder-browser-status",
   "#folder-browser-tree",
+  "#folder-browser-tag-search",
+  "#folder-browser-tag-list",
+  "#folder-browser-extension-list",
   "#toast",
 ];
 
@@ -338,7 +347,9 @@ function createPluginHarness({
   pdfjsLib = null,
   storage = null,
   folderTree = [],
+  tags = [],
   tagSourceResult = [],
+  extensionSourceResult = [],
   folderSelectionApi = true,
   folderSourceImplementation = null,
   videoThumbnailImplementation = null,
@@ -361,6 +372,7 @@ function createPluginHarness({
   let folderSourceResult = { folders: [], items: [] };
   let currentTagSourceResult = tagSourceResult;
   let tagLoadRequests = 0;
+  let extensionLoadRequests = 0;
   let fullScreen = false;
   let fullScreenCalls = 0;
   let selectedNodeId = null;
@@ -606,9 +618,18 @@ function createPluginHarness({
             tagLoadRequests += 1;
             return currentTagSourceResult;
           }
+          if (options.ext) {
+            extensionLoadRequests += 1;
+            return extensionSourceResult;
+          }
           return [];
         },
         async open() {},
+      },
+      tag: {
+        async get() {
+          return tags;
+        },
       },
       folder: {
         async getAll() {
@@ -682,6 +703,7 @@ function createPluginHarness({
     get folderSelectionRequests() { return folderSelectionRequests; },
     get folderSelectionOptions() { return folderSelectionOptions; },
     get tagLoadRequests() { return tagLoadRequests; },
+    get extensionLoadRequests() { return extensionLoadRequests; },
     get fullScreen() { return fullScreen; },
     get fullScreenCalls() { return fullScreenCalls; },
     get camera() { return navigationState?.camera || null; },
