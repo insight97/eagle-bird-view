@@ -54,6 +54,32 @@ test("folder picker keeps existing folders selected and commits additions/remova
     assert.equal(picker.session, null);
   }));
 
+test("folder picker prioritizes more-used matching folders", () =>
+  withDom((window) => {
+    const viewport = document.createElement("div");
+    const anchor = document.createElement("button");
+    const node = { item: { name: "Cover", folders: [] } };
+    viewport.append(anchor);
+    document.body.append(viewport);
+
+    const picker = new FolderPicker({
+      getViewport: () => viewport,
+      onSelectNode() {},
+    });
+    picker.open(node, anchor, [
+      { id: "photos", name: "Photos", count: 4 },
+      { id: "phrona", name: "Phrona", count: 12 },
+    ]);
+
+    picker.session.input.value = "ph";
+    picker.session.input.dispatchEvent(new window.Event("input", { bubbles: true }));
+
+    assert.deepEqual(
+      picker.session.actions.map(({ element }) => element.textContent),
+      ["Phrona", "Photos"],
+    );
+  }));
+
 test("folder picker closes on Escape and outside pointerdown", () =>
   withDom((window) => {
     const viewport = document.createElement("div");

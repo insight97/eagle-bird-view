@@ -48,6 +48,38 @@ test("tag editor opens, filters tags, selects a result, and commits with Enter",
     assert.equal(viewport.querySelector("[role='dialog']"), null);
   }));
 
+test("tag editor prioritizes more-used matching tags", () =>
+  withDom((window) => {
+    const viewport = document.createElement("div");
+    const anchor = document.createElement("button");
+    const node = { item: { name: "Cover", tags: [] } };
+    viewport.append(anchor);
+    document.body.append(viewport);
+
+    const editor = new TagEditor({
+      getViewport: () => viewport,
+      getAvailableTags: () => [
+        { name: "Photo", count: 4 },
+        { name: "Phrone", count: 12 },
+      ],
+      createTagChip: (tag) => {
+        const chip = document.createElement("span");
+        chip.textContent = tag;
+        return chip;
+      },
+      onSelectNode() {},
+    });
+    editor.open(node, anchor);
+
+    editor.session.input.value = "ph";
+    editor.session.input.dispatchEvent(new window.Event("input", { bubbles: true }));
+
+    assert.deepEqual(
+      editor.session.actions.slice(0, 2).map(({ element }) => element.textContent),
+      ["Phrone", "Photo"],
+    );
+  }));
+
 test("tag editor commits changed tags when closing with Escape", () =>
   withDom(async (window) => {
     const viewport = document.createElement("div");

@@ -93,12 +93,18 @@
 
     renderOptions(session) {
       const query = this.getQuery(session);
+      const availableTags = normalizeAvailableTagEntries(
+        this.options.getAvailableTags?.() || [],
+      );
+      const tagCounts = new Map(
+        availableTags.map(({ name, count }) => [name, count]),
+      );
       let candidates = rankTagMatches(
         [
           ...session.selected,
           ...normalizeTags(session.node.item.tags),
           ...(session.mixed || []),
-          ...this.options.getAvailableTags(),
+          ...availableTags.map(({ name }) => name),
         ],
         query,
       );
@@ -107,6 +113,12 @@
           const selectedDifference =
             Number(session.selected.has(second)) - Number(session.selected.has(first));
           return selectedDifference || first.localeCompare(second);
+        });
+      } else {
+        const searchOrder = new Map(candidates.map((tag, index) => [tag, index]));
+        candidates = candidates.sort((first, second) => {
+          const countOrder = compareTagCounts(tagCounts.get(first), tagCounts.get(second));
+          return countOrder || searchOrder.get(first) - searchOrder.get(second);
         });
       }
       candidates = candidates.slice(0, MAX_TAG_OPTIONS);
@@ -203,6 +215,32 @@
     refresh() {
       if (this.session) this.renderOptions(this.session);
     }
+  }
+
+  function normalizeAvailableTagEntries(source) {
+    const entries = [];
+    const seen = new Set();
+    for (const value of source) {
+      const name = String(
+        value && typeof value === "object" ? value.name || "" : value || "",
+      ).trim();
+      if (!name || seen.has(name)) continue;
+      seen.add(name);
+      entries.push({ name, count: normalizeTagCount(value?.count) });
+    }
+    return entries;
+  }
+
+  function normalizeTagCount(value) {
+    const count = Number(value);
+    return Number.isFinite(count) && count >= 0 ? Math.floor(count) : null;
+  }
+
+  function compareTagCounts(first, second) {
+    if (first === null && second === null) return 0;
+    if (first === null) return 1;
+    if (second === null) return -1;
+    return second - first;
   }
 
   return Object.freeze({ TagEditor });

@@ -111,6 +111,10 @@
       const entries = session.entries
         .filter((entry) => !query || entry.searchText.includes(query))
         .sort((first, second) => {
+          if (query) {
+            const countOrder = compareFolderCounts(first.count, second.count);
+            if (countOrder) return countOrder;
+          }
           if (!query) {
             const selectedDifference =
               Number(session.selected.has(second.id)) - Number(session.selected.has(first.id));
@@ -249,8 +253,23 @@
         id: entry.id,
         path,
         searchText: path.toLocaleLowerCase(),
+        count: normalizeFolderCount(
+          entry.folder?.recursiveCount ?? entry.folder?.count,
+        ),
       };
     });
+  }
+
+  function normalizeFolderCount(value) {
+    const count = Number(value);
+    return Number.isFinite(count) && count >= 0 ? Math.floor(count) : null;
+  }
+
+  function compareFolderCounts(first, second) {
+    if (first === null && second === null) return 0;
+    if (first === null) return 1;
+    if (second === null) return -1;
+    return second - first;
   }
 
   return Object.freeze({ FolderPicker, createFolderEntries });

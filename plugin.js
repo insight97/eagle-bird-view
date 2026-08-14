@@ -232,7 +232,13 @@ const rowLoadCoordinator = createRowLoadCoordinator({
 });
 const tagEditor = new TagEditor({
   getViewport: () => elements.viewport,
-  getAvailableTags: () => state.tagColors.keys(),
+  getAvailableTags: () => {
+    const counts = state.librarySourceSummary?.tagCounts;
+    return state.sidebarTags.map((tag) => ({
+      ...tag,
+      count: counts?.get(tag.name) ?? tag.count,
+    }));
+  },
   createTagChip,
   onSelectNode: (node) => selectionNavigation.setSelectedNode(node),
   onCommit: commitTagChanges,
@@ -1944,6 +1950,7 @@ async function loadLibrarySourceSummary() {
     state.librarySourceSummary = summary;
     updateFolderBrowserTags();
     updateFolderBrowserFolders();
+    tagEditor.refresh();
     folderBrowser?.setFileTypes(
       LIBRARY_FILE_TYPES.map((fileType) => ({
         ...fileType,
@@ -1956,6 +1963,7 @@ async function loadLibrarySourceSummary() {
     folderBrowser?.setFileTypes([]);
     updateFolderBrowserTags();
     updateFolderBrowserFolders();
+    tagEditor.refresh();
     console.warn("Failed to load Eagle library source counts", error);
   }
 }
@@ -2397,13 +2405,16 @@ async function openFolderPickerForNode(node, anchor) {
   tagEditor.close();
   try {
     const folders = await eagle.folder.getAll();
+    const pickerFolders = state.librarySourceSummary
+      ? addFolderCounts(folders, state.librarySourceSummary)
+      : folders;
     const selectedNodes = getSelectedNodeList();
     if (!node.label?.isConnected && node !== state.selectedNode) return;
     if (selectedNodes.length > 1 && selectedNodes.includes(node)) {
-      folderPicker.openMultiple(selectedNodes, anchor || node.element, folders);
+      folderPicker.openMultiple(selectedNodes, anchor || node.element, pickerFolders);
       return;
     }
-    folderPicker.open(node, anchor || node.element, folders);
+    folderPicker.open(node, anchor || node.element, pickerFolders);
   } catch (error) {
     console.error("Failed to load Eagle folders", error);
     showToast(`無法讀取 Eagle 資料夾：${error.message || error}`, true);
