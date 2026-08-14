@@ -112,6 +112,16 @@
       scheduler.schedule();
     }
 
+    // A smooth keyboard release leaves a short deceleration tail. Start the
+    // current media coverage while that tail is still running, but keep the
+    // motion lifecycle active so labels, selection, and settled-only work do
+    // not run early.
+    function releaseMotion(motion) {
+      assertMotion(motion);
+      if (motion === "focus" || getActiveMotion() !== motion) return;
+      syncCoverage({ allowOriginals: true });
+    }
+
     function endMotion(motion) {
       assertMotion(motion);
       const count = activeMotions.get(motion) || 0;
@@ -148,15 +158,15 @@
       return null;
     }
 
-    function syncCoverage() {
-      materializer.sync(planCoverage());
+    function syncCoverage({ allowOriginals = false } = {}) {
+      materializer.sync(planCoverage({ allowOriginals }));
     }
 
     function syncQuality() {
       materializer.syncQuality(planQuality());
     }
 
-    function planCoverage() {
+    function planCoverage({ allowOriginals = false } = {}) {
       const snapshot = normalizeSnapshot(getSnapshot(), getCameraMotion());
       const travel = lastCoverageCamera
         ? {
@@ -165,7 +175,12 @@
           }
         : null;
       lastCoverageCamera = { x: snapshot.camera.x, y: snapshot.camera.y };
-      return buildPlan(snapshot, snapshot.motion === "pan" ? travel : null);
+      const plan = buildPlan(snapshot, snapshot.motion === "pan" ? travel : null);
+      if (!allowOriginals) return plan;
+      // Release quality is still a moving-camera plan: preserve existing
+      // originals and retention rules, but let the currently covered cards
+      // begin their bounded raster work before the final settled pass.
+      return { ...plan, deferOriginals: () => false };
     }
 
     // Zoom revisits quality for cards already covered. It neither advances the
@@ -259,7 +274,13 @@
       if (!MOTIONS.has(motion)) throw new Error(`Unknown camera motion: ${motion}`);
     }
 
-    return Object.freeze({ beginMotion, cameraChanged, endMotion, noteMotion });
+    return Object.freeze({
+      beginMotion,
+      cameraChanged,
+      endMotion,
+      noteMotion,
+      releaseMotion,
+    });
   }
 
   function normalizeSnapshot(snapshot = {}, motion) {

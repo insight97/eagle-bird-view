@@ -247,6 +247,28 @@ test("smooth keyboard pan drops its imperceptible low-speed tail promptly", () =
   );
 });
 
+test("smooth keyboard pan reports release before its deceleration ends", () => {
+  const events = [];
+  const harness = createHarness(180, {
+    onSmoothPanRelease: () => events.push("release"),
+    onSmoothPanEnd: () => events.push("end"),
+  });
+  harness.state.smoothPanEnabled = true;
+  harness.navigation.startSmoothKeyboardPan("arrowright");
+  harness.frames.get(harness.state.smoothPanFrame)(16);
+
+  harness.navigation.handleKeyUp("ArrowRight");
+
+  assert.deepEqual(events, ["release"]);
+  assert.notEqual(harness.state.smoothPanFrame, null);
+  for (let timestamp = 32; timestamp <= 1000; timestamp += 16) {
+    const frame = harness.state.smoothPanFrame;
+    if (frame === null) break;
+    harness.frames.get(frame)(timestamp);
+  }
+  assert.deepEqual(events, ["release", "end"]);
+});
+
 test("smooth keyboard pan adapts its braking at the maximum configured speed", () => {
   let timestamp = 0;
   let endedAt = null;
@@ -413,6 +435,28 @@ test("smooth keyboard zoom accelerates while held and decelerates after release"
   }
   assert.equal(harness.state.smoothZoomFrame, null);
   assert.equal(harness.state.smoothZoomVelocity, 0);
+});
+
+test("smooth keyboard zoom reports release before its deceleration ends", () => {
+  const events = [];
+  const harness = createHarness(180, {
+    onSmoothZoomRelease: () => events.push("release"),
+    onSmoothZoomEnd: () => events.push("end"),
+  });
+  harness.state.smoothZoomEnabled = true;
+  harness.navigation.startSmoothKeyboardZoom("PageUp");
+  harness.frames.get(harness.state.smoothZoomFrame)(16);
+
+  harness.navigation.handleKeyUp("PageUp");
+
+  assert.deepEqual(events, ["release"]);
+  assert.notEqual(harness.state.smoothZoomFrame, null);
+  for (let timestamp = 32; timestamp <= 1000; timestamp += 16) {
+    const frame = harness.state.smoothZoomFrame;
+    if (frame === null) break;
+    harness.frames.get(frame)(timestamp);
+  }
+  assert.deepEqual(events, ["release", "end"]);
 });
 
 test("smooth keyboard zoom adapts its braking at the maximum configured speed", () => {

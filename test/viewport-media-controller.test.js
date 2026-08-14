@@ -151,6 +151,22 @@ test("continuous pan refreshes media coverage within 120ms", () => {
   );
 });
 
+test("releasing a continuous pan starts image quality work without settling the camera", () => {
+  const harness = createHarness();
+
+  harness.controller.beginMotion("pan");
+  harness.controller.releaseMotion("pan");
+
+  assert.deepEqual(harness.calls.map(({ type }) => type), ["coverage"]);
+  const releasePlan = harness.calls[0].plan;
+  assert.equal(releasePlan.deferOriginals(harness.state.nodes[0]), false);
+  assert.equal(releasePlan.preserveOriginals, true);
+  assert.equal(harness.renderRequests, 0);
+
+  harness.controller.endMotion("pan");
+  assert.deepEqual(harness.calls.map(({ type }) => type), ["coverage", "coverage", "settled"]);
+});
+
 test("continuous zoom evaluates quality but defers new originals until it settles", () => {
   const node = createNode("zoomed");
   const harness = createHarness({ nodes: [node] });

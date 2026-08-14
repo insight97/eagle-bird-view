@@ -60,8 +60,10 @@
       onFocusStart = () => {},
       onFocusEnd = () => {},
       onSmoothPanStart = () => {},
+      onSmoothPanRelease = () => {},
       onSmoothPanEnd = () => {},
       onSmoothZoomStart = () => {},
+      onSmoothZoomRelease = () => {},
       onSmoothZoomEnd = () => {},
     } = options;
     const getRows = options.getRows || (() => state.rows);
@@ -421,9 +423,13 @@
       const normalizedKey = String(key || "").toLowerCase();
       if (state.smoothPanKeys.has(normalizedKey)) {
         state.smoothPanKeys.delete(normalizedKey);
+        // The camera still decelerates after the last key is released. Give
+        // media a chance to start before that tail finishes.
+        if (!state.smoothPanKeys.size) onSmoothPanRelease();
       }
       if (state.smoothZoomKeys.has(normalizedKey)) {
         state.smoothZoomKeys.delete(normalizedKey);
+        if (!state.smoothZoomKeys.size) onSmoothZoomRelease();
       }
     }
 

@@ -537,8 +537,14 @@ function createPluginHarness({
           },
           getKeyboardPanStep() { return 240; },
           handleKeyUp() {
-            finishSmoothPan();
-            if (smoothZoomProbe) finishSmoothZoom();
+            if (smoothPanActive) {
+              options.onSmoothPanRelease?.();
+              finishSmoothPan();
+            }
+            if (smoothZoomProbe && smoothZoomActive) {
+              options.onSmoothZoomRelease?.();
+              finishSmoothZoom();
+            }
           },
           handleWindowBlur() {
             finishSmoothPan();

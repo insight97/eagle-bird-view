@@ -500,12 +500,14 @@ function setup() {
       state.seamlessMode ? TIGHT_FOCUS_ROW_EMPHASIS : undefined,
     getFocusTargetHeight: () => state.focusMediaSize,
     onSmoothPanStart: () => viewportMedia.beginMotion("pan"),
+    onSmoothPanRelease: () => viewportMedia.releaseMotion("pan"),
     onSmoothPanEnd: () => viewportMedia.endMotion("pan"),
     onSmoothZoomStart: () => {
       state.isSmoothZooming = true;
       elements.labels?.classList.add("is-smooth-zooming");
       viewportMedia.beginMotion("zoom");
     },
+    onSmoothZoomRelease: () => viewportMedia.releaseMotion("zoom"),
     onSmoothZoomEnd: () => {
       state.isSmoothZooming = false;
       elements.labels?.classList.remove("is-smooth-zooming");
