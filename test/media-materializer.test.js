@@ -652,12 +652,37 @@ test("zooming back out hands the oversized raster back", async () => {
   assert.equal(zoomed.width, 0, "the oversized canvas gives its pixels back");
 });
 
-// A budget that only grows leaves a zoomed-out board painting 4096px rasters
-// into 180px cards, which is the thrash that bounding was meant to remove.
-test("dropping below the original threshold gives the raster back", async () => {
+test("dropping below the original threshold keeps the normalized raster source", async () => {
+  const harness = createRasterHarness({ screenLongEdge: 1500 });
+  const node = createMasterNode();
+  const originalRaster = await loadOriginal(harness, node);
+
+  harness.setScreenLongEdge(100);
+  harness.materializer.sync({
+    visibleNodes: [node],
+    retainedNodes: [node],
+    loadNodes: [node],
+    selectedNode: null,
+    getQuality: () => "thumbnail",
+  });
+
+  assert.equal(node.previewImage.tagName, "CANVAS");
+  assert.equal(
+    node.previewImage.transferred,
+    originalRaster,
+    "the smaller raster must be copied from the orientation-correct raster",
+  );
+  assert.equal(node.previewImage.width, 363);
+  assert.equal(node.previewImage.height, 512);
+  assert.equal(node.element.dataset.mediaQuality, "original");
+  assert.equal(harness.mediaLoadQueue.snapshot(node).readyQuality, "original");
+});
+
+test("dropping below the original threshold keeps the bounded raster", async () => {
   const harness = createRasterHarness({ screenLongEdge: 1500 });
   const node = createMasterNode();
   const canvas = await loadOriginal(harness, node);
+  harness.setScreenLongEdge(100);
   const thumbnail = harness.images()[0];
 
   harness.materializer.sync({
@@ -668,19 +693,22 @@ test("dropping below the original threshold gives the raster back", async () => 
     getQuality: () => "thumbnail",
   });
 
-  assert.equal(node.previewImage, thumbnail);
-  assert.equal(node.mediaElement, thumbnail);
-  assert.equal(thumbnail.style.visibility, "visible");
+  assert.notEqual(node.previewImage, canvas);
+  assert.equal(node.previewImage, node.mediaElement);
+  assert.equal(thumbnail.style.visibility, "hidden");
   assert.equal(canvas.isConnected, false);
   assert.equal(canvas.width, 0);
-  assert.equal(node.element.dataset.mediaQuality, "thumbnail");
-  assert.equal(harness.mediaLoadQueue.snapshot(node).readyQuality, "thumbnail");
+  assert.equal(node.previewImage.width, 363);
+  assert.equal(node.previewImage.height, 512);
+  assert.equal(node.element.dataset.mediaQuality, "original");
+  assert.equal(harness.mediaLoadQueue.snapshot(node).readyQuality, "original");
 });
 
 test("zooming back in after a drop reloads the original", async () => {
   const harness = createRasterHarness({ screenLongEdge: 1500 });
   const node = createMasterNode();
   await loadOriginal(harness, node);
+  harness.setScreenLongEdge(100);
   harness.materializer.sync({
     visibleNodes: [node],
     retainedNodes: [node],
@@ -689,11 +717,11 @@ test("zooming back in after a drop reloads the original", async () => {
     getQuality: () => "thumbnail",
   });
 
-  harness.setScreenLongEdge(400);
+  harness.setScreenLongEdge(1500);
   harness.materializer.syncQuality({ loadNodes: [node], getQuality: () => "original" });
   await settle();
 
-  assert.equal(harness.downscaleCalls.at(-1).budget, 512);
+  assert.equal(harness.downscaleCalls.at(-1).budget, 1536);
   assert.equal(node.previewImage, harness.canvases().at(-1));
   assert.equal(node.element.dataset.mediaQuality, "original");
 });

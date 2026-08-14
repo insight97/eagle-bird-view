@@ -175,18 +175,31 @@
       requestMediaByNode.get(node)?.("original", { budget: needed, prewarmed, priority });
     }
 
-    // Zooming out far enough that the card no longer wants an original at all
-    // has to give the raster back too. refreshRasterBudget() cannot do it: it
-    // only runs for cards still asking for "original", so without this a card
-    // that drops below the threshold keeps painting whatever raster it grew to.
+    // Zooming out far enough that the card no longer wants an original still
+    // needs a settled raster pass. refreshRasterBudget() cannot do it: it only
+    // runs for cards still asking for "original". Keep a bounded Canvas here so
+    // dropping below the threshold does not swap an orientation-normalized
+    // raster for an Eagle thumbnail whose orientation convention may differ.
     function dropOriginalRaster(node) {
       const raster = rasterByNode.get(node);
       if (!raster) return;
+      const snapshot = mediaLoadQueue.snapshot(node);
+      if (snapshot?.readyQuality !== "original" || snapshot.thumbnailFailed) return;
+
+      if (raster.element?.tagName === "CANVAS") {
+        const targetBudget = getRasterDimensionBudget(getNodeScreenLongEdge(node));
+        if (targetBudget < raster.budget) {
+          resizeRasterByNode.get(node)?.(targetBudget);
+        }
+        debugLog(node.item, "bounded-raster-retained", {
+          budget: rasterByNode.get(node)?.budget || raster.budget,
+        });
+        return;
+      }
+
       const thumbnail = thumbnailImageByNode.get(node);
       const original = node.previewImage;
       if (!thumbnail || !original || thumbnail === original) return;
-      const snapshot = mediaLoadQueue.snapshot(node);
-      if (snapshot?.readyQuality !== "original" || snapshot.thumbnailFailed) return;
       if (!mediaLoadQueue.invalidate(node, "original")) return;
 
       thumbnail.style.visibility = "visible";
