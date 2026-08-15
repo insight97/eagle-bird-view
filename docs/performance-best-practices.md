@@ -94,7 +94,7 @@ A/B 對照（隱藏 `.media-card`）：`RasterTask` 1560ms → 2.7ms，大型 de
 - `image-downscaler.js` 以 `fetch()` 取得編碼位元組後交給 `createImageBitmap(blob, { resizeWidth, resizeHeight })`，回傳有上限的 `ImageBitmap`，由卡片轉移進 `<canvas>`（見第八、九輪）。
 
   這裡原本寫著兩件事，後來都被 trace 推翻，保留在此以免有人重蹈：**「JPEG 會在 DCT 階段就縮放，全解析度點陣圖不會產生」**——實測 JPEG 平均 124ms、最長 372ms，母檔仍是完整解碼後再縮；**「`OffscreenCanvas.convertToBlob()` 讓編碼離開主執行緒」**——CPU profile 顯示它佔用主執行緒 1911ms。兩者都是從規格措辭推斷、未經量測就寫下的。
-- 若 `fetch` 讀不到檔案（例如 file:// 被擋），退回讓 `<img>` 載入母檔再從元素縮圖；這條路仍能消除重複解碼，但省不掉第一次全解析度解碼。兩條 bounded raster 路徑都失敗時保留縮圖並提供 retry，不讓失敗路徑把母檔交給 compositor。
+- 若 `fetch` 讀不到檔案（例如 file:// 被擋），先用 plugin 注入的本機檔案 reader 取得 encoded bytes，再交給同一條 bounded raster 路徑；只有本機 reader 不可用時才退回讓 `<img>` 載入母檔再從元素縮圖。這條 element 退路仍能消除重複解碼，但省不掉第一次全解析度解碼。所有 bounded raster 路徑都失敗時保留縮圖並提供 retry，不讓失敗路徑把母檔交給 compositor。
 - `media-materializer.js` 在載入前就用 Eagle metadata 的 `item.width`／`item.height` 算出目標尺寸，所以不必先解碼才知道要縮多少。縮放超過目前預算時透過 `MediaLoadQueue.invalidate()` 重新算一張，期間畫面維持既有 raster 不閃爍。
 
 效果：40 MP 母檔在一般 zoom 下只需 512 長邊（約 0.74 MB 解碼），15 張卡片合計約 11 MB，可完整放進 decode cache。
@@ -243,7 +243,7 @@ canvas.getContext("bitmaprenderer").transferFromImageBitmap(bitmap)
 代價與注意事項：
 
 - canvas 的記憶體是**釘住的**，不像 `<img>` 由 decode cache 管理。預算階梯與縮小邏輯把尺寸綁住了，但 retained（未 release）的卡片會一直持有 backing store，所以 `release()` 必須把 `width`／`height` 歸零，只移除元素是不夠的。
-- `<img>` 靠 CSS `image-orientation: from-image` 處理 EXIF 旋轉；canvas 畫什麼就是什麼，所以旋轉必須在 `createImageBitmap({ imageOrientation: "from-image" })` 時烘進 bitmap，否則直式照片會躺著。
+- `<img>` 靠 CSS `image-orientation: from-image` 處理 EXIF 旋轉；canvas 畫什麼就是什麼，所以 encoded source 會先讀 EXIF，必要時在 bounded canvas 轉向後才交給卡片；只有無法讀取 bytes 的 element fallback 才使用原生 `imageOrientation`。
 - `transferFromImageBitmap` 會消耗 bitmap，之後不必也不能再 `close()`。
 
 另一半的 `step @camera-navigation.js:312`（1805ms）是平滑平移／縮放的動畫迴圈，屬於既有程式碼，與圖片管線無關。
@@ -254,7 +254,7 @@ canvas 上線後第一份 trace（`190017`）顯示原始問題回來了：tile-
 
 CPU profile 直接指出路徑：`renderFromURL`、`renderFromImage`、`decodeBounded`、`createImageBitmap`、`release`、`loadMasterElement` 全都在，但 **`createRasterCanvas` 與 `showRaster` 一次都沒出現**。每次 raster 都被嘗試然後放棄，掉進「畫母檔」的退路。
 
-觸發原因是同一個 commit 為了 EXIF 而加的 `imageOrientation: "from-image"`——該 build 不接受它與 resize 併用，整個 `createImageBitmap` reject。現在改成試探性：被拒絕就在本次 session 停用該選項。
+觸發原因是同一個 commit 為了 EXIF 而加的 `imageOrientation: "from-image"`——該 build 不接受它與 resize 併用，整個 `createImageBitmap` reject。當時改成試探性：被拒絕就在本次 session 停用該選項。（這個做法在第十三輪被推翻——該選項在這個 build 上從來就不存在。）
 
 真正的缺陷是退路的終點就是這個功能要避免的事。現在已知母檔超過 4 MP，或長邊超過 raster 預算四倍時，檔案 bounded decode 失敗便保留縮圖並顯示 retry，不再建立完整母檔 `<img>`；尺寸未知或在安全範圍內時仍保留 element fallback。`bounded-raster-unavailable` 會記錄 `source`、`stage` 與 `reason`。這讓大型圖片的失敗只退化成一張略軟、可重試的卡片，同時保留較安全的相容路徑。
 
@@ -330,6 +330,29 @@ hitch 的形狀一致：26 個 >50ms 的主執行緒 `RunTask`，其中 23 個�
 
 修正只延後相容退路，不延後整條品質路徑：縮放中仍先嘗試 bounded file decode，也保留並升級既有 raster；只有 file decode 無法使用、即將建立完整 `<img>` 時，才取消該次 load、釋放 queue slot 並記住卡片。相機停下後的完整 pass 會自動重試，且這次延後不會被標成載入失敗或要求使用者手動 retry。
 
+### 第十三輪：EXIF 方向與這個 build 的 `ImageOrientation`
+
+直式照片在卡片從縮圖換成 bounded raster 的那一刻會躺下來，於是縮放看起來像是把照片轉了向。
+
+前三次修正都沒中，因為三次都在猜解碼器的行為，再想從回傳值反推。實際量測（在外掛 console 直接對母檔跑 `createImageBitmap`）才把環境釘死：
+
+| 請求 | 結果 |
+| --- | --- |
+| `imageOrientation: "from-image"` | `TypeError: 'from-image' is not a valid enum value of type ImageOrientation` |
+| `{600, 400, imageOrientation: "none"}` | 回傳 **400×600** |
+| `{600, 400}` 無選項 | 回傳 **400×600** |
+| 無 resize | 回傳 **4000×6000**（母檔儲存為 6000×4000） |
+
+這個 build 的 `ImageOrientation` enum 還是舊的 `none | flipY`：`none` 的意思是「不要垂直翻轉」而不是「不要套 EXIF」，**EXIF 一律會被套用**，而且 resize 以儲存像素計算、之後才旋轉。同一個年代的 `Blob.prototype.arrayBuffer()` 也不存在——方向讀取原本靠它，於是靜默失敗、整條 EXIF 路徑從未執行過。
+
+現在的做法：
+
+- 方向與儲存像素尺寸從 encoded bytes 讀出（JPEG SOF、PNG IHDR、WebP VP8X）。bytes 若來自本機 reader 就直接解析，否則以 `FileReader` 補上 `arrayBuffer()` 的缺口。
+- 幾何一律以 bytes 裡的尺寸為準，不採用 Eagle metadata 的 `item.width`／`item.height`——後者未必與儲存方向一致，直接當目標尺寸會把直式照片壓進橫式比例。
+- **交給解碼器之前先把 EXIF 方向標記改寫成 1**（只換 tag 的兩個 value bytes，像素不動，用 `Blob` 分段拼接以免整份複製），再以儲存方向、兩邊都指定的尺寸解碼，最後由我們自己在 bounded canvas 上轉向。
+
+關鍵是最後一項：對 2／3／4 這種不交換長寬的方向，回傳值裡沒有任何線索能判斷解碼器是否已經套過 EXIF，靠比例偵測必然漏判並且轉兩次。標記拿掉之後就沒有東西可套，所有平台結果一致。原生 `imageOrientation` 只剩「bytes 完全讀不到」的 element fallback 在用。
+
 ### 判讀方法上的教訓
 
 - **`RunTask` 的長度不等於 CPU 忙碌。** 一個 140ms 的任務可能整段都在等待。要判斷主執行緒是「算」還是「等」，看 CPU profile 的 `(idle)` 比例，不要看事件時長總和。我先前用 `RunTask` 總和推論「主執行緒 84% 忙碌」，而同一段時間 CPU 取樣顯示 80% 閒置。
@@ -349,6 +372,10 @@ hitch 的形狀一致：26 個 >50ms 的主執行緒 `RunTask`，其中 23 個�
 - **一個判斷同時服務兩個目的時，先確認兩邊的語意真的一致。** 「這張卡片該用什麼品質」是尺寸問題，「現在該不該開始載入」是位置與動態問題。用同一個 `getQuality` 表達兩者，會讓「暫時不要載」被當成「不該擁有」，於是已經建好的 raster 被丟掉。
 - **退路的終點不能是你正在避免的那件事。** bounded raster 的失敗退路是「直接畫母檔」，而那正是整個功能要消除的行為——所以一個選項不被支援，就讓效能退回原點。退路應該往「便宜但略差」收斂（保留縮圖），不是往「正確但昂貴」收斂。
 - **新增 API 選項時，要假設平台可能拒絕它，而測試 stub 永遠不會告訴你。** `imageOrientation` 在自製 stub 下必定成功，測試全綠；真實 build 拒絕它，整條 raster 路徑就斷了。對可選參數要嘛做能力偵測，要嘛失敗後降級重試。
+- **可選參數的「推算」行為不是契約。** 規格說「另一邊依比例推算」時，沒說是哪一個比例；對有 EXIF 方向的來源，不同實作的答案不同。要嘛把所有維度講滿，要嘛別依賴推算結果去做判斷。
+- **能改輸入就別去偵測平台。** 這個 bug 修了三輪都沒中，每一輪都是在猜「解碼器會不會自己套 EXIF」然後想從回傳值反推。真正可靠的做法是把方向標記從輸入拿掉，讓所有平台都沒有可套的東西。偵測會漏判，改寫輸入不會。
+- **平台行為要量，不要推。** 前三輪的修法全部建立在對 Chromium 行為的推論上；一段貼進 Eagle console 的探針（四種 `createImageBitmap` 參數各畫一張圖）在五分鐘內就把 enum 版本、EXIF 套用時機、resize 座標系全部釘死了。環境可疑時，先寫探針。
+- **幾何要斷言像素落點，不是斷言呼叫序列。** 只檢查 canvas 收到哪些 `translate`／`rotate` 的測試，無法分辨正確的轉向與畫到畫布外的轉向：EXIF 7 整張畫在畫布外、正方形圖完全沒轉向，兩者都在全綠的情況下上線。`test/image-downscaler.test.js` 的方向表格改用帶 CTM 的假 context 實際落點比對，才擋得住這類錯誤。
 - **不要相信「這個 API 在背景執行」的直覺，用 CPU profile 確認。** `OffscreenCanvas.convertToBlob()` 的規格寫 in parallel，我據此在 commit 訊息裡寫了「encode 離開主執行緒」，實際上它佔了主執行緒 1911ms。trace 的事件層級看不出來（那段時間只會顯示為 `RunMicrotasks`），要靠 ProfileChunk 裡的 V8 CPU profile 才看得到函式名稱。長微任務內若 GC 佔比不高，就該直接去看 CPU profile。
 - **先確認使用者實際怎麼操作，再決定優化掛在哪個狀態上。** 「平移」在程式裡被等同於 `isPanning`，而那只涵蓋指標拖曳；實際使用者幾乎全用鍵盤。任何「手勢期間如何如何」的優化，都要先問「這個旗標涵蓋所有讓相機移動的路徑嗎」。trace 裡的 `InputLatency::*` 與 `EventDispatch` 分布可以直接回答。
 - 條件要描述**狀態**（相機在動嗎）而不是**成因**（指標按下了嗎）。以成因命名的旗標會隨著新增輸入方式默默失效，而且不會有任何測試變紅。

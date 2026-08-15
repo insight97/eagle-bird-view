@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const { createElementStub } = require("../test-support/plugin-harness.js");
 const { createMediaMaterializer } = require("../media-materializer.js");
 const { MediaLoadQueue } = require("../media-load-queue.js");
+const { createImageDownscaler } = require("../image-downscaler.js");
 
 function createQueueProbe() {
   const states = new Map();
@@ -244,7 +245,14 @@ test("MP3 cards request only a thumbnail and delegate playback as audio", () => 
 // Eagle serves full-resolution masters, so a card that paints one directly makes
 // the compositor re-decode tens of megapixels every time it rasters. These cover
 // the bounded raster that replaces the master before it reaches the screen.
-function createRasterHarness({ screenLongEdge = 400, renderDuration = 0 } = {}) {
+function createRasterHarness({
+  screenLongEdge = 400,
+  renderDuration = 0,
+  useDefaultDownscaler = false,
+  fetch = null,
+  readFile = null,
+  createImageBitmap = null,
+} = {}) {
   const createdElements = [];
   const debugEvents = [];
   const world = createElementStub("div");
@@ -258,6 +266,21 @@ function createRasterHarness({ screenLongEdge = 400, renderDuration = 0 } = {}) 
   const downscaleCalls = [];
   const released = [];
   let clock = 0;
+  let longEdge = screenLongEdge;
+  const timers = new Map();
+  let timerId = 0;
+  const windowRef = {
+    setTimeout(callback) {
+      timerId += 1;
+      timers.set(timerId, callback);
+      return timerId;
+    },
+    clearTimeout(id) {
+      timers.delete(id);
+    },
+    ...(fetch ? { fetch } : {}),
+    ...(createImageBitmap ? { createImageBitmap } : {}),
+  };
   let rasterCount = 0;
   const makeBitmap = (size) => {
     rasterCount += 1;
@@ -268,39 +291,29 @@ function createRasterHarness({ screenLongEdge = 400, renderDuration = 0 } = {}) 
       closed: false,
     };
   };
-  const imageDownscaler = {
-    isSupported: () => true,
-    canRenderFromURL: () => true,
-    async renderFromURL(url, size) {
-      downscaleCalls.push({ source: "file", url, ...size });
-      clock += renderDuration;
-      return makeBitmap(size);
-    },
-    async renderFromImage(image, size) {
-      downscaleCalls.push({ source: "element", image, ...size });
-      clock += renderDuration;
-      return makeBitmap(size);
-    },
-    release(bitmap) {
-      if (bitmap) released.push(bitmap.id);
-    },
-  };
-  let longEdge = screenLongEdge;
-  const timers = new Map();
-  let timerId = 0;
+  const imageDownscaler = useDefaultDownscaler
+    ? createImageDownscaler({ window: windowRef, document, readFile })
+    : {
+        isSupported: () => true,
+        canRenderFromURL: () => true,
+        async renderFromURL(url, size) {
+          downscaleCalls.push({ source: "file", url, ...size });
+          clock += renderDuration;
+          return makeBitmap(size);
+        },
+        async renderFromImage(image, size) {
+          downscaleCalls.push({ source: "element", image, ...size });
+          clock += renderDuration;
+          return makeBitmap(size);
+        },
+        release(bitmap) {
+          if (bitmap) released.push(bitmap.id);
+        },
+      };
   const mediaLoadQueue = new MediaLoadQueue({ maxConcurrent: 4 });
   const materializer = createMediaMaterializer({
     document,
-    window: {
-      setTimeout(callback) {
-        timerId += 1;
-        timers.set(timerId, callback);
-        return timerId;
-      },
-      clearTimeout(id) {
-        timers.delete(id);
-      },
-    },
+    window: windowRef,
     world,
     mediaLoadQueue,
     imageDownscaler,
@@ -405,6 +418,36 @@ test("a card paints its raster into a canvas, never decoding the master", async 
   assert.equal(harness.mediaLoadQueue.snapshot(node).readyQuality, "original");
 });
 
+test("a blocked file fetch uses the local reader before marking the original failed", async () => {
+  const reads = [];
+  const harness = createRasterHarness({
+    useDefaultDownscaler: true,
+    fetch: async () => {
+      throw new Error("file access is blocked");
+    },
+    readFile: async (url) => {
+      reads.push(url);
+      return new Uint8Array([0xff, 0xd8, 0xff]);
+    },
+    createImageBitmap: async (source, options) => ({
+      source,
+      options,
+      width: options.resizeWidth,
+      height: options.resizeHeight,
+    }),
+  });
+  const node = createMasterNode();
+
+  const canvas = await loadOriginal(harness, node);
+
+  assert.deepEqual(reads, ["file:///painting.png"]);
+  assert.equal(canvas.width, 363);
+  assert.equal(canvas.height, 512);
+  assert.equal(node.element.dataset.mediaQuality, "original");
+  assert.equal(harness.mediaLoadQueue.snapshot(node).originalFailed, false);
+  assert.equal(harness.images().length, 1, "the bounded file path needs no master <img>");
+});
+
 test("raster debug events distinguish quality demand, queue wait, and build time", async () => {
   const harness = createRasterHarness({ screenLongEdge: 400, renderDuration: 175 });
   const node = createMasterNode();
@@ -459,6 +502,13 @@ test("raster debug events distinguish quality demand, queue wait, and build time
           budget: 512,
           width: 363,
           height: 512,
+          // A sideways card is diagnosed from these: what the file says versus
+          // what Eagle's metadata says versus what the raster came out as.
+          exifOrientation: null,
+          storedWidth: null,
+          storedHeight: null,
+          itemWidth: 5374,
+          itemHeight: 7589,
         },
       },
     ],

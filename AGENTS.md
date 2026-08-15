@@ -17,7 +17,7 @@
 - `folder-content-intake.js`：管理所有資料夾來源的 session、資料夾解析、漸進顯示、摘要 hydration、失效結果與部分失敗 retry；不直接修改 board 或 DOM。
 - `library-content-target.js`：解析 Tag metadata target，協調 Eagle Tag 查詢與 content intake；資料夾 target 由 `folder-content-intake.js` 負責；不直接修改 UI。
 - `media-load-queue.js`／`media-materializer.js`：分別管理媒體載入併發與 DOM 卡片生命週期。可視素材掛載、附近素材保留，遠處素材釋放。
-- `image-downscaler.js`：把 Eagle 的全解析度母檔解碼成有上限的 `ImageBitmap`。優先以 `fetch` + `createImageBitmap` 按目標尺寸解碼，其次從已載入的 `<img>` 取得，兩者皆不可用時回傳 `null` 讓 caller 保留縮圖並提供 retry。不編碼、不產生 URL；bitmap 的所有權交給 caller。
+- `image-downscaler.js`：把 Eagle 的全解析度母檔解碼成有上限的 `ImageBitmap`，並把 EXIF 方向烘進去。優先以 `fetch` 或注入的本機 reader 取得 encoded bytes 再 `createImageBitmap` 按目標尺寸解碼，其次從已載入的 `<img>` 取得，兩者皆不可用時回傳 `null` 讓 caller 保留縮圖並提供 retry。不編碼、不產生 URL；bitmap 的所有權交給 caller。
 - `viewport-work-scheduler.js`：`viewport-media-controller.js` 的 internal seam，決定 viewport 維護何時執行、執行哪一部分；不由 `plugin.js` 直接呼叫，也不碰 DOM 或 board 狀態。
 - `viewport-media-controller.js`：管理相機移動 lifecycle、viewport 排程與媒體規劃，並驅動 `media-materializer.js`。平移只跑媒體覆蓋、縮放只跑品質判斷、相機停下才做完整 pass；caller 不需知道 timer protocol 或 media plan schema。
 - `camera-navigation.js`／`selection-navigation.js`：相機平移／縮放／聚焦與鍵盤選取；selection-navigation 同時管理單選、Ctrl/Cmd 切換、Shift 區間選取、active 素材與多選集合。
@@ -74,6 +74,7 @@ plugin.js (defer)
 - 原圖載入失敗或逾時時保留縮圖並提供 retry，不可讓一次失敗阻塞後續載入。
 - 媒體遠離 viewport 時要釋放；`MediaLoadQueue` 的原圖載入併發上限目前是 4。
 - 卡片不得直接繪製遠大於它實際顯示尺寸的母檔（Eagle 的 `fileURL` 可達 40 MP）。媒體載入鏈上任何失敗都要退回縮圖，不能退回母檔。細節與理由在 `media-materializer.js`／`image-downscaler.js` 的註解。
+- EXIF 方向由 `image-downscaler.js` 從 encoded bytes 自行判讀並烘進 raster，不可交給平台的 `imageOrientation`：Eagle 的 Chromium 沒有 `from-image` 這個值，而且不論你怎麼指定都會套用 EXIF。方向的正確性要用像素落點斷言，不能只斷言 canvas 收到哪些 transform 呼叫。
 - 判斷「相機正在移動」要涵蓋所有會移動相機的途徑，不只指標拖曳。新增輸入方式時一併確認——這是跨檔案的約定，只看 `camera-navigation.js` 不會發現。
 - Eagle API 能力可能不存在（例如 AI Search、資料夾查詢或 context menu）；沿用既有 fallback 與 graceful no-op 行為。
 - 設定資料使用既有 localStorage keys：`bird-view-settings`、`bird-view-presets`。變更格式前先考慮舊資料正規化／相容性。

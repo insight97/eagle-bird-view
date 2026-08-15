@@ -57,7 +57,12 @@
         maxConcurrentOriginals: MAX_CONCURRENT_ORIGINAL_LOADS,
         maxBackgroundOriginals: MAX_BACKGROUND_ORIGINAL_LOADS,
       }),
-      imageDownscaler = createImageDownscaler({ window: windowRef }),
+      readFile = null,
+      imageDownscaler = createImageDownscaler({
+        window: windowRef,
+        document: documentRef,
+        readFile,
+      }),
       now = () => (windowRef.performance || root.performance || Date).now(),
       // Longest edge, in device pixels, that the card currently paints at.
       getNodeScreenLongEdge = () => 0,
@@ -979,7 +984,7 @@
       }
       resizeRasterByNode.set(node, resizeRaster);
 
-      function showRaster(canvas, budget, source, token) {
+      function showRaster(canvas, budget, source, token, profile = null) {
         clearOriginalLoadTimeout();
         deferredElementFallbackNodes.delete(node);
         frame.append(canvas);
@@ -995,6 +1000,11 @@
           budget,
           width: canvas.width,
           height: canvas.height,
+          exifOrientation: profile?.orientation ?? null,
+          storedWidth: profile?.width ?? null,
+          storedHeight: profile?.height ?? null,
+          itemWidth: item.width,
+          itemHeight: item.height,
         });
         originalRequestedAt = null;
         refreshRasterBudget(node, {
@@ -1044,10 +1054,14 @@
           priority: token.priority,
           fileURL: mediaURL,
         });
+        let profile = null;
         if (target) {
           const bitmap = await imageDownscaler.renderFromURL(mediaURL, target, {
             onFailure: (details) => {
               failure = details;
+            },
+            onProfile: (details) => {
+              profile = details;
             },
           });
           if (!isCurrentOriginalLoad(token)) {
@@ -1057,7 +1071,7 @@
           if (bitmap) {
             const canvas = createRasterCanvas(bitmap);
             if (canvas) {
-              showRaster(canvas, target.budget, "file", token);
+              showRaster(canvas, target.budget, "file", token, profile);
               return;
             }
             imageDownscaler.release(bitmap);

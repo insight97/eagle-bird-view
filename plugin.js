@@ -437,6 +437,7 @@ function setup() {
   mediaMaterializer = createMediaMaterializer({
     document,
     window,
+    readFile: readLocalFile,
     world: elements.world,
     getNodeScreenLongEdge: (node) =>
       getNodeScreenLongEdge(node, state.camera.scale, window.devicePixelRatio),
@@ -3375,10 +3376,13 @@ function createVideoThumbnailRuntime() {
 }
 
 function readPdfFile(item) {
-  const fs = loadNodeModule("fs");
-  if (!fs) return null;
   const source = String(item?.filePath || item?.fileURL || "").trim();
-  if (!source) return null;
+  return readLocalFile(source);
+}
+
+function readLocalFile(source) {
+  const fs = loadNodeModule("fs");
+  if (!fs || !source) return null;
   const url = loadNodeModule("url");
   let filePath = source;
   if (source.startsWith("file://") && typeof url?.fileURLToPath === "function") {
