@@ -209,7 +209,7 @@
       const count = elements.includeSubfolders?.checked !== false
         ? folder.recursiveCount ?? folder.count
         : folder.count;
-      const countLabel = count === null || count === undefined ? "" : `（${count} 個素材）`;
+      const countLabel = count === null || count === undefined ? "" : `${count} 個素材`;
       button.title = `載入「${folder.name}」${countLabel}並取代白板內容`;
       button.setAttribute("aria-label", button.title);
       const icon = document.createElement("span");
@@ -316,7 +316,12 @@
       button.dataset.value = value;
       button.setAttribute("role", "option");
       button.setAttribute("aria-selected", String(isSelected));
-      const countLabel = count === null || count === undefined ? "" : `（${count} 個素材）`;
+      const isExtension = type === "extension";
+      const countLabel = count === null || count === undefined
+        ? ""
+        : isExtension
+          ? `（${count} 個素材）`
+          : `${count} 個素材`;
       button.title = `載入「${label}」${countLabel}並取代白板內容`;
       button.setAttribute("aria-label", button.title);
 
@@ -330,7 +335,7 @@
       labelElement.className = "folder-browser-label";
       labelElement.textContent = label;
       button.append(iconElement, labelElement);
-      appendCount(button, count);
+      appendCount(button, count, { parenthesized: isExtension });
       button.addEventListener("click", () => {
         selectedTarget = { type, value };
         statusMessage = "";
@@ -342,11 +347,11 @@
       return button;
     }
 
-    function appendCount(target, count) {
+    function appendCount(target, count, { parenthesized = false } = {}) {
       if (count === null || count === undefined) return;
       const countElement = document.createElement("span");
       countElement.className = "folder-browser-count";
-      countElement.textContent = `(${count})`;
+      countElement.textContent = parenthesized ? `(${count})` : String(count);
       countElement.setAttribute("aria-hidden", "true");
       target.append(countElement);
     }

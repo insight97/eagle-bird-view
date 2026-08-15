@@ -171,7 +171,7 @@ test("the sidebar displays source counts and omits empty file extensions", async
       .get("#folder-browser-tree")
       .querySelectorAll(".folder-browser-count")
       .map(({ textContent }) => textContent),
-    ["(2)"],
+    ["2"],
   );
 
   plugin.elements.get("#folder-browser-tab-tag").click();
@@ -180,7 +180,7 @@ test("the sidebar displays source counts and omits empty file extensions", async
       .get("#folder-browser-tag-list")
       .querySelectorAll(".folder-browser-count")
       .map(({ textContent }) => textContent),
-    ["(2)"],
+    ["2"],
   );
 
   plugin.elements.get("#folder-browser-tab-extension").click();

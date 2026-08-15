@@ -228,11 +228,11 @@ test("library sidebar displays source counts and hides empty file extensions", (
     { value: "mp4", label: "MP4", count: 2 },
   ]);
 
-  assert.deepEqual(sourceCounts(harness.elements.tree), ["(5)"]);
+  assert.deepEqual(sourceCounts(harness.elements.tree), ["5"]);
   harness.elements.includeSubfolders.checked = false;
   harness.elements.includeSubfolders.emit("change");
-  assert.deepEqual(sourceCounts(harness.elements.tree), ["(2)"]);
-  assert.deepEqual(sourceCounts(harness.elements.tagList), ["(12)"]);
+  assert.deepEqual(sourceCounts(harness.elements.tree), ["2"]);
+  assert.deepEqual(sourceCounts(harness.elements.tagList), ["12"]);
   assert.deepEqual(
     harness.elements.extensionList
       .querySelectorAll(".folder-browser-label")
