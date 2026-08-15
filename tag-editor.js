@@ -12,7 +12,7 @@
   if (hasCommonJS) module.exports = tagEditor;
   root.BirdViewTagEditor = tagEditor;
 })(typeof globalThis === "object" ? globalThis : this, (core, popover) => {
-  const { normalizeTags, rankTagMatches } = core;
+  const { compareTextMatch, normalizeTags, rankTagMatches } = core;
   const { AnchoredPopover } = popover;
   const MAX_TAG_OPTIONS = 80;
 
@@ -117,6 +117,8 @@
       } else {
         const searchOrder = new Map(candidates.map((tag, index) => [tag, index]));
         candidates = candidates.sort((first, second) => {
+          const similarityOrder = compareTextMatch(first, second, query);
+          if (similarityOrder) return similarityOrder;
           const countOrder = compareTagCounts(tagCounts.get(first), tagCounts.get(second));
           return countOrder || searchOrder.get(first) - searchOrder.get(second);
         });

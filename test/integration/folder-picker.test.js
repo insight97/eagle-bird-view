@@ -54,7 +54,7 @@ test("folder picker keeps existing folders selected and commits additions/remova
     assert.equal(picker.session, null);
   }));
 
-test("folder picker prioritizes more-used matching folders", () =>
+test("folder picker prioritizes similarity before usage count", () =>
   withDom((window) => {
     const viewport = document.createElement("div");
     const anchor = document.createElement("button");
@@ -67,8 +67,10 @@ test("folder picker prioritizes more-used matching folders", () =>
       onSelectNode() {},
     });
     picker.open(node, anchor, [
-      { id: "photos", name: "Photos", count: 4 },
-      { id: "phrona", name: "Phrona", count: 12 },
+      { id: "ph", name: "Ph", count: 1 },
+      { id: "phrone", name: "Phrone", count: 4 },
+      { id: "phrons", name: "Phrons", count: 12 },
+      { id: "xph", name: "Xph", count: 100 },
     ]);
 
     picker.session.input.value = "ph";
@@ -76,7 +78,7 @@ test("folder picker prioritizes more-used matching folders", () =>
 
     assert.deepEqual(
       picker.session.actions.map(({ element }) => element.textContent),
-      ["Phrona", "Photos"],
+      ["Phrons", "Phrone", "Ph", "Xph"],
     );
   }));
 

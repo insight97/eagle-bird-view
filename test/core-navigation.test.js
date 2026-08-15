@@ -29,6 +29,7 @@ const {
   interpolateCamera,
   normalizeTags,
   normalizeTagColor,
+  compareTextMatch,
   rankTagMatches,
   resizeCamera,
   shouldAutoplayVideo,
@@ -134,6 +135,13 @@ test("rankTagMatches puts exact and prefix matches before other contains matches
     rankTagMatches(["Web Design", "Designer", "Design", "UI Design", "Photo"], "design"),
     ["Design", "Designer", "UI Design", "Web Design"],
   );
+});
+
+test("compareTextMatch only compares match category", () => {
+  assert.equal(compareTextMatch("Ph", "Phrone", "ph"), 0);
+  assert.equal(compareTextMatch("Phrone", "Phrons", "ph"), 0);
+  assert.equal(compareTextMatch("xph", "yphz", "ph"), 0);
+  assert.ok(compareTextMatch("Phrone", "xph", "ph") < 0);
 });
 
 test("label details progressively hide as media gets smaller", () => {

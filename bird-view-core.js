@@ -501,6 +501,25 @@
     ];
   }
 
+  function getTextMatchScore(value, query) {
+    const text = String(value ?? "");
+    const needle = String(query ?? "").trim().toLocaleLowerCase();
+    if (!needle) return 0;
+    const normalized = text.toLocaleLowerCase();
+    const matchIndex = normalized.indexOf(needle);
+    if (matchIndex < 0) return null;
+    return normalized.startsWith(needle) ? 0 : 1;
+  }
+
+  function compareTextMatch(first, second, query) {
+    const firstScore = getTextMatchScore(first, query);
+    const secondScore = getTextMatchScore(second, query);
+    if (firstScore === null && secondScore === null) return 0;
+    if (firstScore === null) return 1;
+    if (secondScore === null) return -1;
+    return firstScore - secondScore;
+  }
+
   function rankTagMatches(tags, query) {
     const needle = String(query || "").trim().toLocaleLowerCase();
     const values = normalizeTags(tags);
@@ -1258,6 +1277,7 @@
     VIDEO_EXTENSIONS,
     clamp,
     centerCameraAtPoint,
+    compareTextMatch,
     createJustifiedLayout,
     directionFor,
     getArrowKeyAction,

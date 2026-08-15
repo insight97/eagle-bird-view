@@ -48,7 +48,7 @@ test("tag editor opens, filters tags, selects a result, and commits with Enter",
     assert.equal(viewport.querySelector("[role='dialog']"), null);
   }));
 
-test("tag editor prioritizes more-used matching tags", () =>
+test("tag editor prioritizes similarity before usage count", () =>
   withDom((window) => {
     const viewport = document.createElement("div");
     const anchor = document.createElement("button");
@@ -59,8 +59,10 @@ test("tag editor prioritizes more-used matching tags", () =>
     const editor = new TagEditor({
       getViewport: () => viewport,
       getAvailableTags: () => [
-        { name: "Photo", count: 4 },
-        { name: "Phrone", count: 12 },
+        { name: "Ph", count: 1 },
+        { name: "Phrone", count: 4 },
+        { name: "Phrons", count: 12 },
+        { name: "Xph", count: 100 },
       ],
       createTagChip: (tag) => {
         const chip = document.createElement("span");
@@ -75,8 +77,8 @@ test("tag editor prioritizes more-used matching tags", () =>
     editor.session.input.dispatchEvent(new window.Event("input", { bubbles: true }));
 
     assert.deepEqual(
-      editor.session.actions.slice(0, 2).map(({ element }) => element.textContent),
-      ["Phrone", "Photo"],
+      editor.session.actions.map(({ element }) => element.textContent),
+      ["Phrons", "Phrone", "Ph", "Xph"],
     );
   }));
 

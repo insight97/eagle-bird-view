@@ -2,13 +2,17 @@
 
 (function exposeFolderPicker(root, factory) {
   const hasCommonJS = typeof module === "object" && module.exports;
+  const core =
+    root.BirdViewCore ||
+    (hasCommonJS && typeof require === "function" ? require("./bird-view-core.js") : null);
   const popover =
     root.BirdViewPopover ||
     (hasCommonJS && typeof require === "function" ? require("./anchored-popover.js") : null);
-  const picker = factory(popover);
+  const picker = factory(core, popover);
   if (hasCommonJS) module.exports = picker;
   root.BirdViewFolderPicker = picker;
-})(typeof globalThis === "object" ? globalThis : this, (popover) => {
+})(typeof globalThis === "object" ? globalThis : this, (core, popover) => {
+  const { compareTextMatch } = core;
   const { AnchoredPopover } = popover;
   const MAX_FOLDER_OPTIONS = 80;
   const FOLDER_COLLATOR = new Intl.Collator(undefined, {
@@ -112,6 +116,8 @@
         .filter((entry) => !query || entry.searchText.includes(query))
         .sort((first, second) => {
           if (query) {
+            const similarityOrder = compareTextMatch(first.path, second.path, query);
+            if (similarityOrder) return similarityOrder;
             const countOrder = compareFolderCounts(first.count, second.count);
             if (countOrder) return countOrder;
           }
